@@ -642,12 +642,20 @@ class ToolHandlerService {
 
     switch (action) {
       case 'list':
+        final filterName = (args['name'] ?? '').toString().trim().toLowerCase();
         final List<Map<String, dynamic>> serverList = [];
         final convMcpIds = conversationId != null
             ? chatService.getConversationMcpServers(conversationId)
             : const <String>[];
 
         for (final s in mcp.servers) {
+          if (filterName.isNotEmpty) {
+            final sName = s.name.toLowerCase();
+            final sId = s.id.toLowerCase();
+            if (!sName.contains(filterName) && !sId.contains(filterName)) {
+              continue;
+            }
+          }
           final isBoundToAssistant =
               assistant?.mcpServerIds.contains(s.id) ?? false;
           final isBoundToConv = convMcpIds.contains(s.id);

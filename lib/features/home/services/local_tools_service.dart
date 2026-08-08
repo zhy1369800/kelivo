@@ -202,7 +202,7 @@ class LocalToolsService {
               'name': {
                 'type': 'string',
                 'description':
-                    'Display name for the MCP server. Required for "install", optional for "edit".',
+                    'Display name or search keyword for the MCP server. Required for "install", optional for "edit", or used to filter servers by name/ID when action is "list".',
               },
               'url': {
                 'type': 'string',
