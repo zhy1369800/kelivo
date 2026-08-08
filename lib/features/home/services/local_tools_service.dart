@@ -21,6 +21,7 @@ class LocalToolNames {
   static const String weatherKit = 'weather_kit_tool';
   static const String bleBridge = 'ble_bridge_tool';
   static const String userNotification = 'user_notification_tool';
+  static const String deviceInfo = 'device_info_tool';
 }
 
 class LocalToolsService {
@@ -391,6 +392,27 @@ class LocalToolsService {
               },
             },
             'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.deviceInfo)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.deviceInfo,
+          'description':
+              'DeviceInfo tool for querying device model (e.g. iPhone16,1), system version, battery level & charging state, free/used disk storage space, CPU core count, RAM, and thermal state.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': ['info', 'battery', 'storage'],
+                'description':
+                    'The operation to perform: "info" (default, comprehensive device info summary), "battery" (battery level percent & charging state), or "storage" (disk space in GB & bytes).',
+              },
+            },
           },
         },
       });

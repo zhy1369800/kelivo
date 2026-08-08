@@ -2210,6 +2210,8 @@
   "assistantEditLocalToolBleBridgeSubtitle": "Allow the assistant to scan nearby BLE devices, connect to peripherals, discover GATT services, read, and write characteristic data.",
   "assistantEditLocalToolUserNotificationTitle": "Local Notifications & Reminders",
   "assistantEditLocalToolUserNotificationSubtitle": "Allow the assistant to send immediate or scheduled local notifications, check permission status, and manage pending reminders.",
+  "assistantEditLocalToolDeviceInfoTitle": "Device & Hardware Status",
+  "assistantEditLocalToolDeviceInfoSubtitle": "Allow the assistant to query device model (e.g. iPhone16,1), iOS system version, battery level/state, RAM, and disk storage space.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

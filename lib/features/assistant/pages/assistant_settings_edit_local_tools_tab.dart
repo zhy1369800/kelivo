@@ -42,6 +42,9 @@ class _LocalToolsTab extends StatelessWidget {
     final userNotificationEnabled = assistant.localToolIds.contains(
       LocalToolNames.userNotification,
     );
+    final deviceInfoEnabled = assistant.localToolIds.contains(
+      LocalToolNames.deviceInfo,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -153,6 +156,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: userNotificationEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.userNotification, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Smartphone,
+              title: l10n.assistantEditLocalToolDeviceInfoTitle,
+              subtitle: l10n.assistantEditLocalToolDeviceInfoSubtitle,
+              enabled: deviceInfoEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.deviceInfo, value),
             ),
           ],
         ),

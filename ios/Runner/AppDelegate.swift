@@ -17,6 +17,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
   private let weatherKitHandler = WeatherKitHandler()
   private let bleBridgeHandler = BleBridgeHandler()
   private let userNotificationHandler = UserNotificationHandler()
+  private let deviceInfoHandler = DeviceInfoHandler()
 
   override func application(
     _ application: UIApplication,
@@ -87,6 +88,11 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       let userNotificationChannel = FlutterMethodChannel(name: "app.user_notification", binaryMessenger: controller.binaryMessenger)
       userNotificationChannel.setMethodCallHandler { [weak self] call, result in
         self?.userNotificationHandler.handle(call: call, result: result)
+      }
+
+      let deviceInfoChannel = FlutterMethodChannel(name: "app.device_info", binaryMessenger: controller.binaryMessenger)
+      deviceInfoChannel.setMethodCallHandler { [weak self] call, result in
+        self?.deviceInfoHandler.handle(call: call, result: result)
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

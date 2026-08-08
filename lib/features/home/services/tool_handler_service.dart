@@ -19,6 +19,7 @@ import '../../../core/services/native_map_kit_service.dart';
 import '../../../core/services/native_weather_kit_service.dart';
 import '../../../core/services/native_ble_bridge_service.dart';
 import '../../../core/services/native_user_notification_service.dart';
+import '../../../core/services/native_device_info_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -640,6 +641,19 @@ class ToolHandlerService {
             );
           }
           return await _handleUserNotificationTool(args: args);
+        }
+
+        // Handle device_info_tool
+        if (name == LocalToolNames.deviceInfo) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.deviceInfo)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The device_info_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          return await _handleDeviceInfoTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -1845,6 +1859,42 @@ class ToolHandlerService {
         error: 'user_notification_error',
         message: e.toString(),
         tool: LocalToolNames.userNotification,
+      );
+    }
+  }
+
+  /// Handle device_info_tool (UIKit & NSProcessInfo)
+  Future<String> _handleDeviceInfoTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'info').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'info':
+          final data = await NativeDeviceInfoService.getInfo();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'battery':
+          final data = await NativeDeviceInfoService.getBattery();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'storage':
+          final data = await NativeDeviceInfoService.getStorage();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message: 'Unknown action "$action". Valid: info, battery, storage.',
+            tool: LocalToolNames.deviceInfo,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'device_info_error',
+        message: e.toString(),
+        tool: LocalToolNames.deviceInfo,
       );
     }
   }
