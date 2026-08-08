@@ -451,36 +451,50 @@ class ToolHandlerService {
           }
         }
 
-        // Handle mcp_servers_tool
-        if (name == LocalToolNames.mcpServersTool) {
-          if (assistant == null ||
-              !assistant.localToolIds.contains(LocalToolNames.mcpServersTool)) {
+        // Handle mcp_servers_tool (and fallback for old install_mcp_server name)
+        final isMcpToolName = name == LocalToolNames.mcpServersTool ||
+            name == 'install_mcp_server';
+        if (isMcpToolName) {
+          final hasMcpTool = assistant != null &&
+              (assistant.localToolIds.contains(LocalToolNames.mcpServersTool) ||
+                  assistant.localToolIds.contains('install_mcp_server'));
+          if (!hasMcpTool) {
             return _toolError(
               error: 'tool_disabled',
               message: 'The mcp_servers_tool is disabled for this assistant.',
               tool: name,
             );
           }
-          final action = (args['action'] ?? '').toString().trim().toLowerCase();
+          // Fallback if legacy name was called: default action to 'install'
+          final effectiveArgs = Map<String, dynamic>.of(args);
+          if (!effectiveArgs.containsKey('action') ||
+              effectiveArgs['action'].toString().trim().isEmpty) {
+            effectiveArgs['action'] = 'install';
+          }
+          final action =
+              effectiveArgs['action'].toString().trim().toLowerCase();
+
           // Gate all write actions (everything except list) with user approval
           if (action != 'list' && approvalService != null) {
-            final toolCallId = '${name}_${DateTime.now().microsecondsSinceEpoch}';
+            final toolCallId =
+                '${name}_${DateTime.now().microsecondsSinceEpoch}';
             final result = await approvalService.requestApproval(
               toolCallId: toolCallId,
               toolName: name,
-              arguments: args,
+              arguments: effectiveArgs,
               conversationId: conversationId,
             );
             if (!result.approved) {
               return _toolError(
                 error: 'approval_denied',
-                message: result.denyReason ?? 'User denied the MCP management request.',
+                message:
+                    result.denyReason ?? 'User denied the MCP management request.',
                 tool: name,
               );
             }
           }
           return await _handleMcpServersTool(
-            args: args,
+            args: effectiveArgs,
             assistant: assistant,
             conversationId: conversationId,
           );

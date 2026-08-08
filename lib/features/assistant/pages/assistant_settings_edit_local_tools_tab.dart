@@ -24,12 +24,16 @@ class _LocalToolsTab extends StatelessWidget {
     final calculateEnabled = assistant.localToolIds.contains(
       LocalToolNames.calculate,
     );
-    final mcpServersToolEnabled = assistant.localToolIds.contains(
-      LocalToolNames.mcpServersTool,
-    );
+    final mcpServersToolEnabled =
+        assistant.localToolIds.contains(LocalToolNames.mcpServersTool) ||
+        assistant.localToolIds.contains('install_mcp_server');
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
+      if (toolId == LocalToolNames.mcpServersTool) {
+        // Migration cleanup
+        ids.remove('install_mcp_server');
+      }
       if (value) {
         ids.add(toolId);
       } else {
