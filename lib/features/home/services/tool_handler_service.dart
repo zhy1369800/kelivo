@@ -746,24 +746,6 @@ class ToolHandlerService {
           headers: headers,
         );
 
-        // Auto-bind to current assistant and conversation upon installation
-        if (assistant != null && !assistant.mcpServerIds.contains(serverId)) {
-          final updatedAssistant = assistant.copyWith(
-            mcpServerIds: [...assistant.mcpServerIds, serverId],
-          );
-          await assistantProvider.updateAssistant(updatedAssistant);
-        }
-        if (conversationId != null && conversationId.isNotEmpty) {
-          final currentMcpIds =
-              chatService.getConversationMcpServers(conversationId);
-          if (!currentMcpIds.contains(serverId)) {
-            await chatService.setConversationMcpServers(
-              conversationId,
-              [...currentMcpIds, serverId],
-            );
-          }
-        }
-
         // Wait up to 5s for connection status
         int elapsedMs = 0;
         const maxWaitMs = 5000;
@@ -791,6 +773,27 @@ class ToolHandlerService {
         final status = mcp.statusFor(serverId);
         final connectionError = mcp.errorFor(serverId);
 
+        // Only auto-bind to current assistant and conversation if connection succeeded!
+        if (status == McpStatus.connected) {
+          if (assistant != null &&
+              !assistant.mcpServerIds.contains(serverId)) {
+            final updatedAssistant = assistant.copyWith(
+              mcpServerIds: [...assistant.mcpServerIds, serverId],
+            );
+            await assistantProvider.updateAssistant(updatedAssistant);
+          }
+          if (conversationId != null && conversationId.isNotEmpty) {
+            final currentMcpIds =
+                chatService.getConversationMcpServers(conversationId);
+            if (!currentMcpIds.contains(serverId)) {
+              await chatService.setConversationMcpServers(
+                conversationId,
+                [...currentMcpIds, serverId],
+              );
+            }
+          }
+        }
+
         return jsonEncode({
           'success': status == McpStatus.connected,
           'action': 'install',
@@ -805,7 +808,7 @@ class ToolHandlerService {
               .toList(),
           'message': status == McpStatus.connected
               ? 'MCP server installed and connected successfully.'
-              : 'MCP server installed, but connection status is currently "${status.name}". Error: $connectionError',
+              : 'MCP server installed, but connection failed with status "${status.name}". Not bound to current chat. Error: $connectionError',
         });
 
       case 'toggle_server':
