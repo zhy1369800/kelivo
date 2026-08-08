@@ -1819,6 +1819,8 @@
   "assistantEditLocalToolDeviceInfoSubtitle": "允许大模型基于 UIKit 查询设备型号代号 (如 iPhone16,1)、iOS 系统版本、电池电量/充电状态、内存与存储空间。",
   "assistantEditLocalToolHealthKitTitle": "HealthKit 健康与体征",
   "assistantEditLocalToolHealthKitSubtitle": "允许大模型基于 HealthKit 读写步数、心率、睡眠分析（深睡/REM/浅睡）、消耗卡路里、体重身高体征与饮水膳食记录。",
+  "assistantEditLocalToolCalendarEventTitle": "日历日程管理",
+  "assistantEditLocalToolCalendarEventSubtitle": "允许大模型基于 EventKit 查看近期日程、搜索日程、创建含闹钟提醒的新日程及删除日程。",
   "assistantEditMemorySwitchTitle": "记忆",
   "assistantEditMemorySwitchDescription": "允许助手主动存储并在对话间引用用户相关信息",
   "assistantEditOutlineModeTitle": "二级列表样式",

@@ -67,6 +67,10 @@
 	<string>Kelivo 需要读取您的 HealthKit 健康数据（步数、心率、睡眠、体征等）以提供健康分析与建议。 / Kelivo needs to read your HealthKit data (steps, heart rate, sleep, body metrics) for health insights.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Kelivo 需要向您的 HealthKit 写入健康记录（如步数、体重、饮水等）。 / Kelivo needs to log health records (steps, weight, water) into your HealthKit.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Kelivo 需要访问您的日历以查看、管理和为您添加日程提醒。 / Kelivo needs access to your calendar to view, manage, and create events.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Kelivo 需要日历完全访问权限以帮助您搜索和管理日程安排。 / Kelivo needs full calendar access to search and manage your schedule.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
         <string>允许保存图片到相册，您的数据将保存在本地。/ Allow saving images to your photo library.Your data will be saved locally.</string>
         <key>NSPhotoLibraryUsageDescription</key>

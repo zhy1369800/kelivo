@@ -2214,6 +2214,8 @@
   "assistantEditLocalToolDeviceInfoSubtitle": "Allow the assistant to query device model (e.g. iPhone16,1), iOS system version, battery level/state, RAM, and disk storage space.",
   "assistantEditLocalToolHealthKitTitle": "HealthKit Health Data",
   "assistantEditLocalToolHealthKitSubtitle": "Allow the assistant to query and log step count, heart rate, sleep analysis, active/basal calories, body weight/height/BMI, and nutrition.",
+  "assistantEditLocalToolCalendarEventTitle": "Calendar Events & Schedule",
+  "assistantEditLocalToolCalendarEventSubtitle": "Allow the assistant to list upcoming events, search schedules, create new calendar entries with alarms, and delete events.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

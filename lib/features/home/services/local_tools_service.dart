@@ -23,6 +23,7 @@ class LocalToolNames {
   static const String userNotification = 'user_notification_tool';
   static const String deviceInfo = 'device_info_tool';
   static const String healthKit = 'health_kit_tool';
+  static const String calendarEvent = 'calendar_event_tool';
 }
 
 class LocalToolsService {
@@ -460,6 +461,71 @@ class LocalToolsService {
               'value': {
                 'type': 'number',
                 'description': 'Numerical value to log (e.g. 1000 for steps, 68.5 for weight in kg, 250 for water in ml). Required for log_sample.',
+              },
+            },
+            'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.calendarEvent)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.calendarEvent,
+          'description':
+              'CalendarEvent tool for querying, searching, creating, and deleting iOS EventKit calendar events.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'list_events',
+                  'search_events',
+                  'create_event',
+                  'delete_event',
+                  'list_calendars',
+                  'request_permission'
+                ],
+                'description':
+                    'The operation to perform: "list_events" (default, list upcoming events over N days), "search_events" (search events by query keyword), "create_event" (create a new event), "delete_event" (delete an event by ID), "list_calendars" (list system calendars), "request_permission" (request calendar access).',
+              },
+              'days': {
+                'type': 'number',
+                'description': 'Number of days to list or search events (default: 7 for list, 30 for search).',
+              },
+              'query': {
+                'type': 'string',
+                'description': 'Keyword query string for search_events.',
+              },
+              'title': {
+                'type': 'string',
+                'description': 'Title for create_event. Required for create_event.',
+              },
+              'start': {
+                'type': 'string',
+                'description': 'Start datetime in ISO 8601 format (e.g. 2026-08-10T15:00:00Z) for create_event.',
+              },
+              'end': {
+                'type': 'string',
+                'description': 'End datetime in ISO 8601 format for create_event.',
+              },
+              'location': {
+                'type': 'string',
+                'description': 'Location string for create_event.',
+              },
+              'notes': {
+                'type': 'string',
+                'description': 'Notes or description for create_event.',
+              },
+              'alarm_minutes': {
+                'type': 'number',
+                'description': 'Alarm alert offset in minutes before event start for create_event (e.g. 15 for 15 mins before).',
+              },
+              'id': {
+                'type': 'string',
+                'description': 'Calendar event ID for delete_event. Required for delete_event.',
               },
             },
             'required': ['action'],

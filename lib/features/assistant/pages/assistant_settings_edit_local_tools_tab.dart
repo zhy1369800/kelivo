@@ -48,6 +48,9 @@ class _LocalToolsTab extends StatelessWidget {
     final healthKitEnabled = assistant.localToolIds.contains(
       LocalToolNames.healthKit,
     );
+    final calendarEventEnabled = assistant.localToolIds.contains(
+      LocalToolNames.calendarEvent,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -177,6 +180,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: healthKitEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.healthKit, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Calendar,
+              title: l10n.assistantEditLocalToolCalendarEventTitle,
+              subtitle: l10n.assistantEditLocalToolCalendarEventSubtitle,
+              enabled: calendarEventEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.calendarEvent, value),
             ),
           ],
         ),

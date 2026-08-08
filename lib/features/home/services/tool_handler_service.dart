@@ -21,6 +21,7 @@ import '../../../core/services/native_ble_bridge_service.dart';
 import '../../../core/services/native_user_notification_service.dart';
 import '../../../core/services/native_device_info_service.dart';
 import '../../../core/services/native_health_kit_service.dart';
+import '../../../core/services/native_calendar_event_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -688,6 +689,42 @@ class ToolHandlerService {
             }
           }
           return await _handleHealthKitTool(args: args);
+        }
+
+        // Handle calendar_event_tool
+        if (name == LocalToolNames.calendarEvent) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.calendarEvent)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The calendar_event_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final calAction = (args['action'] ?? '').toString().trim().toLowerCase();
+          // Write, delete action, or permission request — gate with approval
+          if ((calAction == 'create_event' ||
+                  calAction == 'delete_event' ||
+                  calAction == 'request_permission') &&
+              approvalService != null) {
+            final toolCallId =
+                '${name}_${DateTime.now().microsecondsSinceEpoch}';
+            final result = await approvalService.requestApproval(
+              toolCallId: toolCallId,
+              toolName: name,
+              arguments: args,
+              conversationId: conversationId,
+            );
+            if (!result.approved) {
+              return _toolError(
+                error: 'approval_denied',
+                message:
+                    result.denyReason ?? 'User denied Calendar operation.',
+                tool: name,
+              );
+            }
+          }
+          return await _handleCalendarEventTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -2002,6 +2039,87 @@ class ToolHandlerService {
         error: 'health_kit_error',
         message: e.toString(),
         tool: LocalToolNames.healthKit,
+      );
+    }
+  }
+
+  /// Handle calendar_event_tool (iOS EventKit EKEventStore)
+  Future<String> _handleCalendarEventTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'list_events').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'list_events':
+          final days = (args['days'] as num?)?.toInt() ?? 7;
+          final data = await NativeCalendarEventService.listEvents(days: days);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'search_events':
+          final query = (args['query'] ?? '').toString();
+          final days = (args['days'] as num?)?.toInt() ?? 30;
+          final data = await NativeCalendarEventService.searchEvents(query: query, days: days);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'create_event':
+          final title = (args['title'] ?? '').toString().trim();
+          if (title.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "title" is required for create_event.',
+              tool: LocalToolNames.calendarEvent,
+            );
+          }
+          final start = args['start']?.toString();
+          final end = args['end']?.toString();
+          final location = args['location']?.toString();
+          final notes = args['notes']?.toString();
+          final alarmMinutes = (args['alarm_minutes'] as num?)?.toInt();
+
+          final data = await NativeCalendarEventService.createEvent(
+            title: title,
+            start: start,
+            end: end,
+            location: location,
+            notes: notes,
+            alarmMinutes: alarmMinutes,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'delete_event':
+          final id = (args['id'] ?? '').toString().trim();
+          if (id.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "id" is required for delete_event.',
+              tool: LocalToolNames.calendarEvent,
+            );
+          }
+          final data = await NativeCalendarEventService.deleteEvent(id: id);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'list_calendars':
+          final data = await NativeCalendarEventService.listCalendars();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'request_permission':
+          final data = await NativeCalendarEventService.requestPermission();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message:
+                'Unknown action "$action". Valid: list_events, search_events, create_event, delete_event, list_calendars, request_permission.',
+            tool: LocalToolNames.calendarEvent,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'calendar_event_error',
+        message: e.toString(),
+        tool: LocalToolNames.calendarEvent,
       );
     }
   }

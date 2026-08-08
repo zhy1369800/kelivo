@@ -137,6 +137,7 @@ IconData? _localToolIconFor(String name, Map<String, dynamic> args) {
     LocalToolNames.userNotification => Lucide.Bell,
     LocalToolNames.deviceInfo => Lucide.Smartphone,
     LocalToolNames.healthKit => Lucide.Heart,
+    LocalToolNames.calendarEvent => Lucide.Calendar,
     _ => null,
   };
 }
@@ -166,6 +167,7 @@ String? _localToolTitleFor(
     LocalToolNames.userNotification => l10n.assistantEditLocalToolUserNotificationTitle,
     LocalToolNames.deviceInfo => l10n.assistantEditLocalToolDeviceInfoTitle,
     LocalToolNames.healthKit => l10n.assistantEditLocalToolHealthKitTitle,
+    LocalToolNames.calendarEvent => l10n.assistantEditLocalToolCalendarEventTitle,
     _ => null,
   };
 }

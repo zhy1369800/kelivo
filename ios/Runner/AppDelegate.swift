@@ -19,6 +19,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
   private let userNotificationHandler = UserNotificationHandler()
   private let deviceInfoHandler = DeviceInfoHandler()
   private let healthKitHandler = HealthKitHandler()
+  private let calendarEventHandler = CalendarEventHandler()
 
   override func application(
     _ application: UIApplication,
@@ -99,6 +100,11 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       let healthKitChannel = FlutterMethodChannel(name: "app.health_kit", binaryMessenger: controller.binaryMessenger)
       healthKitChannel.setMethodCallHandler { [weak self] call, result in
         self?.healthKitHandler.handle(call: call, result: result)
+      }
+
+      let calendarEventChannel = FlutterMethodChannel(name: "app.calendar_event", binaryMessenger: controller.binaryMessenger)
+      calendarEventChannel.setMethodCallHandler { [weak self] call, result in
+        self?.calendarEventHandler.handle(call: call, result: result)
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
