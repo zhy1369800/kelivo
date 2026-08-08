@@ -1796,6 +1796,8 @@
   "assistantEditLocalToolAskUserSubtitle": "允許助手提出簡短問題，並在你回答後繼續生成。",
   "assistantEditLocalToolCalculateTitle": "計算機",
   "assistantEditLocalToolCalculateSubtitle": "計算數學表達式，支援加減乘除冪運算 sqrt sin cos 等。",
+  "assistantEditLocalToolInstallMcpTitle": "安裝 MCP 服務",
+  "assistantEditLocalToolInstallMcpSubtitle": "允許大型語言模型自動安裝並綁定遠端 MCP (SSE / HTTP) 服務。",
   "assistantEditMemorySwitchTitle": "記憶",
   "assistantEditMemorySwitchDescription": "允許助理主動儲存並在對話間引用使用者相關資訊",
   "assistantEditOutlineModeTitle": "二級列表樣式",

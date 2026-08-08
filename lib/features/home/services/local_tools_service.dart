@@ -15,6 +15,7 @@ class LocalToolNames {
   static const String textToSpeech = 'text_to_speech';
   static const String askUser = 'ask_user_input_v0';
   static const String calculate = 'calculate';
+  static const String installMcpServer = 'install_mcp_server';
 }
 
 class LocalToolsService {
@@ -151,6 +152,43 @@ class LocalToolsService {
               },
             },
             'required': ['expression'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.installMcpServer)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.installMcpServer,
+          'description':
+              'Install and connect a remote MCP (Model Context Protocol) server via SSE or HTTP transport, and bind it to the current assistant.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'name': {
+                'type': 'string',
+                'description':
+                    'A display name for the new MCP server (e.g. "Feishu MCP Server").',
+              },
+              'url': {
+                'type': 'string',
+                'description':
+                    'The remote endpoint URL of the MCP server (e.g. "https://example.com/sse" or "https://api.example.com/mcp").',
+              },
+              'transport': {
+                'type': 'string',
+                'enum': ['sse', 'http'],
+                'description':
+                    'Transport protocol: "sse" (Server-Sent Events) or "http" (Streamable HTTP). If omitted, defaults to "sse".',
+              },
+              'headers': {
+                'type': 'object',
+                'description':
+                    'Optional HTTP headers map, e.g. {"Authorization": "Bearer token"}.',
+              },
+            },
+            'required': ['name', 'url'],
           },
         },
       });

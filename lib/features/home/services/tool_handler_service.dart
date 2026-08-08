@@ -10,6 +10,7 @@ import '../../../core/providers/memory_provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/providers/tts_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
+import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/mcp/mcp_tool_service.dart';
 import '../../../core/services/search/search_tool_service.dart';
 import 'ask_user_interaction_service.dart';
@@ -450,6 +451,39 @@ class ToolHandlerService {
           }
         }
 
+        // Handle install_mcp_server tool
+        if (name == LocalToolNames.installMcpServer) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.installMcpServer)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The install_mcp_server tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          if (approvalService != null) {
+            final toolCallId = '${name}_${DateTime.now().microsecondsSinceEpoch}';
+            final result = await approvalService.requestApproval(
+              toolCallId: toolCallId,
+              toolName: name,
+              arguments: args,
+              conversationId: conversationId,
+            );
+            if (!result.approved) {
+              return _toolError(
+                error: 'approval_denied',
+                message: result.denyReason ?? 'User denied installing this MCP server.',
+                tool: name,
+              );
+            }
+          }
+          return await _handleInstallMcpServerTool(
+            args: args,
+            assistant: assistant,
+            conversationId: conversationId,
+          );
+        }
+
         // Approval gate for MCP tools
         if (approvalService != null &&
             toolSvc.toolNeedsApprovalForAssistant(
@@ -589,5 +623,137 @@ class ToolHandlerService {
     }
 
     return null;
+  }
+
+  /// Handle installing remote MCP server (SSE or HTTP)
+  Future<String> _handleInstallMcpServerTool({
+    required Map<String, dynamic> args,
+    required Assistant? assistant,
+    required String? conversationId,
+  }) async {
+    final name = (args['name'] ?? '').toString().trim();
+    final url = (args['url'] ?? '').toString().trim();
+    final rawTransport =
+        (args['transport'] ?? '').toString().trim().toLowerCase();
+
+    if (name.isEmpty) {
+      return _toolError(
+        error: 'invalid_parameters',
+        message: 'Parameter "name" must not be empty.',
+        tool: LocalToolNames.installMcpServer,
+      );
+    }
+    if (url.isEmpty ||
+        (!url.startsWith('http://') && !url.startsWith('https://'))) {
+      return _toolError(
+        error: 'invalid_parameters',
+        message: 'Parameter "url" must be a valid HTTP or HTTPS URL.',
+        tool: LocalToolNames.installMcpServer,
+      );
+    }
+
+    // Infer transport from URL if not explicitly provided:
+    // url containing "/sse" → SSE; otherwise default to HTTP
+    final mcp = contextProvider.read<McpProvider>();
+    McpTransportType transportType;
+    if (rawTransport == 'sse') {
+      transportType = McpTransportType.sse;
+    } else if (rawTransport == 'http') {
+      transportType = McpTransportType.http;
+    } else if (url.contains('/sse')) {
+      transportType = McpTransportType.sse;
+    } else {
+      transportType = McpTransportType.http;
+    }
+
+    final headers = <String, String>{};
+    if (args['headers'] is Map) {
+      final rawMap = args['headers'] as Map;
+      rawMap.forEach((k, v) {
+        if (k != null && v != null) {
+          headers[k.toString()] = v.toString();
+        }
+      });
+    }
+
+    final serverId = await mcp.addServer(
+      enabled: true,
+      name: name,
+      transport: transportType,
+      url: url,
+      headers: headers,
+    );
+
+    // Bind to current assistant if available
+    if (assistant != null) {
+      final assistantProvider = contextProvider.read<AssistantProvider>();
+      if (!assistant.mcpServerIds.contains(serverId)) {
+        final updatedMcpIds = [...assistant.mcpServerIds, serverId];
+        final updatedAssistant = assistant.copyWith(mcpServerIds: updatedMcpIds);
+        await assistantProvider.updateAssistant(updatedAssistant);
+      }
+    }
+
+    // Bind to current conversation if available
+    if (conversationId != null && conversationId.isNotEmpty) {
+      final chatService = contextProvider.read<ChatService>();
+      final currentMcpIds = chatService.getConversationMcpServers(conversationId);
+      if (!currentMcpIds.contains(serverId)) {
+        await chatService.setConversationMcpServers(
+          conversationId,
+          [...currentMcpIds, serverId],
+        );
+      }
+    }
+
+    final fallbackServer = McpServerConfig(
+      id: serverId,
+      enabled: true,
+      name: name,
+      transport: transportType,
+      url: url,
+    );
+
+    // Wait for connection to succeed and populate tools list, with a timeout
+    int elapsedMs = 0;
+    const int maxWaitMs = 5000;
+    const int checkIntervalMs = 200;
+
+    while (elapsedMs < maxWaitMs) {
+      final status = mcp.statusFor(serverId);
+      if (status == McpStatus.connected || status == McpStatus.error) {
+        break;
+      }
+      await Future.delayed(const Duration(milliseconds: checkIntervalMs));
+      elapsedMs += checkIntervalMs;
+    }
+
+    final serverConfig = mcp.servers.firstWhere(
+      (s) => s.id == serverId,
+      orElse: () => fallbackServer,
+    );
+
+    final connectionError = mcp.errorFor(serverId);
+    final status = mcp.statusFor(serverId);
+
+    final availableTools = serverConfig.tools
+        .map((t) => {'name': t.name, 'description': t.description ?? ''})
+        .toList();
+
+    return jsonEncode({
+      'success': status == McpStatus.connected,
+      'server_id': serverId,
+      'name': name,
+      'url': url,
+      'transport': transportType.name,
+      'bound_to_assistant': assistant != null,
+      'bound_to_conversation': conversationId != null,
+      'available_tools': availableTools,
+      'status': status.name,
+      'error': connectionError,
+      'message': status == McpStatus.connected
+          ? 'MCP server installed and connected successfully.'
+          : 'MCP server installed, but connection status is currently "${status.name}". Error: $connectionError',
+    });
   }
 }

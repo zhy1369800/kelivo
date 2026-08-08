@@ -2198,6 +2198,8 @@
   "assistantEditLocalToolAskUserSubtitle": "Let the assistant ask short questions and continue after you answer.",
   "assistantEditLocalToolCalculateTitle": "Calculator",
   "assistantEditLocalToolCalculateSubtitle": "Evaluate mathematical expressions, supports + - * / power sqrt sin cos etc.",
+  "assistantEditLocalToolInstallMcpTitle": "Install MCP Server",
+  "assistantEditLocalToolInstallMcpSubtitle": "Allow the assistant to automatically install and bind a remote MCP server (SSE / HTTP).",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",
