@@ -156,10 +156,7 @@ class LocalToolsService {
         },
       });
     }
-    final hasMcpTool =
-        assistant.localToolIds.contains(LocalToolNames.mcpServersTool) ||
-        assistant.localToolIds.contains('install_mcp_server');
-    if (hasMcpTool) {
+    if (assistant.localToolIds.contains(LocalToolNames.mcpServersTool)) {
       tools.add(const {
         'type': 'function',
         'function': {

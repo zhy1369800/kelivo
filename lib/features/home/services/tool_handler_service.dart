@@ -451,29 +451,17 @@ class ToolHandlerService {
           }
         }
 
-        // Handle mcp_servers_tool (and fallback for old install_mcp_server name)
-        final isMcpToolName = name == LocalToolNames.mcpServersTool ||
-            name == 'install_mcp_server';
-        if (isMcpToolName) {
-          final hasMcpTool = assistant != null &&
-              (assistant.localToolIds.contains(LocalToolNames.mcpServersTool) ||
-                  assistant.localToolIds.contains('install_mcp_server'));
-          if (!hasMcpTool) {
+        // Handle mcp_servers_tool
+        if (name == LocalToolNames.mcpServersTool) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.mcpServersTool)) {
             return _toolError(
               error: 'tool_disabled',
               message: 'The mcp_servers_tool is disabled for this assistant.',
               tool: name,
             );
           }
-          // Fallback if legacy name was called: default action to 'install'
-          final effectiveArgs = Map<String, dynamic>.of(args);
-          if (!effectiveArgs.containsKey('action') ||
-              effectiveArgs['action'].toString().trim().isEmpty) {
-            effectiveArgs['action'] = 'install';
-          }
-          final action =
-              effectiveArgs['action'].toString().trim().toLowerCase();
-
+          final action = (args['action'] ?? '').toString().trim().toLowerCase();
           // Gate all write actions (everything except list) with user approval
           if (action != 'list' && approvalService != null) {
             final toolCallId =
@@ -481,7 +469,7 @@ class ToolHandlerService {
             final result = await approvalService.requestApproval(
               toolCallId: toolCallId,
               toolName: name,
-              arguments: effectiveArgs,
+              arguments: args,
               conversationId: conversationId,
             );
             if (!result.approved) {
@@ -494,7 +482,7 @@ class ToolHandlerService {
             }
           }
           return await _handleMcpServersTool(
-            args: effectiveArgs,
+            args: args,
             assistant: assistant,
             conversationId: conversationId,
           );
