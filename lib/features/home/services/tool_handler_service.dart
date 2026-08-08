@@ -17,6 +17,7 @@ import '../../../core/services/mcp/mcp_tool_service.dart';
 import '../../../core/services/search/search_tool_service.dart';
 import '../../../core/services/native_map_kit_service.dart';
 import '../../../core/services/native_weather_kit_service.dart';
+import '../../../core/services/native_ble_bridge_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -592,6 +593,39 @@ class ToolHandlerService {
             }
           }
           return await _handleWeatherKitTool(args: args);
+        }
+
+        // Handle ble_bridge_tool
+        if (name == LocalToolNames.bleBridge) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.bleBridge)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The ble_bridge_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final bleAction = (args['action'] ?? '').toString().trim().toLowerCase();
+          // Write action alters hardware state — gate with approval
+          if (bleAction == 'write' && approvalService != null) {
+            final toolCallId =
+                '${name}_${DateTime.now().microsecondsSinceEpoch}';
+            final result = await approvalService.requestApproval(
+              toolCallId: toolCallId,
+              toolName: name,
+              arguments: args,
+              conversationId: conversationId,
+            );
+            if (!result.approved) {
+              return _toolError(
+                error: 'approval_denied',
+                message:
+                    result.denyReason ?? 'User denied BLE write operation.',
+                tool: name,
+              );
+            }
+          }
+          return await _handleBleBridgeTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -1606,6 +1640,123 @@ class ToolHandlerService {
         error: 'weather_fetch_failed',
         message: e.toString(),
         tool: LocalToolNames.weatherKit,
+      );
+    }
+  }
+
+  /// Handle ble_bridge_tool (CoreBluetooth BLE)
+  Future<String> _handleBleBridgeTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'status').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'status':
+          final data = await NativeBleBridgeService.getStatus();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'scan':
+          final duration = (args['duration_seconds'] as num?)?.toDouble() ?? 5.0;
+          final data = await NativeBleBridgeService.scan(durationSeconds: duration);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'connect':
+          final uuid = (args['uuid'] ?? '').toString().trim();
+          if (uuid.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "uuid" is required for connect.',
+              tool: LocalToolNames.bleBridge,
+            );
+          }
+          final data = await NativeBleBridgeService.connect(uuid: uuid);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'disconnect':
+          final uuid = (args['uuid'] ?? '').toString().trim();
+          if (uuid.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "uuid" is required for disconnect.',
+              tool: LocalToolNames.bleBridge,
+            );
+          }
+          final data = await NativeBleBridgeService.disconnect(uuid: uuid);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'discover_services':
+          final uuid = (args['uuid'] ?? '').toString().trim();
+          if (uuid.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "uuid" is required for discover_services.',
+              tool: LocalToolNames.bleBridge,
+            );
+          }
+          final data = await NativeBleBridgeService.discoverServices(uuid: uuid);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'read':
+          final uuid = (args['uuid'] ?? '').toString().trim();
+          final serviceUuid = (args['service_uuid'] ?? '').toString().trim();
+          final charUuid = (args['characteristic_uuid'] ?? '').toString().trim();
+          if (uuid.isEmpty || serviceUuid.isEmpty || charUuid.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameters "uuid", "service_uuid", and "characteristic_uuid" are required for read.',
+              tool: LocalToolNames.bleBridge,
+            );
+          }
+          final data = await NativeBleBridgeService.readCharacteristic(
+            uuid: uuid,
+            serviceUuid: serviceUuid,
+            characteristicUuid: charUuid,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'write':
+          final uuid = (args['uuid'] ?? '').toString().trim();
+          final serviceUuid = (args['service_uuid'] ?? '').toString().trim();
+          final charUuid = (args['characteristic_uuid'] ?? '').toString().trim();
+          final valueHex = args['value_hex'] as String?;
+          final valueString = args['value_string'] as String?;
+          if (uuid.isEmpty || serviceUuid.isEmpty || charUuid.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameters "uuid", "service_uuid", and "characteristic_uuid" are required for write.',
+              tool: LocalToolNames.bleBridge,
+            );
+          }
+          if ((valueHex ?? '').isEmpty && (valueString ?? '').isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Either "value_hex" or "value_string" is required for write.',
+              tool: LocalToolNames.bleBridge,
+            );
+          }
+          final data = await NativeBleBridgeService.writeCharacteristic(
+            uuid: uuid,
+            serviceUuid: serviceUuid,
+            characteristicUuid: charUuid,
+            valueHex: valueHex,
+            valueString: valueString,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message:
+                'Unknown action "$action". Valid: status, scan, connect, disconnect, discover_services, read, write.',
+            tool: LocalToolNames.bleBridge,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'ble_bridge_error',
+        message: e.toString(),
+        tool: LocalToolNames.bleBridge,
       );
     }
   }

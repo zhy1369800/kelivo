@@ -19,6 +19,7 @@ class LocalToolNames {
   static const String locationInfo = 'get_location_info';
   static const String mapKit = 'map_kit_tool';
   static const String weatherKit = 'weather_kit_tool';
+  static const String bleBridge = 'ble_bridge_tool';
 }
 
 class LocalToolsService {
@@ -279,6 +280,59 @@ class LocalToolsService {
                 'description': 'Target longitude (optional, used if location name is not provided).',
               },
             },
+          },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.bleBridge)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.bleBridge,
+          'description':
+              'Bluetooth Low Energy (BLE) tool for scanning nearby devices, connecting to peripherals, discovering GATT services & characteristics, reading values (Hex/Base64/UTF8), and writing values to hardware characteristics.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'status',
+                  'scan',
+                  'connect',
+                  'disconnect',
+                  'discover_services',
+                  'read',
+                  'write'
+                ],
+                'description':
+                    'The operation to perform: "status" (check Bluetooth power state), "scan" (scan nearby BLE devices), "connect" (connect peripheral by UUID), "disconnect" (disconnect peripheral), "discover_services" (list GATT services & characteristics), "read" (read characteristic value), "write" (write data to characteristic).',
+              },
+              'duration_seconds': {
+                'type': 'number',
+                'description': 'Scan duration in seconds. Default: 5.',
+              },
+              'uuid': {
+                'type': 'string',
+                'description': 'Target peripheral UUID (required for connect, disconnect, discover_services, read, write).',
+              },
+              'service_uuid': {
+                'type': 'string',
+                'description': 'Target GATT service UUID (required for read, write).',
+              },
+              'characteristic_uuid': {
+                'type': 'string',
+                'description': 'Target GATT characteristic UUID (required for read, write).',
+              },
+              'value_hex': {
+                'type': 'string',
+                'description': 'Hexadecimal string value to write (e.g. "0100", "0xFF").',
+              },
+              'value_string': {
+                'type': 'string',
+                'description': 'UTF-8 text string value to write.',
+              },
+            },
+            'required': ['action'],
           },
         },
       });

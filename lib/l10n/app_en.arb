@@ -2206,6 +2206,8 @@
   "assistantEditLocalToolMapKitSubtitle": "Allow the assistant to search places, plan road routes with steps, estimate ETA, and open Apple Maps for navigation.",
   "assistantEditLocalToolWeatherKitTitle": "WeatherKit Forecast",
   "assistantEditLocalToolWeatherKitSubtitle": "Allow the assistant to query real-time weather, 48-hour hourly forecasts, 10-day daily forecasts, and severe weather alerts via Apple WeatherKit.",
+  "assistantEditLocalToolBleBridgeTitle": "Bluetooth BLE Bridge",
+  "assistantEditLocalToolBleBridgeSubtitle": "Allow the assistant to scan nearby BLE devices, connect to peripherals, discover GATT services, read, and write characteristic data.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

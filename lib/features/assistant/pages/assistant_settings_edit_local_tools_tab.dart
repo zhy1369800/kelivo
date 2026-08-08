@@ -36,6 +36,9 @@ class _LocalToolsTab extends StatelessWidget {
     final weatherKitEnabled = assistant.localToolIds.contains(
       LocalToolNames.weatherKit,
     );
+    final bleBridgeEnabled = assistant.localToolIds.contains(
+      LocalToolNames.bleBridge,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -129,6 +132,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: weatherKitEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.weatherKit, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Bluetooth,
+              title: l10n.assistantEditLocalToolBleBridgeTitle,
+              subtitle: l10n.assistantEditLocalToolBleBridgeSubtitle,
+              enabled: bleBridgeEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.bleBridge, value),
             ),
           ],
         ),

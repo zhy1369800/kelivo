@@ -59,6 +59,10 @@
 	<string>Kelivo 使用系统语音识别将您主动录制的语音转换为文字。您的数据由系统处理；我们不会收集这些信息。 / Kelivo uses system speech recognition to turn audio you choose to record into text. Your data is processed by the system; Kelivo does not collect this information.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Kelivo 需要获取您的地理位置以提供定位与逆地理编码地址解析服务。 / Kelivo needs your location to provide GPS coordinates and reverse geocoding address conversion.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Kelivo 需要使用蓝牙以扫描附近的 BLE 设备并进行数据交互。 / Kelivo uses Bluetooth to scan and communicate with nearby BLE devices.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Kelivo 需要使用蓝牙与您的 BLE 设备建立连接并传输数据。 / Kelivo uses Bluetooth to connect and transfer data with your BLE peripherals.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
         <string>允许保存图片到相册，您的数据将保存在本地。/ Allow saving images to your photo library.Your data will be saved locally.</string>
         <key>NSPhotoLibraryUsageDescription</key>

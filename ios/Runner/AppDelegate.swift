@@ -15,6 +15,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
   private let mcpOAuthHandler = IosMcpOAuthHandler()
   private let mapKitHandler = MapKitHandler()
   private let weatherKitHandler = WeatherKitHandler()
+  private let bleBridgeHandler = BleBridgeHandler()
 
   override func application(
     _ application: UIApplication,
@@ -75,6 +76,11 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       let weatherKitChannel = FlutterMethodChannel(name: "app.weather_kit", binaryMessenger: controller.binaryMessenger)
       weatherKitChannel.setMethodCallHandler { [weak self] call, result in
         self?.weatherKitHandler.handle(call: call, result: result)
+      }
+
+      let bleBridgeChannel = FlutterMethodChannel(name: "app.ble_bridge", binaryMessenger: controller.binaryMessenger)
+      bleBridgeChannel.setMethodCallHandler { [weak self] call, result in
+        self?.bleBridgeHandler.handle(call: call, result: result)
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
