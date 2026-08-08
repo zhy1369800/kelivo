@@ -1030,17 +1030,78 @@ class ToolHandlerService {
           transport: newTransport,
         );
 
-        // updateServerMetadata handles detached reconnect internally if enabled
         await mcp.updateServerMetadata(updatedServer);
 
+        // Wait up to 5s for reconnection to finish and tools to initialize
+        int elapsedMs = 0;
+        const maxWaitMs = 5000;
+        const checkIntervalMs = 200;
+        while (elapsedMs < maxWaitMs) {
+          final status = mcp.statusFor(serverId);
+          if (status == McpStatus.connected || status == McpStatus.error) {
+            break;
+          }
+          await Future.delayed(const Duration(milliseconds: checkIntervalMs));
+          elapsedMs += checkIntervalMs;
+        }
+
+        final status = mcp.statusFor(serverId);
+        final connectionError = mcp.errorFor(serverId);
+
+        // If edit successfully connected the server, auto-bind to current assistant & chat if not bound yet
+        if (status == McpStatus.connected) {
+          if (assistant != null &&
+              !assistant.mcpServerIds.contains(serverId)) {
+            final updatedAssistant = assistant.copyWith(
+              mcpServerIds: [...assistant.mcpServerIds, serverId],
+            );
+            await assistantProvider.updateAssistant(updatedAssistant);
+          }
+          if (conversationId != null && conversationId.isNotEmpty) {
+            final currentMcpIds =
+                chatService.getConversationMcpServers(conversationId);
+            if (!currentMcpIds.contains(serverId)) {
+              await chatService.setConversationMcpServers(
+                conversationId,
+                [...currentMcpIds, serverId],
+              );
+            }
+          }
+        }
+
+        final latestServerConfig = mcp.servers.firstWhere(
+          (s) => s.id == serverId,
+          orElse: () => updatedServer,
+        );
+
+        final isBoundToAssistant = assistant != null &&
+            assistantProvider
+                .getById(assistant.id)
+                ?.mcpServerIds
+                .contains(serverId) ==
+                true;
+        final isBoundToConv = conversationId != null &&
+            chatService
+                .getConversationMcpServers(conversationId)
+                .contains(serverId);
+
         return jsonEncode({
-          'success': true,
+          'success': status == McpStatus.connected,
           'action': 'edit',
           'server_id': serverId,
           'name': newName,
           'url': newUrl,
           'transport': newTransport.name,
-          'message': 'MCP server "${server.name}" configuration updated successfully.',
+          'connection_status': status.name,
+          'connection_error': connectionError,
+          'bound_to_current_assistant': isBoundToAssistant,
+          'bound_to_current_conversation': isBoundToConv,
+          'available_tools': latestServerConfig.tools
+              .map((t) => {'name': t.name, 'description': t.description ?? ''})
+              .toList(),
+          'message': status == McpStatus.connected
+              ? 'MCP server "${server.name}" configuration updated, reconnected, and bound successfully.'
+              : 'MCP server "${server.name}" configuration updated, but connection status is currently "${status.name}". Error: $connectionError',
         });
 
       case 'remove':
