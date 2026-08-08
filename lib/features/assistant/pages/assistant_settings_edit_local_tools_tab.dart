@@ -99,7 +99,7 @@ class _LocalToolsTab extends StatelessWidget {
             ),
             _iosDivider(context),
             _LocalToolRow(
-              icon: Lucide.MapPin,
+              icon: Lucide.Map,
               title: l10n.assistantEditLocalToolLocationTitle,
               subtitle: l10n.assistantEditLocalToolLocationSubtitle,
               enabled: locationEnabled,
