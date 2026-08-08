@@ -2208,6 +2208,8 @@
   "assistantEditLocalToolWeatherKitSubtitle": "Allow the assistant to query real-time weather, 48-hour hourly forecasts, 10-day daily forecasts, and severe weather alerts via Apple WeatherKit.",
   "assistantEditLocalToolBleBridgeTitle": "Bluetooth BLE Bridge",
   "assistantEditLocalToolBleBridgeSubtitle": "Allow the assistant to scan nearby BLE devices, connect to peripherals, discover GATT services, read, and write characteristic data.",
+  "assistantEditLocalToolUserNotificationTitle": "Local Notifications & Reminders",
+  "assistantEditLocalToolUserNotificationSubtitle": "Allow the assistant to send immediate or scheduled local notifications, check permission status, and manage pending reminders.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

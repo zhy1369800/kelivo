@@ -39,6 +39,9 @@ class _LocalToolsTab extends StatelessWidget {
     final bleBridgeEnabled = assistant.localToolIds.contains(
       LocalToolNames.bleBridge,
     );
+    final userNotificationEnabled = assistant.localToolIds.contains(
+      LocalToolNames.userNotification,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -141,6 +144,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: bleBridgeEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.bleBridge, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Bell,
+              title: l10n.assistantEditLocalToolUserNotificationTitle,
+              subtitle: l10n.assistantEditLocalToolUserNotificationSubtitle,
+              enabled: userNotificationEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.userNotification, value),
             ),
           ],
         ),

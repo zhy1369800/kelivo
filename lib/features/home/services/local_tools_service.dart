@@ -20,6 +20,7 @@ class LocalToolNames {
   static const String mapKit = 'map_kit_tool';
   static const String weatherKit = 'weather_kit_tool';
   static const String bleBridge = 'ble_bridge_tool';
+  static const String userNotification = 'user_notification_tool';
 }
 
 class LocalToolsService {
@@ -330,6 +331,63 @@ class LocalToolsService {
               'value_string': {
                 'type': 'string',
                 'description': 'UTF-8 text string value to write.',
+              },
+            },
+            'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.userNotification)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.userNotification,
+          'description':
+              'UserNotifications tool for sending immediate/delayed local notifications & reminders, checking notification settings, querying pending/delivered notifications, and cancelling scheduled notifications.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'settings',
+                  'request_permission',
+                  'schedule',
+                  'pending',
+                  'delivered',
+                  'cancel'
+                ],
+                'description':
+                    'The operation to perform: "settings" (check permission status), "request_permission" (request notification permission), "schedule" (send immediate/delayed notification), "pending" (list scheduled notifications), "delivered" (list delivered notifications), "cancel" (cancel pending notification).',
+              },
+              'title': {
+                'type': 'string',
+                'description': 'Notification title (for schedule).',
+              },
+              'subtitle': {
+                'type': 'string',
+                'description': 'Notification subtitle (optional, for schedule).',
+              },
+              'body': {
+                'type': 'string',
+                'description': 'Notification message body (for schedule).',
+              },
+              'after_seconds': {
+                'type': 'number',
+                'description': 'Delay in seconds before triggering the notification. Default: 1.0 (immediate).',
+              },
+              'sound': {
+                'type': 'boolean',
+                'description': 'Whether to play default notification sound. Default: true.',
+              },
+              'id': {
+                'type': 'string',
+                'description': 'Custom notification ID for schedule or cancel.',
+              },
+              'all': {
+                'type': 'boolean',
+                'description': 'Used with cancel action to cancel all pending notifications. Default: false.',
               },
             },
             'required': ['action'],

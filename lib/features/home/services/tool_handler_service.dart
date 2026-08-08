@@ -18,6 +18,7 @@ import '../../../core/services/search/search_tool_service.dart';
 import '../../../core/services/native_map_kit_service.dart';
 import '../../../core/services/native_weather_kit_service.dart';
 import '../../../core/services/native_ble_bridge_service.dart';
+import '../../../core/services/native_user_notification_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -626,6 +627,19 @@ class ToolHandlerService {
             }
           }
           return await _handleBleBridgeTool(args: args);
+        }
+
+        // Handle user_notification_tool (No approval required per user preference)
+        if (name == LocalToolNames.userNotification) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.userNotification)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The user_notification_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          return await _handleUserNotificationTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -1757,6 +1771,80 @@ class ToolHandlerService {
         error: 'ble_bridge_error',
         message: e.toString(),
         tool: LocalToolNames.bleBridge,
+      );
+    }
+  }
+
+  /// Handle user_notification_tool (UserNotifications)
+  Future<String> _handleUserNotificationTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'settings').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'settings':
+          final data = await NativeUserNotificationService.getSettings();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'request_permission':
+          final data = await NativeUserNotificationService.requestPermission();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'schedule':
+          final title = (args['title'] ?? '').toString().trim();
+          final body = (args['body'] ?? '').toString().trim();
+          if (title.isEmpty || body.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameters "title" and "body" are required for schedule.',
+              tool: LocalToolNames.userNotification,
+            );
+          }
+          final data = await NativeUserNotificationService.schedule(
+            title: title,
+            subtitle: args['subtitle'] as String?,
+            body: body,
+            afterSeconds: (args['after_seconds'] as num?)?.toDouble() ?? 1.0,
+            sound: (args['sound'] as bool?) ?? true,
+            id: args['id'] as String?,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'pending':
+          final data = await NativeUserNotificationService.getPending();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'delivered':
+          final data = await NativeUserNotificationService.getDelivered();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'cancel':
+          final id = args['id'] as String?;
+          final all = (args['all'] as bool?) ?? false;
+          if ((id ?? '').isEmpty && !all) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Provide either "id" or set "all" to true for cancel.',
+              tool: LocalToolNames.userNotification,
+            );
+          }
+          final data = await NativeUserNotificationService.cancel(id: id, all: all);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message:
+                'Unknown action "$action". Valid: settings, request_permission, schedule, pending, delivered, cancel.',
+            tool: LocalToolNames.userNotification,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'user_notification_error',
+        message: e.toString(),
+        tool: LocalToolNames.userNotification,
       );
     }
   }

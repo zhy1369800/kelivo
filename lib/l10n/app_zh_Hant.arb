@@ -1806,6 +1806,8 @@
   "assistantEditLocalToolWeatherKitSubtitle": "允許大型語言模型基於 Apple WeatherKit 查詢實時天氣、未來 48 小時逐小時預報、未來 10 天預報及嚴重天氣預警。",
   "assistantEditLocalToolBleBridgeTitle": "藍牙 BLE 設備互動",
   "assistantEditLocalToolBleBridgeSubtitle": "允許大型語言模型基於 CoreBluetooth 掃描附近 BLE 藍牙外設、建立連接、發現 GATT 服務特徵值並讀寫資料。",
+  "assistantEditLocalToolUserNotificationTitle": "本地通知與提醒",
+  "assistantEditLocalToolUserNotificationSubtitle": "允許大型語言模型基於 UserNotifications 發送即時/定時推送通知、查看權限狀態及管理掛起的提醒請求。",
   "assistantEditMemorySwitchTitle": "記憶",
   "assistantEditMemorySwitchDescription": "允許助理主動儲存並在對話間引用使用者相關資訊",
   "assistantEditOutlineModeTitle": "二級列表樣式",
