@@ -180,7 +180,7 @@ class LocalToolsService {
                 'type': 'string',
                 'enum': ['sse', 'http'],
                 'description':
-                    'Transport protocol: "sse" (Server-Sent Events) or "http" (Streamable HTTP). If omitted, defaults to "sse".',
+                    'Only specify this parameter if the user explicitly mentions the protocol to use (e.g. "use sse" or "use http"). Otherwise, OMIT this parameter entirely and do NOT guess or infer.',
               },
               'headers': {
                 'type': 'object',
