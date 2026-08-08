@@ -1802,6 +1802,8 @@
   "assistantEditLocalToolLocationSubtitle": "允許大型語言模型獲取當前設備高精度 GPS 坐標、逆地理編碼轉換街道地址，或尋找地址坐標。",
   "assistantEditLocalToolMapKitTitle": "地圖導航與地點檢索",
   "assistantEditLocalToolMapKitSubtitle": "允許大型語言模型搜尋周邊地點、規劃道路路線（含逐步導航）、估算到達時間，並開啟蘋果地圖進行導航。",
+  "assistantEditLocalToolWeatherKitTitle": "天氣查詢與預報",
+  "assistantEditLocalToolWeatherKitSubtitle": "允許大型語言模型基於 Apple WeatherKit 查詢實時天氣、未來 48 小時逐小時預報、未來 10 天預報及嚴重天氣預警。",
   "assistantEditMemorySwitchTitle": "記憶",
   "assistantEditMemorySwitchDescription": "允許助理主動儲存並在對話間引用使用者相關資訊",
   "assistantEditOutlineModeTitle": "二級列表樣式",

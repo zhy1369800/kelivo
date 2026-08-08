@@ -1809,6 +1809,8 @@
   "assistantEditLocalToolLocationSubtitle": "允许大模型获取当前设备高精度 GPS 坐标、逆地理编码转换街道地址，或查找地址坐标。",
   "assistantEditLocalToolMapKitTitle": "地图导航与地点检索",
   "assistantEditLocalToolMapKitSubtitle": "允许大模型搜索周边地点、规划道路路线（含逐步骤导航）、估算到达时间，并打开苹果地图进行导航。",
+  "assistantEditLocalToolWeatherKitTitle": "天气查询与预报",
+  "assistantEditLocalToolWeatherKitSubtitle": "允许大模型基于 Apple WeatherKit 查询实时天气、未来 48 小时逐小时预报、未来 10 天预报及严重天气预警。",
   "assistantEditMemorySwitchTitle": "记忆",
   "assistantEditMemorySwitchDescription": "允许助手主动存储并在对话间引用用户相关信息",
   "assistantEditOutlineModeTitle": "二级列表样式",

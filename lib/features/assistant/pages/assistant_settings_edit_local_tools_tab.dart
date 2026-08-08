@@ -33,6 +33,9 @@ class _LocalToolsTab extends StatelessWidget {
     final mapKitEnabled = assistant.localToolIds.contains(
       LocalToolNames.mapKit,
     );
+    final weatherKitEnabled = assistant.localToolIds.contains(
+      LocalToolNames.weatherKit,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -117,6 +120,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: mapKitEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.mapKit, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Sun,
+              title: l10n.assistantEditLocalToolWeatherKitTitle,
+              subtitle: l10n.assistantEditLocalToolWeatherKitSubtitle,
+              enabled: weatherKitEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.weatherKit, value),
             ),
           ],
         ),

@@ -2204,6 +2204,8 @@
   "assistantEditLocalToolLocationSubtitle": "Allow the assistant to get current device GPS coordinates, reverse-geocode address, or forward-geocode addresses.",
   "assistantEditLocalToolMapKitTitle": "MapKit Navigation",
   "assistantEditLocalToolMapKitSubtitle": "Allow the assistant to search places, plan road routes with steps, estimate ETA, and open Apple Maps for navigation.",
+  "assistantEditLocalToolWeatherKitTitle": "WeatherKit Forecast",
+  "assistantEditLocalToolWeatherKitSubtitle": "Allow the assistant to query real-time weather, 48-hour hourly forecasts, 10-day daily forecasts, and severe weather alerts via Apple WeatherKit.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

@@ -16,6 +16,7 @@ import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/mcp/mcp_tool_service.dart';
 import '../../../core/services/search/search_tool_service.dart';
 import '../../../core/services/native_map_kit_service.dart';
+import '../../../core/services/native_weather_kit_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -556,6 +557,41 @@ class ToolHandlerService {
             }
           }
           return await _handleMapKitTool(args: args);
+        }
+
+        // Handle weather_kit_tool
+        if (name == LocalToolNames.weatherKit) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.weatherKit)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The weather_kit_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final hasExplicitLocation =
+              (args['location'] ?? '').toString().trim().isNotEmpty ||
+                  args['latitude'] != null;
+          // If no explicit location provided, it will use current device GPS — gate with approval
+          if (!hasExplicitLocation && approvalService != null) {
+            final toolCallId =
+                '${name}_${DateTime.now().microsecondsSinceEpoch}';
+            final result = await approvalService.requestApproval(
+              toolCallId: toolCallId,
+              toolName: name,
+              arguments: args,
+              conversationId: conversationId,
+            );
+            if (!result.approved) {
+              return _toolError(
+                error: 'approval_denied',
+                message:
+                    result.denyReason ?? 'User denied access to location for weather query.',
+                tool: name,
+              );
+            }
+          }
+          return await _handleWeatherKitTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -1453,6 +1489,123 @@ class ToolHandlerService {
         error: 'map_kit_error',
         message: e.toString(),
         tool: LocalToolNames.mapKit,
+      );
+    }
+  }
+
+  /// Handle weather_kit_tool (Apple WeatherKit)
+  Future<String> _handleWeatherKitTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'current').toString().trim().toLowerCase();
+    final locationName = (args['location'] ?? '').toString().trim();
+    double? lat = (args['latitude'] as num?)?.toDouble();
+    double? lng = (args['longitude'] as num?)?.toDouble();
+
+    String resolvedLocationName = locationName;
+
+    // 1. Resolve coordinates
+    if (lat == null || lng == null) {
+      if (locationName.isNotEmpty) {
+        try {
+          final locations = await locationFromAddress(locationName);
+          if (locations.isEmpty) {
+            return _toolError(
+              error: 'location_not_found',
+              message: 'Could not resolve location "$locationName" to GPS coordinates.',
+              tool: LocalToolNames.weatherKit,
+            );
+          }
+          lat = locations.first.latitude;
+          lng = locations.first.longitude;
+        } catch (e) {
+          return _toolError(
+            error: 'geocoding_failed',
+            message: 'Failed to geocode location "$locationName": $e',
+            tool: LocalToolNames.weatherKit,
+          );
+        }
+      } else {
+        // Fallback to device current GPS location
+        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          return _toolError(
+            error: 'location_service_disabled',
+            message: 'Location services (GPS) are disabled on the device.',
+            tool: LocalToolNames.weatherKit,
+          );
+        }
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+          if (permission == LocationPermission.denied) {
+            return _toolError(
+              error: 'location_permission_denied',
+              message: 'Location permission denied by user.',
+              tool: LocalToolNames.weatherKit,
+            );
+          }
+        }
+        if (permission == LocationPermission.deniedForever) {
+          return _toolError(
+            error: 'location_permission_permanently_denied',
+            message: 'Location permission is permanently denied in device settings.',
+            tool: LocalToolNames.weatherKit,
+          );
+        }
+        try {
+          final pos = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+          );
+          lat = pos.latitude;
+          lng = pos.longitude;
+          try {
+            final placemarks = await placemarkFromCoordinates(lat, lng);
+            if (placemarks.isNotEmpty) {
+              final p = placemarks.first;
+              resolvedLocationName = [p.locality, p.administrativeArea, p.country]
+                  .where((s) => (s ?? '').isNotEmpty)
+                  .join(', ');
+            }
+          } catch (_) {}
+        } catch (e) {
+          return _toolError(
+            error: 'location_fetch_failed',
+            message: 'Failed to acquire current location: $e',
+            tool: LocalToolNames.weatherKit,
+          );
+        }
+      }
+    }
+
+    try {
+      final data = await NativeWeatherKitService.getWeather(
+        latitude: lat!,
+        longitude: lng!,
+      );
+
+      if (resolvedLocationName.isNotEmpty) {
+        data['resolved_location_name'] = resolvedLocationName;
+      }
+
+      // Filter by action if user only wants specific payload
+      if (action == 'forecast') {
+        data.remove('alerts');
+      } else if (action == 'alerts') {
+        data.remove('hourly');
+        data.remove('daily');
+      } else if (action == 'current') {
+        data.remove('hourly');
+        data.remove('daily');
+        data.remove('alerts');
+      }
+
+      return jsonEncode({'success': true, 'action': action, ...data});
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'weather_fetch_failed',
+        message: e.toString(),
+        tool: LocalToolNames.weatherKit,
       );
     }
   }

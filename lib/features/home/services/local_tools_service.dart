@@ -18,6 +18,7 @@ class LocalToolNames {
   static const String mcpServersTool = 'mcp_servers_tool';
   static const String locationInfo = 'get_location_info';
   static const String mapKit = 'map_kit_tool';
+  static const String weatherKit = 'weather_kit_tool';
 }
 
 class LocalToolsService {
@@ -244,6 +245,40 @@ class LocalToolsService {
               },
             },
             'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.weatherKit)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.weatherKit,
+          'description':
+              'Query real-time current weather, 48-hour hourly forecasts, 10-day daily forecasts, and severe weather alerts using Apple WeatherKit. If location is omitted, the device current location is automatically used.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': ['current', 'forecast', 'alerts'],
+                'description':
+                    'The operation to perform: "current" (default, real-time weather summary), "forecast" (hourly & 10-day daily forecast), or "alerts" (severe weather alert warnings).',
+              },
+              'location': {
+                'type': 'string',
+                'description':
+                    'City or place name to query weather for (e.g. "Tokyo", "Hangzhou", "New York"). If omitted, uses device current location.',
+              },
+              'latitude': {
+                'type': 'number',
+                'description': 'Target latitude (optional, used if location name is not provided).',
+              },
+              'longitude': {
+                'type': 'number',
+                'description': 'Target longitude (optional, used if location name is not provided).',
+              },
+            },
           },
         },
       });
