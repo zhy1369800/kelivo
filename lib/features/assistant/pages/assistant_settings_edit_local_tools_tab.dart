@@ -24,8 +24,8 @@ class _LocalToolsTab extends StatelessWidget {
     final calculateEnabled = assistant.localToolIds.contains(
       LocalToolNames.calculate,
     );
-    final installMcpServerEnabled = assistant.localToolIds.contains(
-      LocalToolNames.installMcpServer,
+    final mcpServersToolEnabled = assistant.localToolIds.contains(
+      LocalToolNames.mcpServersTool,
     );
 
     Future<void> updateTool(String toolId, bool value) {
@@ -87,12 +87,12 @@ class _LocalToolsTab extends StatelessWidget {
             ),
             _iosDivider(context),
             _LocalToolRow(
-              icon: Lucide.Server,
-              title: l10n.assistantEditLocalToolInstallMcpTitle,
-              subtitle: l10n.assistantEditLocalToolInstallMcpSubtitle,
-              enabled: installMcpServerEnabled,
+              icon: Lucide.Boxes,
+              title: l10n.assistantEditLocalToolMcpServersTitle,
+              subtitle: l10n.assistantEditLocalToolMcpServersSubtitle,
+              enabled: mcpServersToolEnabled,
               onChanged: (value) =>
-                  updateTool(LocalToolNames.installMcpServer, value),
+                  updateTool(LocalToolNames.mcpServersTool, value),
             ),
           ],
         ),

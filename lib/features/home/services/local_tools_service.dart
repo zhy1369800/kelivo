@@ -15,7 +15,7 @@ class LocalToolNames {
   static const String textToSpeech = 'text_to_speech';
   static const String askUser = 'ask_user_input_v0';
   static const String calculate = 'calculate';
-  static const String installMcpServer = 'install_mcp_server';
+  static const String mcpServersTool = 'mcp_servers_tool';
 }
 
 class LocalToolsService {
@@ -156,39 +156,72 @@ class LocalToolsService {
         },
       });
     }
-    if (assistant.localToolIds.contains(LocalToolNames.installMcpServer)) {
+    if (assistant.localToolIds.contains(LocalToolNames.mcpServersTool)) {
       tools.add(const {
         'type': 'function',
         'function': {
-          'name': LocalToolNames.installMcpServer,
+          'name': LocalToolNames.mcpServersTool,
           'description':
-              'Install and connect a remote MCP (Model Context Protocol) server via SSE or HTTP transport, and bind it to the current assistant.',
+              'Manage and install MCP (Model Context Protocol) servers and their tools. Supports: "list" (show all servers & tools with binding status), "install" (add new server & auto-bind), "toggle_server" (enable/disable server globally OR bind/unbind to current chat via bind_to_current), "toggle_tool" (enable/disable specific tool under a server globally), "edit" (update name, url, headers), and "remove" (delete disabled server).',
           'parameters': {
             'type': 'object',
             'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'list',
+                  'install',
+                  'toggle_server',
+                  'toggle_tool',
+                  'edit',
+                  'remove'
+                ],
+                'description':
+                    'The operation to perform: list, install, toggle_server, toggle_tool, edit, or remove.',
+              },
+              'server_id': {
+                'type': 'string',
+                'description':
+                    'Target MCP server ID. Required for toggle_server, toggle_tool, edit, and remove.',
+              },
+              'enabled': {
+                'type': 'boolean',
+                'description':
+                    'Target status boolean. Used with toggle_server (for global enable/disable) or toggle_tool (for tool enable/disable). Note: Disabling a tool via toggle_tool is a global change for that server.',
+              },
+              'bind_to_current': {
+                'type': 'boolean',
+                'description':
+                    'Used with action "toggle_server" to bind (true) or unbind (false) the server to/from the current assistant and conversation. Can ONLY be used on globally enabled servers.',
+              },
+              'tool_name': {
+                'type': 'string',
+                'description':
+                    'Target tool name under the server. Required for action "toggle_tool".',
+              },
               'name': {
                 'type': 'string',
                 'description':
-                    'A display name for the new MCP server (e.g. "Feishu MCP Server").',
+                    'Display name for the MCP server. Required for "install", optional for "edit".',
               },
               'url': {
                 'type': 'string',
                 'description':
-                    'The remote endpoint URL of the MCP server (e.g. "https://example.com/sse" or "https://api.example.com/mcp").',
+                    'Remote endpoint URL of the MCP server. Required for "install", optional for "edit".',
+              },
+              'headers': {
+                'type': 'object',
+                'description':
+                    'Optional HTTP headers map, e.g. {"Authorization": "Bearer token"}. Used for "install" and "edit".',
               },
               'transport': {
                 'type': 'string',
                 'enum': ['sse', 'http'],
                 'description':
-                    'Only specify this parameter if the user explicitly mentions the protocol to use (e.g. "use sse" or "use http"). Otherwise, OMIT this parameter entirely and do NOT guess or infer.',
-              },
-              'headers': {
-                'type': 'object',
-                'description':
-                    'Optional HTTP headers map, e.g. {"Authorization": "Bearer token"}.',
+                    'Transport protocol ("sse" or "http") used for "install". Only specify if user explicitly mentions it; otherwise OMIT this parameter completely.',
               },
             },
-            'required': ['name', 'url'],
+            'required': ['action'],
           },
         },
       });
