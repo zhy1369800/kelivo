@@ -17,6 +17,7 @@ class LocalToolNames {
   static const String calculate = 'calculate';
   static const String mcpServersTool = 'mcp_servers_tool';
   static const String locationInfo = 'get_location_info';
+  static const String mapKit = 'map_kit_tool';
 }
 
 class LocalToolsService {
@@ -184,6 +185,65 @@ class LocalToolsService {
                     'Used with action "current". Whether to automatically perform reverse geocoding to get human-readable address info. Default is true.',
               },
             },
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.mapKit)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.mapKit,
+          'description':
+              'MapKit tool for place/POI search, road route planning with turn-by-turn steps, ETA estimation, and opening Apple Maps for navigation. Uses Apple MapKit natively on device — no internet API key required.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': ['search_places', 'get_route', 'get_eta', 'open_navigation'],
+                'description':
+                    '"search_places": find POIs/places near a location; "get_route": full road route with steps+distance+duration; "get_eta": lightweight ETA only; "open_navigation": launch Apple Maps app for turn-by-turn navigation.',
+              },
+              'query': {
+                'type': 'string',
+                'description': 'Search keyword for search_places (e.g. "coffee shop", "故宫").',
+              },
+              'latitude': {
+                'type': 'number',
+                'description': 'User or center latitude for search_places context.',
+              },
+              'longitude': {
+                'type': 'number',
+                'description': 'User or center longitude for search_places context.',
+              },
+              'radius_meters': {
+                'type': 'number',
+                'description': 'Search radius in meters for search_places. Default: 1000.',
+              },
+              'limit': {
+                'type': 'integer',
+                'description': 'Max results to return for search_places. Default: 10.',
+              },
+              'from_address': {
+                'type': 'string',
+                'description': 'Origin as a text address for route/eta/navigation. Use instead of from_latitude+from_longitude.',
+              },
+              'from_latitude': {'type': 'number', 'description': 'Origin latitude.'},
+              'from_longitude': {'type': 'number', 'description': 'Origin longitude.'},
+              'to_address': {
+                'type': 'string',
+                'description': 'Destination as a text address for route/eta/navigation.',
+              },
+              'to_latitude': {'type': 'number', 'description': 'Destination latitude.'},
+              'to_longitude': {'type': 'number', 'description': 'Destination longitude.'},
+              'mode': {
+                'type': 'string',
+                'enum': ['driving', 'walking', 'transit'],
+                'description': 'Transport mode. Default: "driving".',
+              },
+            },
+            'required': ['action'],
           },
         },
       });

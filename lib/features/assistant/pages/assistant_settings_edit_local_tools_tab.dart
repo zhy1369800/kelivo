@@ -30,6 +30,9 @@ class _LocalToolsTab extends StatelessWidget {
     final locationEnabled = assistant.localToolIds.contains(
       LocalToolNames.locationInfo,
     );
+    final mapKitEnabled = assistant.localToolIds.contains(
+      LocalToolNames.mapKit,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -105,6 +108,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: locationEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.locationInfo, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Map,
+              title: l10n.assistantEditLocalToolMapKitTitle,
+              subtitle: l10n.assistantEditLocalToolMapKitSubtitle,
+              enabled: mapKitEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.mapKit, value),
             ),
           ],
         ),

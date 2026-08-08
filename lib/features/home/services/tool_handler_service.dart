@@ -15,6 +15,7 @@ import '../../../core/services/api/chat_api_service.dart';
 import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/mcp/mcp_tool_service.dart';
 import '../../../core/services/search/search_tool_service.dart';
+import '../../../core/services/native_map_kit_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -522,6 +523,39 @@ class ToolHandlerService {
             }
           }
           return await _handleLocationInfoTool(args: args);
+        }
+
+        // Handle map_kit_tool
+        if (name == LocalToolNames.mapKit) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.mapKit)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The map_kit_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          // open_navigation opens an external app — gate with approval
+          final mapAction = (args['action'] ?? '').toString().trim().toLowerCase();
+          if (mapAction == 'open_navigation' && approvalService != null) {
+            final toolCallId =
+                '${name}_${DateTime.now().microsecondsSinceEpoch}';
+            final result = await approvalService.requestApproval(
+              toolCallId: toolCallId,
+              toolName: name,
+              arguments: args,
+              conversationId: conversationId,
+            );
+            if (!result.approved) {
+              return _toolError(
+                error: 'approval_denied',
+                message:
+                    result.denyReason ?? 'User denied opening Apple Maps.',
+                tool: name,
+              );
+            }
+          }
+          return await _handleMapKitTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -1334,6 +1368,91 @@ class ToolHandlerService {
         error: 'location_fetch_failed',
         message: 'Failed to acquire location coordinates: $e',
         tool: LocalToolNames.locationInfo,
+      );
+    }
+  }
+
+  /// Handle map_kit_tool (MKLocalSearch, MKDirections, Apple Maps URL)
+  Future<String> _handleMapKitTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? '').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'search_places':
+          final query = (args['query'] ?? '').toString().trim();
+          if (query.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "query" is required for search_places.',
+              tool: LocalToolNames.mapKit,
+            );
+          }
+          final data = await NativeMapKitService.searchPlaces(
+            query: query,
+            latitude: args['latitude'] as double?,
+            longitude: args['longitude'] as double?,
+            radiusMeters: (args['radius_meters'] as num?)?.toDouble() ?? 1000,
+            limit: (args['limit'] as num?)?.toInt() ?? 10,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'get_route':
+          final data = await NativeMapKitService.getRoute(
+            fromAddress: args['from_address'] as String?,
+            fromLatitude: args['from_latitude'] as double?,
+            fromLongitude: args['from_longitude'] as double?,
+            toAddress: args['to_address'] as String?,
+            toLatitude: args['to_latitude'] as double?,
+            toLongitude: args['to_longitude'] as double?,
+            mode: (args['mode'] ?? 'driving').toString(),
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'get_eta':
+          final data = await NativeMapKitService.getEta(
+            fromAddress: args['from_address'] as String?,
+            fromLatitude: args['from_latitude'] as double?,
+            fromLongitude: args['from_longitude'] as double?,
+            toAddress: args['to_address'] as String?,
+            toLatitude: args['to_latitude'] as double?,
+            toLongitude: args['to_longitude'] as double?,
+            mode: (args['mode'] ?? 'driving').toString(),
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'open_navigation':
+          final opened = await NativeMapKitService.openNavigation(
+            fromAddress: args['from_address'] as String?,
+            fromLatitude: args['from_latitude'] as double?,
+            fromLongitude: args['from_longitude'] as double?,
+            toAddress: args['to_address'] as String?,
+            toLatitude: args['to_latitude'] as double?,
+            toLongitude: args['to_longitude'] as double?,
+            mode: (args['mode'] ?? 'driving').toString(),
+          );
+          return jsonEncode({
+            'success': opened,
+            'action': action,
+            'message': opened
+                ? 'Apple Maps opened for navigation.'
+                : 'Failed to open Apple Maps.',
+          });
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message:
+                'Unknown action "$action". Valid: search_places, get_route, get_eta, open_navigation.',
+            tool: LocalToolNames.mapKit,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'map_kit_error',
+        message: e.toString(),
+        tool: LocalToolNames.mapKit,
       );
     }
   }

@@ -2202,6 +2202,8 @@
   "assistantEditLocalToolMcpServersSubtitle": "Allow the assistant to list, install, edit, toggle, and remove MCP servers.",
   "assistantEditLocalToolLocationTitle": "Location & Geocoding",
   "assistantEditLocalToolLocationSubtitle": "Allow the assistant to get current device GPS coordinates, reverse-geocode address, or forward-geocode addresses.",
+  "assistantEditLocalToolMapKitTitle": "MapKit Navigation",
+  "assistantEditLocalToolMapKitSubtitle": "Allow the assistant to search places, plan road routes with steps, estimate ETA, and open Apple Maps for navigation.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

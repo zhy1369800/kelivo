@@ -131,6 +131,7 @@ IconData? _localToolIconFor(String name, Map<String, dynamic> args) {
     LocalToolNames.calculate => Lucide.Calculator,
     LocalToolNames.mcpServersTool => Lucide.Boxes,
     LocalToolNames.locationInfo => Lucide.Map,
+    LocalToolNames.mapKit => Lucide.Map,
     _ => null,
   };
 }
@@ -154,6 +155,7 @@ String? _localToolTitleFor(
     LocalToolNames.calculate => l10n.assistantEditLocalToolCalculateTitle,
     LocalToolNames.mcpServersTool => l10n.assistantEditLocalToolMcpServersTitle,
     LocalToolNames.locationInfo => l10n.assistantEditLocalToolLocationTitle,
+    LocalToolNames.mapKit => l10n.assistantEditLocalToolMapKitTitle,
     _ => null,
   };
 }

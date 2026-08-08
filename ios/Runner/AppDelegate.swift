@@ -13,6 +13,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
   private let fileSaveHandler = NativeFileSaveHandler()
   private let backgroundGenerationHandler = IosBackgroundGenerationHandler()
   private let mcpOAuthHandler = IosMcpOAuthHandler()
+  private let mapKitHandler = MapKitHandler()
 
   override func application(
     _ application: UIApplication,
@@ -63,6 +64,11 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       mcpOAuthHandler.presentationAnchor = window
       mcpOAuthChannel.setMethodCallHandler { [weak self] call, result in
         self?.mcpOAuthHandler.handle(call: call, result: result)
+      }
+
+      let mapKitChannel = FlutterMethodChannel(name: "app.map_kit", binaryMessenger: controller.binaryMessenger)
+      mapKitChannel.setMethodCallHandler { [weak self] call, result in
+        self?.mapKitHandler.handle(call: call, result: result)
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
