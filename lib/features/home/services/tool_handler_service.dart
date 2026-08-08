@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/assistant.dart';
@@ -486,6 +488,40 @@ class ToolHandlerService {
             assistant: assistant,
             conversationId: conversationId,
           );
+        }
+
+        // Handle get_location_info tool
+        if (name == LocalToolNames.locationInfo) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.locationInfo)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The get_location_info tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          // 'search' action is forward geocoding via map API — no real device GPS access,
+          // so we skip the approval gate to avoid confusing the user.
+          final locationAction = (args['action'] ?? 'current').toString().trim().toLowerCase();
+          if (locationAction != 'search' && approvalService != null) {
+            final toolCallId =
+                '${name}_${DateTime.now().microsecondsSinceEpoch}';
+            final result = await approvalService.requestApproval(
+              toolCallId: toolCallId,
+              toolName: name,
+              arguments: args,
+              conversationId: conversationId,
+            );
+            if (!result.approved) {
+              return _toolError(
+                error: 'approval_denied',
+                message:
+                    result.denyReason ?? 'User denied access to location information.',
+                tool: name,
+              );
+            }
+          }
+          return await _handleLocationInfoTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -1148,6 +1184,157 @@ class ToolHandlerService {
               'Unknown action "$action". Valid actions are: list, install, toggle_server, toggle_tool, edit, remove.',
           tool: LocalToolNames.mcpServersTool,
         );
+    }
+  }
+
+  /// Handle get_location_info tool (GPS & reverse geocoding)
+  Future<String> _handleLocationInfoTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'current').toString().trim().toLowerCase();
+
+    if (action == 'search') {
+      final addressQuery = (args['address'] ?? '').toString().trim();
+      if (addressQuery.isEmpty) {
+        return _toolError(
+          error: 'invalid_parameters',
+          message: 'Parameter "address" is required for search action.',
+          tool: LocalToolNames.locationInfo,
+        );
+      }
+      try {
+        final locations = await locationFromAddress(addressQuery);
+        if (locations.isEmpty) {
+          return jsonEncode({
+            'success': false,
+            'action': 'search',
+            'query': addressQuery,
+            'message': 'No GPS coordinates found for the specified address.',
+          });
+        }
+        final results = locations.map((loc) => {
+          'latitude': loc.latitude,
+          'longitude': loc.longitude,
+          'timestamp': loc.timestamp?.toIso8601String(),
+        }).toList();
+
+        return jsonEncode({
+          'success': true,
+          'action': 'search',
+          'query': addressQuery,
+          'results_count': results.length,
+          'coordinates': results,
+        });
+      } catch (e) {
+        return _toolError(
+          error: 'geocoding_failed',
+          message: 'Failed to geocode address: $e',
+          tool: LocalToolNames.locationInfo,
+        );
+      }
+    }
+
+    // Default action: 'current' - Get device GPS coordinates and reverse geocode
+    final bool includeAddress = args['include_address'] != false;
+
+    // Check location service status
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return _toolError(
+        error: 'location_service_disabled',
+        message: 'Location services (GPS) are disabled on the device. Please turn on Location Services in device settings.',
+        tool: LocalToolNames.locationInfo,
+      );
+    }
+
+    // Check and request location permission
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return _toolError(
+          error: 'location_permission_denied',
+          message: 'Location permission was denied by user.',
+          tool: LocalToolNames.locationInfo,
+        );
+      }
+    }
+    if (permission == LocationPermission.deniedForever) {
+      return _toolError(
+        error: 'location_permission_permanently_denied',
+        message: 'Location permission is permanently denied in device settings. User needs to enable it in Settings.',
+        tool: LocalToolNames.locationInfo,
+      );
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      Map<String, dynamic>? addressDetails;
+      String? formattedAddress;
+
+      if (includeAddress) {
+        try {
+          final placemarks = await placemarkFromCoordinates(
+            position.latitude,
+            position.longitude,
+          );
+          if (placemarks.isNotEmpty) {
+            final p = placemarks.first;
+            addressDetails = {
+              'name': p.name,
+              'street': p.street,
+              'subThoroughfare': p.subThoroughfare,
+              'thoroughfare': p.thoroughfare,
+              'subLocality': p.subLocality,
+              'locality': p.locality,
+              'subAdministrativeArea': p.subAdministrativeArea,
+              'administrativeArea': p.administrativeArea,
+              'postalCode': p.postalCode,
+              'country': p.country,
+              'isoCountryCode': p.isoCountryCode,
+            };
+
+            // Build a human readable formatted address string
+            final parts = <String>[];
+            if ((p.country ?? '').isNotEmpty) parts.add(p.country!);
+            if ((p.administrativeArea ?? '').isNotEmpty && p.administrativeArea != p.country) parts.add(p.administrativeArea!);
+            if ((p.locality ?? '').isNotEmpty && p.locality != p.administrativeArea) parts.add(p.locality!);
+            if ((p.subLocality ?? '').isNotEmpty) parts.add(p.subLocality!);
+            if ((p.thoroughfare ?? '').isNotEmpty) parts.add(p.thoroughfare!);
+            if ((p.subThoroughfare ?? '').isNotEmpty) parts.add(p.subThoroughfare!);
+            formattedAddress = parts.isNotEmpty ? parts.join(' ') : (p.name ?? '');
+          }
+        } catch (_) {
+          // Reverse geocoding optional fallback failure
+        }
+      }
+
+      return jsonEncode({
+        'success': true,
+        'action': 'current',
+        'coordinates': {
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'altitude': position.altitude,
+          'accuracy_meters': position.accuracy,
+          'heading': position.heading,
+          'speed': position.speed,
+          'timestamp': position.timestamp.toIso8601String(),
+        },
+        'formatted_address': formattedAddress,
+        'address_details': addressDetails,
+      });
+    } catch (e) {
+      return _toolError(
+        error: 'location_fetch_failed',
+        message: 'Failed to acquire location coordinates: $e',
+        tool: LocalToolNames.locationInfo,
+      );
     }
   }
 }

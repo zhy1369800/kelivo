@@ -16,6 +16,7 @@ class LocalToolNames {
   static const String askUser = 'ask_user_input_v0';
   static const String calculate = 'calculate';
   static const String mcpServersTool = 'mcp_servers_tool';
+  static const String locationInfo = 'get_location_info';
 }
 
 class LocalToolsService {
@@ -152,6 +153,37 @@ class LocalToolsService {
               },
             },
             'required': ['expression'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.locationInfo)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.locationInfo,
+          'description':
+              'Get device GPS coordinates (latitude, longitude, altitude, accuracy) and reverse-geocoded address (country, state, city, district, street, postal code), OR convert a natural language address into GPS coordinates.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': ['current', 'search'],
+                'description':
+                    'Operation to perform: "current" (default, get device GPS & reverse geocode address) or "search" (forward geocode a specified address to GPS coordinates).',
+              },
+              'address': {
+                'type': 'string',
+                'description':
+                    'The address to convert to GPS coordinates. Required when action is "search" (e.g. "West Lake, Hangzhou").',
+              },
+              'include_address': {
+                'type': 'boolean',
+                'description':
+                    'Used with action "current". Whether to automatically perform reverse geocoding to get human-readable address info. Default is true.',
+              },
+            },
           },
         },
       });

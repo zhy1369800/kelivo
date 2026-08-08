@@ -51,6 +51,8 @@ dependencies:
   shared_preferences: ^2.2.3
   image_picker: 1.1.2
   image_cropper: ^12.2.1
+  geolocator: ^13.0.2
+  geocoding: ^3.0.0
   flutter_svg: ^2.2.1
   http: ^1.5.0
   cupertino_http: ^3.0.2

@@ -1798,6 +1798,8 @@
   "assistantEditLocalToolCalculateSubtitle": "計算數學表達式，支援加減乘除冪運算 sqrt sin cos 等。",
   "assistantEditLocalToolMcpServersTitle": "MCP 服務與工具管理器",
   "assistantEditLocalToolMcpServersSubtitle": "允許大型語言模型管理（查詢、安裝、編輯、啟用/禁用、刪除）MCP服務與工具。",
+  "assistantEditLocalToolLocationTitle": "地理位置與地址解析",
+  "assistantEditLocalToolLocationSubtitle": "允許大型語言模型獲取當前設備高精度 GPS 坐標、逆地理編碼轉換街道地址，或尋找地址坐標。",
   "assistantEditMemorySwitchTitle": "記憶",
   "assistantEditMemorySwitchDescription": "允許助理主動儲存並在對話間引用使用者相關資訊",
   "assistantEditOutlineModeTitle": "二級列表樣式",

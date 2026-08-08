@@ -57,7 +57,9 @@
 	<string>Kelivo 使用麦克风录制您主动提交的语音并转换为文字；我们不会收集这些信息。 / Kelivo uses the microphone to record audio you choose to submit for transcription; Kelivo does not collect this information.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Kelivo 使用系统语音识别将您主动录制的语音转换为文字。您的数据由系统处理；我们不会收集这些信息。 / Kelivo uses system speech recognition to turn audio you choose to record into text. Your data is processed by the system; Kelivo does not collect this information.</string>
-        <key>NSPhotoLibraryAddUsageDescription</key>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Kelivo 需要获取您的地理位置以提供定位与逆地理编码地址解析服务。 / Kelivo needs your location to provide GPS coordinates and reverse geocoding address conversion.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
         <string>允许保存图片到相册，您的数据将保存在本地。/ Allow saving images to your photo library.Your data will be saved locally.</string>
         <key>NSPhotoLibraryUsageDescription</key>
 	<string>允许访问相册以选择头像图片 / Allow access to your photos to pick an avatar.</string>

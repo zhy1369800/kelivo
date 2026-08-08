@@ -2200,6 +2200,8 @@
   "assistantEditLocalToolCalculateSubtitle": "Evaluate mathematical expressions, supports + - * / power sqrt sin cos etc.",
   "assistantEditLocalToolMcpServersTitle": "MCP Manager",
   "assistantEditLocalToolMcpServersSubtitle": "Allow the assistant to list, install, edit, toggle, and remove MCP servers.",
+  "assistantEditLocalToolLocationTitle": "Location & Geocoding",
+  "assistantEditLocalToolLocationSubtitle": "Allow the assistant to get current device GPS coordinates, reverse-geocode address, or forward-geocode addresses.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",
