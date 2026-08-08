@@ -63,6 +63,10 @@
 	<string>Kelivo 需要使用蓝牙以扫描附近的 BLE 设备并进行数据交互。 / Kelivo uses Bluetooth to scan and communicate with nearby BLE devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Kelivo 需要使用蓝牙与您的 BLE 设备建立连接并传输数据。 / Kelivo uses Bluetooth to connect and transfer data with your BLE peripherals.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Kelivo 需要读取您的 HealthKit 健康数据（步数、心率、睡眠、体征等）以提供健康分析与建议。 / Kelivo needs to read your HealthKit data (steps, heart rate, sleep, body metrics) for health insights.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Kelivo 需要向您的 HealthKit 写入健康记录（如步数、体重、饮水等）。 / Kelivo needs to log health records (steps, weight, water) into your HealthKit.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
         <string>允许保存图片到相册，您的数据将保存在本地。/ Allow saving images to your photo library.Your data will be saved locally.</string>
         <key>NSPhotoLibraryUsageDescription</key>

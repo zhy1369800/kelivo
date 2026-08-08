@@ -1810,6 +1810,8 @@
   "assistantEditLocalToolUserNotificationSubtitle": "允許大型語言模型基於 UserNotifications 發送即時/定時推送通知、查看權限狀態及管理掛起的提醒請求。",
   "assistantEditLocalToolDeviceInfoTitle": "設備與硬體狀態",
   "assistantEditLocalToolDeviceInfoSubtitle": "允許大型語言模型基於 UIKit 查詢設備型號代號 (如 iPhone16,1)、iOS 系統版本、電池電量/充電狀態、記憶體與儲存空間。",
+  "assistantEditLocalToolHealthKitTitle": "HealthKit 健康與體徵",
+  "assistantEditLocalToolHealthKitSubtitle": "允許大型語言模型基於 HealthKit 讀寫步數、心率、睡眠分析（深睡/REM/淺睡）、消耗卡路里、體重身高體徵與飲水膳食記錄。",
   "assistantEditMemorySwitchTitle": "記憶",
   "assistantEditMemorySwitchDescription": "允許助理主動儲存並在對話間引用使用者相關資訊",
   "assistantEditOutlineModeTitle": "二級列表樣式",

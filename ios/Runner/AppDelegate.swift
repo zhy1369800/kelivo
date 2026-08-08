@@ -18,6 +18,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
   private let bleBridgeHandler = BleBridgeHandler()
   private let userNotificationHandler = UserNotificationHandler()
   private let deviceInfoHandler = DeviceInfoHandler()
+  private let healthKitHandler = HealthKitHandler()
 
   override func application(
     _ application: UIApplication,
@@ -93,6 +94,11 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       let deviceInfoChannel = FlutterMethodChannel(name: "app.device_info", binaryMessenger: controller.binaryMessenger)
       deviceInfoChannel.setMethodCallHandler { [weak self] call, result in
         self?.deviceInfoHandler.handle(call: call, result: result)
+      }
+
+      let healthKitChannel = FlutterMethodChannel(name: "app.health_kit", binaryMessenger: controller.binaryMessenger)
+      healthKitChannel.setMethodCallHandler { [weak self] call, result in
+        self?.healthKitHandler.handle(call: call, result: result)
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

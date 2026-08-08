@@ -22,6 +22,7 @@ class LocalToolNames {
   static const String bleBridge = 'ble_bridge_tool';
   static const String userNotification = 'user_notification_tool';
   static const String deviceInfo = 'device_info_tool';
+  static const String healthKit = 'health_kit_tool';
 }
 
 class LocalToolsService {
@@ -413,6 +414,55 @@ class LocalToolsService {
                     'The operation to perform: "info" (default, comprehensive device info summary), "battery" (battery level percent & charging state), or "storage" (disk space in GB & bytes).',
               },
             },
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.healthKit)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.healthKit,
+          'description':
+              'HealthKit tool for querying and logging iOS HealthKit data: step count history, heart rate & resting heart rate, sleep analysis (deep/REM/core/awake), active & basal calories, body weight/height/BMI, water & nutrition, and logging new health samples.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'summary',
+                  'request_permission',
+                  'query_steps',
+                  'query_heart_rate',
+                  'query_sleep',
+                  'query_energy',
+                  'query_body',
+                  'query_nutrition',
+                  'log_sample'
+                ],
+                'description':
+                    'The operation to perform: "summary" (default, aggregated daily health overview), "request_permission" (request HealthKit read/write permissions), "query_steps" (daily step count), "query_heart_rate" (heart rate samples), "query_sleep" (sleep analysis), "query_energy" (calories burned), "query_body" (weight/height/BMI), "query_nutrition" (water/calories consumed), "log_sample" (write a new sample).',
+              },
+              'days': {
+                'type': 'number',
+                'description': 'Number of past days to query for steps or sleep. Default: 7.',
+              },
+              'limit': {
+                'type': 'number',
+                'description': 'Limit of samples for heart rate query. Default: 20.',
+              },
+              'type': {
+                'type': 'string',
+                'enum': ['steps', 'weight', 'water', 'heart_rate', 'calories'],
+                'description': 'Sample type to write when action is "log_sample".',
+              },
+              'value': {
+                'type': 'number',
+                'description': 'Numerical value to log (e.g. 1000 for steps, 68.5 for weight in kg, 250 for water in ml). Required for log_sample.',
+              },
+            },
+            'required': ['action'],
           },
         },
       });

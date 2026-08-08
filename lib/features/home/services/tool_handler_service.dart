@@ -20,6 +20,7 @@ import '../../../core/services/native_weather_kit_service.dart';
 import '../../../core/services/native_ble_bridge_service.dart';
 import '../../../core/services/native_user_notification_service.dart';
 import '../../../core/services/native_device_info_service.dart';
+import '../../../core/services/native_health_kit_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -654,6 +655,39 @@ class ToolHandlerService {
             );
           }
           return await _handleDeviceInfoTool(args: args);
+        }
+
+        // Handle health_kit_tool
+        if (name == LocalToolNames.healthKit) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.healthKit)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The health_kit_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final hkAction = (args['action'] ?? '').toString().trim().toLowerCase();
+          // Write action or permission request — gate with approval
+          if ((hkAction == 'log_sample' || hkAction == 'request_permission') && approvalService != null) {
+            final toolCallId =
+                '${name}_${DateTime.now().microsecondsSinceEpoch}';
+            final result = await approvalService.requestApproval(
+              toolCallId: toolCallId,
+              toolName: name,
+              arguments: args,
+              conversationId: conversationId,
+            );
+            if (!result.approved) {
+              return _toolError(
+                error: 'approval_denied',
+                message:
+                    result.denyReason ?? 'User denied HealthKit operation.',
+                tool: name,
+              );
+            }
+          }
+          return await _handleHealthKitTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -1895,6 +1929,79 @@ class ToolHandlerService {
         error: 'device_info_error',
         message: e.toString(),
         tool: LocalToolNames.deviceInfo,
+      );
+    }
+  }
+
+  /// Handle health_kit_tool (iOS HealthKit HKHealthStore)
+  Future<String> _handleHealthKitTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'summary').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'summary':
+          final data = await NativeHealthKitService.getSummary();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'request_permission':
+          final data = await NativeHealthKitService.requestPermission();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'query_steps':
+          final days = (args['days'] as num?)?.toInt() ?? 7;
+          final data = await NativeHealthKitService.querySteps(days: days);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'query_heart_rate':
+          final limit = (args['limit'] as num?)?.toInt() ?? 20;
+          final data = await NativeHealthKitService.queryHeartRate(limit: limit);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'query_sleep':
+          final days = (args['days'] as num?)?.toInt() ?? 7;
+          final data = await NativeHealthKitService.querySleep(days: days);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'query_energy':
+          final data = await NativeHealthKitService.queryEnergy();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'query_body':
+          final data = await NativeHealthKitService.queryBody();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'query_nutrition':
+          final data = await NativeHealthKitService.queryNutrition();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'log_sample':
+          final typeName = (args['type'] ?? '').toString().trim();
+          final value = (args['value'] as num?)?.toDouble();
+          if (typeName.isEmpty || value == null) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameters "type" and "value" are required for log_sample.',
+              tool: LocalToolNames.healthKit,
+            );
+          }
+          final data = await NativeHealthKitService.logSample(type: typeName, value: value);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message:
+                'Unknown action "$action". Valid: summary, request_permission, query_steps, query_heart_rate, query_sleep, query_energy, query_body, query_nutrition, log_sample.',
+            tool: LocalToolNames.healthKit,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'health_kit_error',
+        message: e.toString(),
+        tool: LocalToolNames.healthKit,
       );
     }
   }

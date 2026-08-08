@@ -45,6 +45,9 @@ class _LocalToolsTab extends StatelessWidget {
     final deviceInfoEnabled = assistant.localToolIds.contains(
       LocalToolNames.deviceInfo,
     );
+    final healthKitEnabled = assistant.localToolIds.contains(
+      LocalToolNames.healthKit,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -165,6 +168,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: deviceInfoEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.deviceInfo, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Heart,
+              title: l10n.assistantEditLocalToolHealthKitTitle,
+              subtitle: l10n.assistantEditLocalToolHealthKitSubtitle,
+              enabled: healthKitEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.healthKit, value),
             ),
           ],
         ),
