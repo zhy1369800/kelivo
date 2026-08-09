@@ -16,6 +16,24 @@ final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     return manager
   }
 
+  private var discoveredPeripherals = [String: CBPeripheral]()
+  private var connectedPeripherals = [String: CBPeripheral]()
+  private var scanResults = [[String: Any]]()
+
+  // Semaphores / callbacks for sync/async operations
+  private var pendingResult: FlutterResult?
+  private var pendingOperation: String?
+
+  // Current active read/write/discover targets
+  private var targetPeripheralUuid: String?
+  private var targetServiceUuid: String?
+  private var targetCharacteristicUuid: String?
+  private var writeValueHex: String?
+  private var writeValueData: Data?
+
+  // Read response
+  private var lastReadData: Data?
+
   override init() {
     super.init()
   }
@@ -189,17 +207,12 @@ final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     if pendingOperation == "read" {
       let data = characteristic.value ?? Data()
       let hex = data.map { String(format: "%02hhx", $0) }.joined()
-      let base64 = data.base64EncodedString()
-      let utf8String = String(data: data, encoding: .utf8) ?? ""
-
+      lastReadData = data
       pendingResult?([
         "success": true,
-        "uuid": peripheral.identifier.uuidString,
-        "characteristic_uuid": characteristic.uuid.uuidString,
-        "value_hex": hex,
-        "value_base64": base64,
-        "value_string": utf8String,
-        "length_bytes": data.count
+        "uuid": characteristic.uuid.uuidString,
+        "hex": hex,
+        "utf8": String(data: data, encoding: .utf8) ?? ""
       ])
       clearPending()
     }
@@ -212,9 +225,8 @@ final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDe
       } else {
         pendingResult?([
           "success": true,
-          "uuid": peripheral.identifier.uuidString,
-          "characteristic_uuid": characteristic.uuid.uuidString,
-          "message": "Value written successfully."
+          "uuid": characteristic.uuid.uuidString,
+          "message": "Write operation completed successfully."
         ])
       }
       clearPending()
@@ -289,9 +301,10 @@ final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     // Timeout
     DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
-      if self?.pendingOperation == "connect" {
-        self?.pendingResult?(FlutterError(code: "connection_timeout", message: "Connection to '\(uuid)' timed out after 10s.", details: nil))
-        self?.clearPending()
+      guard let self = self else { return }
+      if self.pendingOperation == "connect" && self.targetPeripheralUuid == uuid {
+        self.pendingResult?(FlutterError(code: "timeout", message: "Connection to peripheral timed out.", details: nil))
+        self.clearPending()
       }
     }
   }
@@ -303,7 +316,7 @@ final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     }
 
     guard let peripheral = connectedPeripherals[uuid] else {
-      result(["success": true, "uuid": uuid, "message": "Peripheral is not currently connected."])
+      result(FlutterError(code: "device_not_connected", message: "Peripheral with UUID '\(uuid)' is not connected.", details: nil))
       return
     }
 
@@ -320,8 +333,8 @@ final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDe
       return
     }
 
-    guard let peripheral = connectedPeripherals[uuid], peripheral.state == .connected else {
-      result(FlutterError(code: "not_connected", message: "Peripheral '\(uuid)' is not connected. Connect first.", details: nil))
+    guard let peripheral = connectedPeripherals[uuid] else {
+      result(FlutterError(code: "device_not_connected", message: "Peripheral with UUID '\(uuid)' is not connected.", details: nil))
       return
     }
 
@@ -329,133 +342,78 @@ final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     pendingOperation = "discoverServices"
     targetPeripheralUuid = uuid
 
-    peripheral.delegate = self
     peripheral.discoverServices(nil)
-
-    // Timeout
-    DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
-      if self?.pendingOperation == "discoverServices" {
-        self?.pendingResult?(FlutterError(code: "discover_timeout", message: "Discovering services timed out.", details: nil))
-        self?.clearPending()
-      }
-    }
   }
 
   private func readCharacteristic(args: [String: Any], result: @escaping FlutterResult) {
-    guard let uuid = args["uuid"] as? String,
-          let serviceUuid = args["service_uuid"] as? String,
-          let charUuid = args["characteristic_uuid"] as? String else {
+    guard let peripheralUuid = args["uuid"] as? String, !peripheralUuid.isEmpty,
+          let serviceUuid = args["service_uuid"] as? String, !serviceUuid.isEmpty,
+          let charUuid = args["characteristic_uuid"] as? String, !charUuid.isEmpty else {
       result(FlutterError(code: "invalid_args", message: "Parameters 'uuid', 'service_uuid', and 'characteristic_uuid' are required.", details: nil))
       return
     }
 
-    guard let peripheral = connectedPeripherals[uuid], peripheral.state == .connected else {
-      result(FlutterError(code: "not_connected", message: "Peripheral '\(uuid)' is not connected.", details: nil))
+    guard let peripheral = connectedPeripherals[peripheralUuid] else {
+      result(FlutterError(code: "device_not_connected", message: "Peripheral with UUID '\(peripheralUuid)' is not connected.", details: nil))
       return
     }
 
-    guard let characteristic = findCharacteristic(peripheral: peripheral, serviceUuid: serviceUuid, charUuid: charUuid) else {
-      result(FlutterError(code: "characteristic_not_found", message: "Characteristic '\(charUuid)' in service '\(serviceUuid)' not found. Run 'discoverServices' first.", details: nil))
+    guard let service = peripheral.services?.first(where: { $0.uuid.uuidString.lowercased() == serviceUuid.lowercased() }),
+          let characteristic = service.characteristics?.first(where: { $0.uuid.uuidString.lowercased() == charUuid.lowercased() }) else {
+      result(FlutterError(code: "characteristic_not_found", message: "Service or Characteristic not found on peripheral.", details: nil))
       return
     }
 
     pendingResult = result
     pendingOperation = "read"
+    targetPeripheralUuid = peripheralUuid
+    targetServiceUuid = serviceUuid
+    targetCharacteristicUuid = charUuid
 
     peripheral.readValue(for: characteristic)
-
-    // Timeout
-    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
-      if self?.pendingOperation == "read" {
-        self?.pendingResult?(FlutterError(code: "read_timeout", message: "Reading characteristic timed out.", details: nil))
-        self?.clearPending()
-      }
-    }
   }
 
   private func writeCharacteristic(args: [String: Any], result: @escaping FlutterResult) {
-    guard let uuid = args["uuid"] as? String,
-          let serviceUuid = args["service_uuid"] as? String,
-          let charUuid = args["characteristic_uuid"] as? String else {
-      result(FlutterError(code: "invalid_args", message: "Parameters 'uuid', 'service_uuid', and 'characteristic_uuid' are required.", details: nil))
+    guard let peripheralUuid = args["uuid"] as? String, !peripheralUuid.isEmpty,
+          let serviceUuid = args["service_uuid"] as? String, !serviceUuid.isEmpty,
+          let charUuid = args["characteristic_uuid"] as? String, !charUuid.isEmpty,
+          let valueHex = args["value_hex"] as? String else {
+      result(FlutterError(code: "invalid_args", message: "Parameters 'uuid', 'service_uuid', 'characteristic_uuid', and 'value_hex' are required.", details: nil))
       return
     }
 
-    guard let peripheral = connectedPeripherals[uuid], peripheral.state == .connected else {
-      result(FlutterError(code: "not_connected", message: "Peripheral '\(uuid)' is not connected.", details: nil))
+    guard let peripheral = connectedPeripherals[peripheralUuid] else {
+      result(FlutterError(code: "device_not_connected", message: "Peripheral with UUID '\(peripheralUuid)' is not connected.", details: nil))
       return
     }
 
-    guard let characteristic = findCharacteristic(peripheral: peripheral, serviceUuid: serviceUuid, charUuid: charUuid) else {
-      result(FlutterError(code: "characteristic_not_found", message: "Characteristic '\(charUuid)' not found.", details: nil))
+    guard let service = peripheral.services?.first(where: { $0.uuid.uuidString.lowercased() == serviceUuid.lowercased() }),
+          let characteristic = service.characteristics?.first(where: { $0.uuid.uuidString.lowercased() == charUuid.lowercased() }) else {
+      result(FlutterError(code: "characteristic_not_found", message: "Service or Characteristic not found on peripheral.", details: nil))
       return
     }
 
-    var dataToWrite: Data?
-    if let hex = args["value_hex"] as? String {
-      dataToWrite = dataFromHex(hex)
-    } else if let stringVal = args["value_string"] as? String {
-      dataToWrite = stringVal.data(using: .utf8)
-    }
-
-    guard let data = dataToWrite, !data.isEmpty else {
-      result(FlutterError(code: "invalid_value", message: "Either 'value_hex' or 'value_string' with valid data is required.", details: nil))
+    guard let data = hexStringToData(valueHex) else {
+      result(FlutterError(code: "invalid_hex", message: "Failed to parse 'value_hex' into binary data.", details: nil))
       return
     }
 
     pendingResult = result
     pendingOperation = "write"
+    targetPeripheralUuid = peripheralUuid
+    targetServiceUuid = serviceUuid
+    targetCharacteristicUuid = charUuid
 
     let writeType: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
     peripheral.writeValue(data, for: characteristic, type: writeType)
 
     if writeType == .withoutResponse {
-      result(["success": true, "uuid": uuid, "characteristic_uuid": charUuid, "message": "Value written (without response)."])
+      result(["success": true, "uuid": charUuid, "message": "Write without response sent."])
       clearPending()
-    } else {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
-        if self?.pendingOperation == "write" {
-          self?.pendingResult?(FlutterError(code: "write_timeout", message: "Writing characteristic timed out.", details: nil))
-          self?.clearPending()
-        }
-      }
     }
   }
 
   // MARK: - Helpers
-
-  private func findCharacteristic(peripheral: CBPeripheral, serviceUuid: String, charUuid: String) -> CBCharacteristic? {
-    guard let services = peripheral.services else { return nil }
-    for s in services {
-      if s.uuid.uuidString.caseInsensitiveCompare(serviceUuid) == .orderedSame {
-        for c in s.characteristics ?? [] {
-          if c.uuid.uuidString.caseInsensitiveCompare(charUuid) == .orderedSame {
-            return c
-          }
-        }
-      }
-    }
-    return nil
-  }
-
-  private func dataFromHex(_ hex: String) -> Data? {
-    var data = Data()
-    var hexStr = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-    if hexStr.hasPrefix("0x") || hexStr.hasPrefix("0X") {
-      hexStr = String(hexStr.dropFirst(2))
-    }
-    var temp = ""
-    for char in hexStr {
-      temp.append(char)
-      if temp.count == 2 {
-        if let byte = UInt8(temp, radix: 16) {
-          data.append(byte)
-        }
-        temp = ""
-      }
-    }
-    return data
-  }
 
   private func clearPending() {
     pendingResult = nil
@@ -463,5 +421,25 @@ final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     targetPeripheralUuid = nil
     targetServiceUuid = nil
     targetCharacteristicUuid = nil
+    writeValueHex = nil
+    writeValueData = nil
+  }
+
+  private func hexStringToData(_ hex: String) -> Data? {
+    var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "0x", with: "")
+    guard hexSanitized.count % 2 == 0 else { return nil }
+
+    var data = Data()
+    var index = hexSanitized.startIndex
+    while index < hexSanitized.endIndex {
+      let nextIndex = hexSanitized.index(index, offsetBy: 2)
+      let byteString = String(hexSanitized[index..<nextIndex])
+      if let byte = UInt8(byteString, radix: 16) {
+        data.append(byte)
+      } else {
+        return nil
+      }
+    }
+    return data
   }
 }
