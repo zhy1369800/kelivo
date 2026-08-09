@@ -75,6 +75,8 @@
 	<string>Kelivo 需要访问您的提醒事项以为您创建、管理和查看任务清单。 / Kelivo needs access to your reminders to create, manage, and view task lists.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Kelivo 需要提醒事项完全访问权限以管理您的日常待办事项。 / Kelivo needs full access to reminders to manage your to-do items.</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Kelivo 需要闹钟与计时器权限，以便您能够设置闹钟并在指定时间为您播报提醒。 / Kelivo uses AlarmKit so you can schedule alarms and timers to receive timely voice reminders.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
         <string>允许保存图片到相册，您的数据将保存在本地。/ Allow saving images to your photo library.Your data will be saved locally.</string>
         <key>NSPhotoLibraryUsageDescription</key>
