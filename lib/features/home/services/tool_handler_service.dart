@@ -27,6 +27,7 @@ import '../../../core/services/native_reminder_task_service.dart';
 import '../../../core/services/native_alarm_timer_service.dart';
 import '../../../core/services/native_apple_vision_service.dart';
 import '../../../core/services/native_speech_recognizer_service.dart';
+import '../../../core/services/native_speech_synthesizer_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -818,6 +819,27 @@ class ToolHandlerService {
             );
           }
           return await _handleSpeechRecognizerTool(args: args);
+        }
+
+        // Handle speech_synthesizer_tool
+        if (name == LocalToolNames.speechSynthesizer) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.speechSynthesizer)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The speech_synthesizer_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final approval = await checkSystemPermission(name, defaultRequiresApproval: false);
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied SpeechSynthesizer operation.',
+              tool: name,
+            );
+          }
+          return await _handleSpeechSynthesizerTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -2594,6 +2616,98 @@ class ToolHandlerService {
         error: 'speech_recognizer_error',
         message: e.toString(),
         tool: LocalToolNames.speechRecognizer,
+      );
+    }
+  }
+
+  Future<String> _handleSpeechSynthesizerTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'speak').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'speak':
+          final text = (args['text'] ?? '').toString().trim();
+          if (text.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "text" is required for speak action.',
+              tool: LocalToolNames.speechSynthesizer,
+            );
+          }
+          final language = (args['language'] ?? 'zh-CN').toString().trim();
+          final voice = args['voice']?.toString();
+          final rate = (args['rate'] as num?)?.toDouble() ?? 0.5;
+          final pitch = (args['pitch'] as num?)?.toDouble() ?? 1.0;
+          final volume = (args['volume'] as num?)?.toDouble() ?? 1.0;
+          final data = await NativeSpeechSynthesizerService.speak(
+            text: text,
+            language: language,
+            voice: voice,
+            rate: rate,
+            pitch: pitch,
+            volume: volume,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'synthesize_to_file':
+        case 'write_to_file':
+          final text = (args['text'] ?? '').toString().trim();
+          if (text.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "text" is required for synthesize_to_file action.',
+              tool: LocalToolNames.speechSynthesizer,
+            );
+          }
+          final outputPath = args['output_path']?.toString();
+          final language = (args['language'] ?? 'zh-CN').toString().trim();
+          final voice = args['voice']?.toString();
+          final rate = (args['rate'] as num?)?.toDouble() ?? 0.5;
+          final pitch = (args['pitch'] as num?)?.toDouble() ?? 1.0;
+          final data = await NativeSpeechSynthesizerService.synthesizeToFile(
+            text: text,
+            outputPath: outputPath,
+            language: language,
+            voice: voice,
+            rate: rate,
+            pitch: pitch,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'get_voices':
+        case 'list_voices':
+          final language = args['language']?.toString();
+          final data = await NativeSpeechSynthesizerService.getVoices(language: language);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'stop':
+          final data = await NativeSpeechSynthesizerService.stop();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'pause':
+          final data = await NativeSpeechSynthesizerService.pause();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'continue':
+        case 'resume':
+          final data = await NativeSpeechSynthesizerService.continueSpeech();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message:
+                'Unknown action "$action". Valid: speak, synthesize_to_file, get_voices, stop, pause, continue.',
+            tool: LocalToolNames.speechSynthesizer,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'speech_synthesizer_error',
+        message: e.toString(),
+        tool: LocalToolNames.speechSynthesizer,
       );
     }
   }

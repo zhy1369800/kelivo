@@ -2231,6 +2231,8 @@
   "assistantEditLocalToolAppleVisionSubtitle": "Allow the assistant to perform fast on-device OCR text recognition, QR/barcode scanning, face detection, and image classification via Apple Vision.",
   "assistantEditLocalToolSpeechRecognizerTitle": "SpeechRecognizer Offline STT",
   "assistantEditLocalToolSpeechRecognizerSubtitle": "Allow the assistant to perform fast 100% on-device offline speech-to-text transcription of audio files via Apple SFSpeechRecognizer.",
+  "assistantEditLocalToolSpeechSynthesizerTitle": "SpeechSynthesizer Offline TTS",
+  "assistantEditLocalToolSpeechSynthesizerSubtitle": "Allow the assistant to perform fast on-device offline text-to-speech playback and audio file synthesis via Apple AVSpeechSynthesizer.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

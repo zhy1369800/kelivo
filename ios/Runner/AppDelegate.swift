@@ -24,6 +24,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
   private let alarmTimerHandler = AlarmTimerHandler()
   private let appleVisionHandler = AppleVisionHandler()
   private let appleSpeechRecognizerHandler = AppleSpeechRecognizerHandler()
+  private let appleSpeechSynthesizerHandler = AppleSpeechSynthesizerHandler()
 
   override func application(
     _ application: UIApplication,
@@ -130,6 +131,11 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       let speechRecognizerChannel = FlutterMethodChannel(name: "app.speech_recognizer", binaryMessenger: controller.binaryMessenger)
       speechRecognizerChannel.setMethodCallHandler { [weak self] call, result in
         self?.appleSpeechRecognizerHandler.handle(call: call, result: result)
+      }
+
+      let speechSynthesizerChannel = FlutterMethodChannel(name: "app.speech_synthesizer", binaryMessenger: controller.binaryMessenger)
+      speechSynthesizerChannel.setMethodCallHandler { [weak self] call, result in
+        self?.appleSpeechSynthesizerHandler.handle(call: call, result: result)
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

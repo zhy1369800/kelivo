@@ -1836,6 +1836,8 @@
   "assistantEditLocalToolAppleVisionSubtitle": "允许大模型基于 Apple Vision 框架在端侧毫秒级执行图像文字识别 (OCR)、二维码/条码扫描、人脸检测及图像分类。",
   "assistantEditLocalToolSpeechRecognizerTitle": "SFSpeechRecognizer 离线语音识别",
   "assistantEditLocalToolSpeechRecognizerSubtitle": "允许大模型基于 SFSpeechRecognizer 在端侧 100% 离线将录音与音频文件识别转写为精准文本 (STT)。",
+  "assistantEditLocalToolSpeechSynthesizerTitle": "AVSpeechSynthesizer 离线语音合成",
+  "assistantEditLocalToolSpeechSynthesizerSubtitle": "允许大模型基于 AVSpeechSynthesizer 在端侧离线合成高品质语音朗读文本 (TTS)、导出音频文件及查询高级音色。",
   "assistantEditMemorySwitchTitle": "记忆",
   "assistantEditMemorySwitchDescription": "允许助手主动存储并在对话间引用用户相关信息",
   "assistantEditOutlineModeTitle": "二级列表样式",

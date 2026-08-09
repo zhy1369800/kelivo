@@ -63,6 +63,9 @@ class _LocalToolsTab extends StatelessWidget {
     final speechRecognizerEnabled = assistant.localToolIds.contains(
       LocalToolNames.speechRecognizer,
     );
+    final speechSynthesizerEnabled = assistant.localToolIds.contains(
+      LocalToolNames.speechSynthesizer,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -237,6 +240,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: speechRecognizerEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.speechRecognizer, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Volume2,
+              title: l10n.assistantEditLocalToolSpeechSynthesizerTitle,
+              subtitle: l10n.assistantEditLocalToolSpeechSynthesizerSubtitle,
+              enabled: speechSynthesizerEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.speechSynthesizer, value),
             ),
           ],
         ),

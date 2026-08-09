@@ -28,6 +28,7 @@ class LocalToolNames {
   static const String alarmTimer = 'alarm_timer_tool';
   static const String appleVision = 'apple_vision_tool';
   static const String speechRecognizer = 'speech_recognizer_tool';
+  static const String speechSynthesizer = 'speech_synthesizer_tool';
 }
 
 class LocalToolsService {
@@ -747,6 +748,63 @@ class LocalToolsService {
               'force_offline': {
                 'type': 'boolean',
                 'description': 'Whether to force 100% on-device offline recognition without network calls. Default: true.',
+              },
+            },
+            'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.speechSynthesizer)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.speechSynthesizer,
+          'description':
+              'Apple AVSpeechSynthesizer tool for on-device offline text-to-speech (TTS) playback, audio file synthesis export, voice query, and speech playback controls.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'speak',
+                  'synthesize_to_file',
+                  'get_voices',
+                  'stop',
+                  'pause',
+                  'continue'
+                ],
+                'description':
+                    'The operation to perform: "speak" (real-time offline speech playback), "synthesize_to_file" (render text speech to audio file), "get_voices" (list system voices and Enhanced/Premium quality), "stop" (stop playback), "pause" (pause playback), "continue" (resume playback).',
+              },
+              'text': {
+                'type': 'string',
+                'description': 'Text content to speak or synthesize to file. Required for speak and synthesize_to_file.',
+              },
+              'language': {
+                'type': 'string',
+                'description': 'Language code (e.g. "zh-CN", "en-US", "zh-HK", "ja-JP"). Default: "zh-CN".',
+              },
+              'voice': {
+                'type': 'string',
+                'description': 'Specific voice identifier or name to use. Optional.',
+              },
+              'rate': {
+                'type': 'number',
+                'description': 'Speech rate from 0.0 to 1.0. Default: 0.5.',
+              },
+              'pitch': {
+                'type': 'number',
+                'description': 'Pitch multiplier from 0.5 to 2.0. Default: 1.0.',
+              },
+              'volume': {
+                'type': 'number',
+                'description': 'Volume from 0.0 to 1.0. Default: 1.0.',
+              },
+              'output_path': {
+                'type': 'string',
+                'description': 'Custom output audio file path for synthesize_to_file. Optional.',
               },
             },
             'required': ['action'],

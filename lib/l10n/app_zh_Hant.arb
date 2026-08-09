@@ -1829,6 +1829,8 @@
   "assistantEditLocalToolAppleVisionSubtitle": "允許大型語言模型基於 Apple Vision 框架在端側毫秒級執行圖像文字識別 (OCR)、二維碼/條碼掃描、人臉檢測及圖像分類。",
   "assistantEditLocalToolSpeechRecognizerTitle": "SFSpeechRecognizer 離線語音識別",
   "assistantEditLocalToolSpeechRecognizerSubtitle": "允許大型語言模型基於 SFSpeechRecognizer 在端側 100% 離線將錄音與音訊檔案識別轉寫為精準文字 (STT)。",
+  "assistantEditLocalToolSpeechSynthesizerTitle": "AVSpeechSynthesizer 離線語音合成",
+  "assistantEditLocalToolSpeechSynthesizerSubtitle": "允許大型語言模型基於 AVSpeechSynthesizer 在端側離線合成高品質語音朗讀文字 (TTS)、匯出音訊檔案及查詢高級音色。",
   "assistantEditMemorySwitchTitle": "記憶",
   "assistantEditMemorySwitchDescription": "允許助理主動儲存並在對話間引用使用者相關資訊",
   "assistantEditOutlineModeTitle": "二級列表樣式",
