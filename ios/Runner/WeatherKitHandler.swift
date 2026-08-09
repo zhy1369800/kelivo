@@ -10,19 +10,6 @@ final class WeatherKitHandler: NSObject {
       return
     }
 
-    if #available(iOS 16.0, *) {
-      getWeather(call: call, result: result)
-    } else {
-      result(FlutterError(
-        code: "weather_kit_not_supported",
-        message: "WeatherKit requires iOS 16.0 or higher.",
-        details: nil
-      ))
-    }
-  }
-
-  @available(iOS 16.0, *)
-  private func getWeather(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = call.arguments as? [String: Any] ?? [:]
     guard let lat = args["latitude"] as? Double,
           let lng = args["longitude"] as? Double else {
@@ -34,6 +21,15 @@ final class WeatherKitHandler: NSObject {
       return
     }
 
+    if #available(iOS 16.0, *) {
+      getWeather(latitude: lat, longitude: lng, result: result)
+    } else {
+      fetchFallbackWeather(latitude: lat, longitude: lng, result: result)
+    }
+  }
+
+  @available(iOS 16.0, *)
+  private func getWeather(latitude lat: Double, longitude lng: Double, result: @escaping FlutterResult) {
     let location = CLLocation(latitude: lat, longitude: lng)
     let service = WeatherService.shared
 
@@ -44,6 +40,7 @@ final class WeatherKitHandler: NSObject {
 
         // 1. Current Weather
         let current = weather.currentWeather
+        response["provider"] = "Apple WeatherKit"
         response["current"] = [
           "condition": current.condition.description,
           "temperature_c": (current.temperature.converted(to: .celsius).value * 10).rounded() / 10,
@@ -133,14 +130,122 @@ final class WeatherKitHandler: NSObject {
           result(response)
         }
       } catch {
-        DispatchQueue.main.async {
-          result(FlutterError(
-            code: "weather_fetch_failed",
-            message: error.localizedDescription,
-            details: nil
-          ))
-        }
+        // Fallback to Open-Meteo REST API when WeatherKit throws entitlement/JWT error
+        self.fetchFallbackWeather(latitude: lat, longitude: lng, result: result)
       }
+    }
+  }
+
+  // MARK: - Open-Meteo Free Fallback Weather
+
+  private func fetchFallbackWeather(latitude lat: Double, longitude lng: Double, result: @escaping FlutterResult) {
+    let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lng)&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,surface_pressure,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max&timezone=auto"
+
+    guard let url = URL(string: urlString) else {
+      result(FlutterError(code: "weather_fetch_failed", message: "Invalid fallback URL.", details: nil))
+      return
+    }
+
+    let task = URLSession.shared.dataTask(with: url) { data, _, error in
+      if let error = error {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "weather_fetch_failed", message: error.localizedDescription, details: nil))
+        }
+        return
+      }
+
+      guard let data = data,
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "weather_fetch_failed", message: "Failed to parse Open-Meteo weather response.", details: nil))
+        }
+        return
+      }
+
+      let parsed = self.formatOpenMeteoResponse(json: json, lat: lat, lng: lng)
+      DispatchQueue.main.async {
+        result(parsed)
+      }
+    }
+    task.resume()
+  }
+
+  private func formatOpenMeteoResponse(json: [String: Any], lat: Double, lng: Double) -> [String: Any] {
+    var response = [String: Any]()
+    response["provider"] = "Open-Meteo (Free Fallback)"
+
+    if let current = json["current"] as? [String: Any] {
+      let code = (current["weather_code"] as? NSNumber)?.intValue ?? 0
+      let temp = (current["temperature_2m"] as? NSNumber)?.doubleValue ?? 0.0
+      let apparent = (current["apparent_temperature"] as? NSNumber)?.doubleValue ?? temp
+      let humidity = (current["relative_humidity_2m"] as? NSNumber)?.doubleValue ?? 0.0
+      let windSpeed = (current["wind_speed_10m"] as? NSNumber)?.doubleValue ?? 0.0
+      let pressure = (current["surface_pressure"] as? NSNumber)?.doubleValue ?? 1013.2
+      let isDay = ((current["is_day"] as? NSNumber)?.intValue ?? 1) == 1
+
+      response["current"] = [
+        "condition": wmoCodeToCondition(code),
+        "temperature_c": temp,
+        "apparent_temperature_c": apparent,
+        "humidity": humidity,
+        "wind_speed_kmh": windSpeed,
+        "pressure_hpa": pressure,
+        "is_daylight": isDay,
+        "location": ["latitude": lat, "longitude": lng]
+      ] as [String: Any]
+    }
+
+    if let hourly = json["hourly"] as? [String: Any],
+       let times = hourly["time"] as? [String],
+       let temps = hourly["temperature_2m"] as? [Double],
+       let humidities = hourly["relative_humidity_2m"] as? [Double],
+       let codes = hourly["weather_code"] as? [Int] {
+      var hourlyList = [[String: Any]]()
+      let limit = min(times.count, 48)
+      for i in 0..<limit {
+        hourlyList.append([
+          "date": times[i],
+          "condition": wmoCodeToCondition(codes[i]),
+          "temp_c": temps[i],
+          "humidity": humidities[i]
+        ])
+      }
+      response["hourly"] = hourlyList
+    }
+
+    if let daily = json["daily"] as? [String: Any],
+       let times = daily["time"] as? [String],
+       let maxTemps = daily["temperature_2m_max"] as? [Double],
+       let minTemps = daily["temperature_2m_min"] as? [Double],
+       let codes = daily["weather_code"] as? [Int] {
+      var dailyList = [[String: Any]]()
+      let limit = min(times.count, 10)
+      for i in 0..<limit {
+        dailyList.append([
+          "date": times[i],
+          "condition": wmoCodeToCondition(codes[i]),
+          "high_c": maxTemps[i],
+          "low_c": minTemps[i]
+        ])
+      }
+      response["daily"] = dailyList
+    }
+
+    response["alerts"] = [[String: Any]]()
+    return response
+  }
+
+  private func wmoCodeToCondition(_ code: Int) -> String {
+    switch code {
+    case 0: return "Clear"
+    case 1, 2, 3: return "Partly Cloudy"
+    case 45, 48: return "Foggy"
+    case 51, 53, 55: return "Drizzle"
+    case 61, 63, 65: return "Rain"
+    case 71, 73, 75: return "Snow"
+    case 80, 81, 82: return "Showers"
+    case 95, 96, 99: return "Thunderstorm"
+    default: return "Partly Cloudy"
     }
   }
 }
