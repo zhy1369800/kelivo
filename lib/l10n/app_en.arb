@@ -2216,6 +2216,8 @@
   "assistantEditLocalToolHealthKitSubtitle": "Allow the assistant to query and log step count, heart rate, sleep analysis, active/basal calories, body weight/height/BMI, and nutrition.",
   "assistantEditLocalToolCalendarEventTitle": "Calendar Events & Schedule",
   "assistantEditLocalToolCalendarEventSubtitle": "Allow the assistant to list upcoming events, search schedules, create new calendar entries with alarms, and delete events.",
+  "assistantEditLocalToolReminderTaskTitle": "Reminders & Task Lists",
+  "assistantEditLocalToolReminderTaskSubtitle": "Allow the assistant to list reminders, create to-do tasks, mark items complete/incomplete, delete items, and manage reminder lists.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

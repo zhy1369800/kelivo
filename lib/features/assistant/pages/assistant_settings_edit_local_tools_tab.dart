@@ -51,6 +51,9 @@ class _LocalToolsTab extends StatelessWidget {
     final calendarEventEnabled = assistant.localToolIds.contains(
       LocalToolNames.calendarEvent,
     );
+    final reminderTaskEnabled = assistant.localToolIds.contains(
+      LocalToolNames.reminderTask,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -189,6 +192,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: calendarEventEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.calendarEvent, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.CheckSquare,
+              title: l10n.assistantEditLocalToolReminderTaskTitle,
+              subtitle: l10n.assistantEditLocalToolReminderTaskSubtitle,
+              enabled: reminderTaskEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.reminderTask, value),
             ),
           ],
         ),

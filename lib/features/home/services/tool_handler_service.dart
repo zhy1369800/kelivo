@@ -22,6 +22,7 @@ import '../../../core/services/native_user_notification_service.dart';
 import '../../../core/services/native_device_info_service.dart';
 import '../../../core/services/native_health_kit_service.dart';
 import '../../../core/services/native_calendar_event_service.dart';
+import '../../../core/services/native_reminder_task_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -725,6 +726,43 @@ class ToolHandlerService {
             }
           }
           return await _handleCalendarEventTool(args: args);
+        }
+
+        // Handle reminder_task_tool
+        if (name == LocalToolNames.reminderTask) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.reminderTask)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The reminder_task_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final remAction = (args['action'] ?? '').toString().trim().toLowerCase();
+          // Write, update, delete, or permission request — gate with approval
+          if ((remAction == 'create_reminder' ||
+                  remAction == 'complete_reminder' ||
+                  remAction == 'delete_reminder' ||
+                  remAction == 'request_permission') &&
+              approvalService != null) {
+            final toolCallId =
+                '${name}_${DateTime.now().microsecondsSinceEpoch}';
+            final result = await approvalService.requestApproval(
+              toolCallId: toolCallId,
+              toolName: name,
+              arguments: args,
+              conversationId: conversationId,
+            );
+            if (!result.approved) {
+              return _toolError(
+                error: 'approval_denied',
+                message:
+                    result.denyReason ?? 'User denied Reminders operation.',
+                tool: name,
+              );
+            }
+          }
+          return await _handleReminderTaskTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -2120,6 +2158,99 @@ class ToolHandlerService {
         error: 'calendar_event_error',
         message: e.toString(),
         tool: LocalToolNames.calendarEvent,
+      );
+    }
+  }
+
+  /// Handle reminder_task_tool (iOS EventKit EKEventStore entityType: .reminder)
+  Future<String> _handleReminderTaskTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'list_reminders').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'list_reminders':
+          final listName = args['list_name']?.toString();
+          final includeCompleted = (args['include_completed'] as bool?) ?? false;
+          final data = await NativeReminderTaskService.listReminders(
+            listName: listName,
+            includeCompleted: includeCompleted,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'create_reminder':
+          final title = (args['title'] ?? '').toString().trim();
+          if (title.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "title" is required for create_reminder.',
+              tool: LocalToolNames.reminderTask,
+            );
+          }
+          final listName = args['list_name']?.toString();
+          final dueDate = args['due_date']?.toString();
+          final priority = (args['priority'] as num?)?.toInt() ?? 0;
+          final notes = args['notes']?.toString();
+
+          final data = await NativeReminderTaskService.createReminder(
+            title: title,
+            listName: listName,
+            dueDate: dueDate,
+            priority: priority,
+            notes: notes,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'complete_reminder':
+          final id = (args['id'] ?? '').toString().trim();
+          if (id.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "id" is required for complete_reminder.',
+              tool: LocalToolNames.reminderTask,
+            );
+          }
+          final completed = (args['completed'] as bool?) ?? true;
+          final data = await NativeReminderTaskService.completeReminder(
+            id: id,
+            completed: completed,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'delete_reminder':
+          final id = (args['id'] ?? '').toString().trim();
+          if (id.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "id" is required for delete_reminder.',
+              tool: LocalToolNames.reminderTask,
+            );
+          }
+          final data = await NativeReminderTaskService.deleteReminder(id: id);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'list_lists':
+          final data = await NativeReminderTaskService.listLists();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'request_permission':
+          final data = await NativeReminderTaskService.requestPermission();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message:
+                'Unknown action "$action". Valid: list_reminders, create_reminder, complete_reminder, delete_reminder, list_lists, request_permission.',
+            tool: LocalToolNames.reminderTask,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'reminder_task_error',
+        message: e.toString(),
+        tool: LocalToolNames.reminderTask,
       );
     }
   }

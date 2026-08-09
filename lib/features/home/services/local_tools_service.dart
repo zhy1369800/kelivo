@@ -24,6 +24,7 @@ class LocalToolNames {
   static const String deviceInfo = 'device_info_tool';
   static const String healthKit = 'health_kit_tool';
   static const String calendarEvent = 'calendar_event_tool';
+  static const String reminderTask = 'reminder_task_tool';
 }
 
 class LocalToolsService {
@@ -526,6 +527,67 @@ class LocalToolsService {
               'id': {
                 'type': 'string',
                 'description': 'Calendar event ID for delete_event. Required for delete_event.',
+              },
+            },
+            'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.reminderTask)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.reminderTask,
+          'description':
+              'ReminderTask tool for querying, creating, completing, and deleting iOS EventKit reminders and task lists.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'list_reminders',
+                  'create_reminder',
+                  'complete_reminder',
+                  'delete_reminder',
+                  'list_lists',
+                  'request_permission'
+                ],
+                'description':
+                    'The operation to perform: "list_reminders" (default, query to-do items), "create_reminder" (create a new reminder), "complete_reminder" (mark a reminder as complete or incomplete), "delete_reminder" (delete a reminder by ID), "list_lists" (list reminder categories/lists), "request_permission" (request Reminders access).',
+              },
+              'list_name': {
+                'type': 'string',
+                'description': 'Reminder list name for filtering in list_reminders or targeting in create_reminder.',
+              },
+              'include_completed': {
+                'type': 'boolean',
+                'description': 'Whether to include completed items in list_reminders. Default: false.',
+              },
+              'title': {
+                'type': 'string',
+                'description': 'Title for create_reminder. Required for create_reminder.',
+              },
+              'due_date': {
+                'type': 'string',
+                'description': 'Due date in ISO 8601 format (e.g. 2026-08-10T18:00:00Z) for create_reminder.',
+              },
+              'priority': {
+                'type': 'number',
+                'description': 'Priority (0: none, 1-4: high/medium/low) for create_reminder. Default: 0.',
+              },
+              'notes': {
+                'type': 'string',
+                'description': 'Notes or description for create_reminder.',
+              },
+              'id': {
+                'type': 'string',
+                'description': 'Reminder ID for complete_reminder or delete_reminder. Required for complete_reminder and delete_reminder.',
+              },
+              'completed': {
+                'type': 'boolean',
+                'description': 'Completion status for complete_reminder. Default: true.',
               },
             },
             'required': ['action'],
