@@ -1942,7 +1942,8 @@ class ToolHandlerService {
             title: title,
             subtitle: args['subtitle'] as String?,
             body: body,
-            afterSeconds: (args['after_seconds'] as num?)?.toDouble() ?? 1.0,
+            afterSeconds: (args['after_seconds'] as num?)?.toDouble(),
+            atTime: args['at_time'] as String?,
             sound: (args['sound'] as bool?) ?? true,
             id: args['id'] as String?,
           );

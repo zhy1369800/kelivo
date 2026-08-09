@@ -16,12 +16,13 @@ class NativeUserNotificationService {
     return Map<String, dynamic>.from(res ?? {});
   }
 
-  /// Schedules an immediate or delayed local notification.
+  /// Schedules an immediate, delayed, or scheduled (at ISO time) local notification.
   static Future<Map<String, dynamic>> schedule({
     required String title,
     String? subtitle,
     required String body,
-    double afterSeconds = 1.0,
+    double? afterSeconds,
+    String? atTime,
     bool sound = true,
     String? id,
   }) async {
@@ -31,7 +32,8 @@ class NativeUserNotificationService {
         'title': title,
         if (subtitle != null) 'subtitle': subtitle,
         'body': body,
-        'after_seconds': afterSeconds,
+        if (afterSeconds != null) 'after_seconds': afterSeconds,
+        if (atTime != null) 'at_time': atTime,
         'sound': sound,
         if (id != null) 'id': id,
       },

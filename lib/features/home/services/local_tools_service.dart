@@ -381,7 +381,11 @@ class LocalToolsService {
               },
               'after_seconds': {
                 'type': 'number',
-                'description': 'Delay in seconds before triggering the notification. Default: 1.0 (immediate).',
+                'description': 'Delay in seconds before triggering the notification (e.g. 300 for 5 minutes).',
+              },
+              'at_time': {
+                'type': 'string',
+                'description': 'Target trigger datetime in ISO 8601 format (e.g. 2026-08-10T18:00:00Z) for schedule action.',
               },
               'sound': {
                 'type': 'boolean',

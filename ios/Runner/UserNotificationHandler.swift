@@ -25,6 +25,22 @@ final class UserNotificationHandler: NSObject {
     }
   }
 
+  // MARK: - Permission Helper
+
+  private func ensurePermission(completion: @escaping (Bool) -> Void) {
+    notificationCenter.getNotificationSettings { settings in
+      if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional {
+        completion(true)
+      } else if settings.authorizationStatus == .notDetermined {
+        self.notificationCenter.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+          completion(granted)
+        }
+      } else {
+        completion(false)
+      }
+    }
+  }
+
   // MARK: - Get Settings
 
   private func getSettings(result: @escaping FlutterResult) {
@@ -73,38 +89,63 @@ final class UserNotificationHandler: NSObject {
     let subtitle = (args["subtitle"] as? String) ?? ""
     let body = (args["body"] as? String) ?? ""
     let sound = (args["sound"] as? Bool) ?? true
-    let afterSeconds = (args["after_seconds"] as? Double) ?? 1.0
     let customId = (args["id"] as? String) ?? "notif_\(Int(Date().timeIntervalSince1970 * 1000))"
+    let atTimeStr = args["at_time"] as? String
 
-    let content = UNMutableNotificationContent()
-    content.title = title
-    content.subtitle = subtitle
-    content.body = body
-    if sound {
-      content.sound = .default
+    // Safely cast NSNumber to double for seconds offset
+    let afterSeconds: Double?
+    if let num = args["after_seconds"] as? NSNumber {
+      afterSeconds = num.doubleValue
+    } else {
+      afterSeconds = nil
     }
 
-    // Trigger after N seconds (minimum 0.1s for UNTimeIntervalNotificationTrigger)
-    let triggerInterval = max(0.1, afterSeconds)
-    let trigger = UNTimeIntervalNotificationTrigger(timeInterval: triggerInterval, repeats: false)
+    ensurePermission { [weak self] granted in
+      guard let self = self else { return }
+      guard granted else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "permission_denied", message: "Notification permission is not granted. Please enable notifications in System Settings.", details: nil))
+        }
+        return
+      }
 
-    let request = UNNotificationRequest(identifier: customId, content: content, trigger: trigger)
+      let content = UNMutableNotificationContent()
+      content.title = title
+      content.subtitle = subtitle
+      content.body = body
+      if sound {
+        content.sound = .default
+      }
 
-    notificationCenter.add(request) { error in
-      DispatchQueue.main.async {
-        if let error = error {
-          result(FlutterError(code: "schedule_failed", message: error.localizedDescription, details: nil))
-        } else {
-          let formatter = ISO8601DateFormatter()
-          let fireDate = Date().addingTimeInterval(triggerInterval)
-          result([
-            "success": true,
-            "id": customId,
-            "title": title,
-            "body": body,
-            "after_seconds": triggerInterval,
-            "scheduled_time": formatter.string(from: fireDate)
-          ])
+      let trigger: UNNotificationTrigger
+      let isoFormatter = ISO8601DateFormatter()
+      let fireDate: Date
+
+      if let atTimeStr = atTimeStr, let parsedDate = isoFormatter.date(from: atTimeStr) {
+        fireDate = parsedDate
+        let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: parsedDate)
+        trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+      } else {
+        let sec = max(0.1, afterSeconds ?? 1.0)
+        fireDate = Date().addingTimeInterval(sec)
+        trigger = UNTimeIntervalNotificationTrigger(timeInterval: sec, repeats: false)
+      }
+
+      let request = UNNotificationRequest(identifier: customId, content: content, trigger: trigger)
+
+      self.notificationCenter.add(request) { error in
+        DispatchQueue.main.async {
+          if let error = error {
+            result(FlutterError(code: "schedule_failed", message: error.localizedDescription, details: nil))
+          } else {
+            result([
+              "success": true,
+              "id": customId,
+              "title": title,
+              "body": body,
+              "scheduled_time": isoFormatter.string(from: fireDate)
+            ])
+          }
         }
       }
     }
@@ -114,6 +155,7 @@ final class UserNotificationHandler: NSObject {
 
   private func getPending(result: @escaping FlutterResult) {
     notificationCenter.getPendingNotificationRequests { requests in
+      let isoFormatter = ISO8601DateFormatter()
       let items: [[String: Any]] = requests.map { req in
         var dict: [String: Any] = [
           "id": req.identifier,
@@ -121,11 +163,16 @@ final class UserNotificationHandler: NSObject {
           "subtitle": req.content.subtitle,
           "body": req.content.body
         ]
-        if let trigger = req.trigger as? UNTimeIntervalNotificationTrigger {
+        if let timeTrigger = req.trigger as? UNTimeIntervalNotificationTrigger {
           dict["trigger_type"] = "time_interval"
-          dict["interval_seconds"] = trigger.timeInterval
-          if let nextDate = trigger.nextTriggerDate() {
-            dict["next_trigger_time"] = ISO8601DateFormatter().string(from: nextDate)
+          dict["interval_seconds"] = timeTrigger.timeInterval
+          if let nextDate = timeTrigger.nextTriggerDate() {
+            dict["next_trigger_time"] = isoFormatter.string(from: nextDate)
+          }
+        } else if let calTrigger = req.trigger as? UNCalendarNotificationTrigger {
+          dict["trigger_type"] = "calendar"
+          if let nextDate = calTrigger.nextTriggerDate() {
+            dict["next_trigger_time"] = isoFormatter.string(from: nextDate)
           }
         }
         return dict
@@ -144,6 +191,7 @@ final class UserNotificationHandler: NSObject {
 
   private func getDelivered(result: @escaping FlutterResult) {
     notificationCenter.getDeliveredNotifications { notifications in
+      let isoFormatter = ISO8601DateFormatter()
       let items: [[String: Any]] = notifications.map { notif in
         let req = notif.request
         return [
@@ -151,7 +199,7 @@ final class UserNotificationHandler: NSObject {
           "title": req.content.title,
           "subtitle": req.content.subtitle,
           "body": req.content.body,
-          "delivered_time": ISO8601DateFormatter().string(from: notif.date)
+          "delivered_time": isoFormatter.string(from: notif.date)
         ]
       }
 
