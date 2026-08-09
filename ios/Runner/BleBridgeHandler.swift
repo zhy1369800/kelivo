@@ -72,7 +72,7 @@ final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDe
       serviceUuids = uuids.map { $0.uuidString }
     }
 
-    let isConnectable = advertisementData[CBAdvertisementDataIsConnectableKey] as? Bool ?? true
+    let isConnectable = advertisementData["kCBAdvDataIsConnectable"] as? Bool ?? true
 
     // Check if already in scanResults
     if let index = scanResults.firstIndex(where: { ($0["uuid"] as? String) == uuid }) {

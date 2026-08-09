@@ -336,9 +336,9 @@ final class HealthKitHandler: NSObject {
       }
 
       result([
-        "weight_kg": weightKg ?? NSNull(),
-        "height_cm": heightCm ?? NSNull(),
-        "bmi": bmi ?? NSNull()
+        "weight_kg": weightKg.map { $0 as Any } ?? NSNull(),
+        "height_cm": heightCm.map { $0 as Any } ?? NSNull(),
+        "bmi": bmi.map { $0 as Any } ?? NSNull()
       ])
     }
   }
@@ -390,7 +390,7 @@ final class HealthKitHandler: NSObject {
 
   private func logSample(args: [String: Any], result: @escaping FlutterResult) {
     guard let typeName = args["type"] as? String,
-          let value = (args["value"] as? num)?.doubleValue else {
+          let value = (args["value"] as? NSNumber)?.doubleValue else {
       result(FlutterError(code: "invalid_args", message: "Parameters 'type' and 'value' are required.", details: nil))
       return
     }

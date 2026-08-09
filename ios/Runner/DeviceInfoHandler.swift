@@ -62,7 +62,7 @@ final class DeviceInfoHandler: NSObject {
   private func getStorageData() -> [String: Any] {
     let homeDir = NSHomeDirectory()
     do {
-      let attrs = try NSFileManager.default.attributesOfFileSystem(forPath: homeDir)
+      let attrs = try FileManager.default.attributesOfFileSystem(forPath: homeDir)
       let totalBytes = (attrs[.systemSize] as? NSNumber)?.uint64Value ?? 0
       let freeBytes = (attrs[.systemFreeSize] as? NSNumber)?.uint64Value ?? 0
       let usedBytes = totalBytes > freeBytes ? totalBytes - freeBytes : 0
