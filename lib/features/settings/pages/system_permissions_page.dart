@@ -42,14 +42,14 @@ class SystemPermissionsPage extends StatelessWidget {
         ),
         title: Text(
           l10n.systemPermissionsPageTitle,
-          style: const TextStyle(fontWeight: AppFontWeights.semibold),
+          style: TextStyle(fontWeight: AppFontWeights.semibold),
         ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: FilledButton.tonal(
               onPressed: () async {
-                HapticFeedbackService.lightImpact();
+                Haptics.light();
                 await settings.setAllSystemPermissionPolicies(
                   SystemPermissionPolicy.bypass,
                   systemTools,
@@ -63,7 +63,7 @@ class SystemPermissionsPage extends StatelessWidget {
               ),
               child: Text(
                 l10n.systemPermissionsBypassAll,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   fontWeight: AppFontWeights.medium,
                 ),
@@ -105,7 +105,7 @@ class SystemPermissionsPage extends StatelessWidget {
                     toolName: systemTools[i],
                     policy: settings.getSystemPermissionPolicy(systemTools[i]),
                     onChanged: (newPolicy) {
-                      HapticFeedbackService.selectionClick();
+                      Haptics.soft();
                       settings.setSystemPermissionPolicy(systemTools[i], newPolicy);
                     },
                   ),
@@ -262,7 +262,7 @@ class _PermissionRow extends StatelessWidget {
               children: [
                 Text(
                   _getTitle(l10n),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 15,
                     fontWeight: AppFontWeights.medium,
                   ),
@@ -326,7 +326,7 @@ class _PermissionRow extends StatelessWidget {
                 value: SystemPermissionPolicy.ask,
                 child: Row(
                   children: [
-                    Icon(Lucide.HelpCircle, size: 16, color: cs.onSurface.withValues(alpha: 0.7)),
+                    Icon(Lucide.MessageCircleQuestionMark, size: 16, color: cs.onSurface.withValues(alpha: 0.7)),
                     const SizedBox(width: 8),
                     Text(l10n.systemPermissionsPolicyAsk),
                   ],
@@ -336,7 +336,7 @@ class _PermissionRow extends StatelessWidget {
                 value: SystemPermissionPolicy.deny,
                 child: Row(
                   children: [
-                    Icon(Lucide.Ban, size: 16, color: cs.error),
+                    Icon(Lucide.CircleX, size: 16, color: cs.error),
                     const SizedBox(width: 8),
                     Text(l10n.systemPermissionsPolicyDeny),
                   ],

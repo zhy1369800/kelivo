@@ -4470,6 +4470,37 @@ Requirements:
         _mobileAssistantDetailOutlineEnabled;
     return copy;
   }
+
+  Map<String, SystemPermissionPolicy> _systemPermissionPolicies = {};
+
+  Map<String, SystemPermissionPolicy> get systemPermissionPolicies =>
+      Map.unmodifiable(_systemPermissionPolicies);
+
+  SystemPermissionPolicy getSystemPermissionPolicy(String toolName) {
+    return _systemPermissionPolicies[toolName] ?? SystemPermissionPolicy.ask;
+  }
+
+  Future<void> setSystemPermissionPolicy(
+      String toolName, SystemPermissionPolicy policy) async {
+    _systemPermissionPolicies[toolName] = policy;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(_systemPermissionPolicies
+        .map((k, v) => MapEntry(k, v.toStorageString())));
+    await prefs.setString(_systemPermissionPoliciesKey, encoded);
+  }
+
+  Future<void> setAllSystemPermissionPolicies(
+      SystemPermissionPolicy policy, List<String> toolNames) async {
+    for (final name in toolNames) {
+      _systemPermissionPolicies[name] = policy;
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(_systemPermissionPolicies
+        .map((k, v) => MapEntry(k, v.toStorageString())));
+    await prefs.setString(_systemPermissionPoliciesKey, encoded);
+  }
 }
 
 String _normalizeProxyHost(String host) {
@@ -5241,36 +5272,5 @@ class ProviderConfig {
         k.contains('vercel') ||
         k.contains('silicon') ||
         RegExp(r'kimi|moonshot|月之暗面').hasMatch(k);
-  }
-
-  Map<String, SystemPermissionPolicy> _systemPermissionPolicies = {};
-
-  Map<String, SystemPermissionPolicy> get systemPermissionPolicies =>
-      Map.unmodifiable(_systemPermissionPolicies);
-
-  SystemPermissionPolicy getSystemPermissionPolicy(String toolName) {
-    return _systemPermissionPolicies[toolName] ?? SystemPermissionPolicy.ask;
-  }
-
-  Future<void> setSystemPermissionPolicy(
-      String toolName, SystemPermissionPolicy policy) async {
-    _systemPermissionPolicies[toolName] = policy;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = jsonEncode(_systemPermissionPolicies
-        .map((k, v) => MapEntry(k, v.toStorageString())));
-    await prefs.setString(_systemPermissionPoliciesKey, encoded);
-  }
-
-  Future<void> setAllSystemPermissionPolicies(
-      SystemPermissionPolicy policy, List<String> toolNames) async {
-    for (final name in toolNames) {
-      _systemPermissionPolicies[name] = policy;
-    }
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = jsonEncode(_systemPermissionPolicies
-        .map((k, v) => MapEntry(k, v.toStorageString())));
-    await prefs.setString(_systemPermissionPoliciesKey, encoded);
   }
 }
