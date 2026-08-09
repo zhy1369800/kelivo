@@ -20,7 +20,6 @@ class SystemPermissionsPage extends StatelessWidget {
     LocalToolNames.weatherKit,
     LocalToolNames.userNotification,
     LocalToolNames.bleBridge,
-    LocalToolNames.clipboard,
     LocalToolNames.deviceInfo,
     LocalToolNames.alarmTimer,
   ];
