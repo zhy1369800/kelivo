@@ -2,6 +2,13 @@ import Foundation
 import UserNotifications
 import Flutter
 
+#if canImport(AlarmKit)
+import AlarmKit
+
+@available(iOS 26.0, *)
+private struct KelivoAlarmMetadata: AlarmMetadata {}
+#endif
+
 final class AlarmTimerHandler: NSObject {
   private let center = UNUserNotificationCenter.current()
 
@@ -25,7 +32,71 @@ final class AlarmTimerHandler: NSObject {
 
   // MARK: - Permission
 
+  private func ensurePermission(completion: @escaping (Bool) -> Void) {
+    #if canImport(AlarmKit)
+    if #available(iOS 26.0, *) {
+      Task {
+        let manager = AlarmManager.shared
+        switch manager.authorizationState {
+        case .authorized:
+          completion(true)
+        case .notDetermined:
+          do {
+            let state = try await manager.requestAuthorization()
+            if state == .authorized {
+              completion(true)
+            } else {
+              self.fallbackEnsureUNPermission(completion: completion)
+            }
+          } catch {
+            self.fallbackEnsureUNPermission(completion: completion)
+          }
+        case .denied:
+          self.fallbackEnsureUNPermission(completion: completion)
+        @unknown default:
+          self.fallbackEnsureUNPermission(completion: completion)
+        }
+      }
+      return
+    }
+    #endif
+    fallbackEnsureUNPermission(completion: completion)
+  }
+
+  private func fallbackEnsureUNPermission(completion: @escaping (Bool) -> Void) {
+    center.getNotificationSettings { settings in
+      if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional {
+        completion(true)
+      } else if settings.authorizationStatus == .notDetermined {
+        self.center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+          completion(granted)
+        }
+      } else {
+        completion(false)
+      }
+    }
+  }
+
   private func requestPermission(result: @escaping FlutterResult) {
+    #if canImport(AlarmKit)
+    if #available(iOS 26.0, *) {
+      Task {
+        do {
+          let state = try await AlarmManager.shared.requestAuthorization()
+          let granted = (state == .authorized)
+          DispatchQueue.main.async {
+            result(["authorized": granted])
+          }
+        } catch {
+          DispatchQueue.main.async {
+            result(FlutterError(code: "permission_error", message: error.localizedDescription, details: nil))
+          }
+        }
+      }
+      return
+    }
+    #endif
+
     center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
       DispatchQueue.main.async {
         if let error = error {
@@ -53,9 +124,8 @@ final class AlarmTimerHandler: NSObject {
     var isISO = false
     var isoDate: Date?
 
-    // Try HH:MM parse
     let components = timeStr.components(separatedBy: ":")
-    if components.count == 2, let h = Int(components[0]), let m = Int(components[1]) {
+    if components.count >= 2, let h = Int(components[0]), let m = Int(components[1]) {
       hour = h
       minute = m
     } else {
@@ -66,6 +136,95 @@ final class AlarmTimerHandler: NSObject {
       }
     }
 
+    ensurePermission { [weak self] granted in
+      guard let self = self else { return }
+      guard granted else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "permission_denied", message: "Notification / Alarm permission is not granted.", details: nil))
+        }
+        return
+      }
+
+      let now = Date()
+      let cal = Calendar.current
+      var targetDate: Date
+
+      if isISO, let date = isoDate {
+        targetDate = date
+      } else {
+        var comps = cal.dateComponents([.year, .month, .day], from: now)
+        comps.hour = hour
+        comps.minute = minute
+        comps.second = 0
+        if let scheduled = cal.date(from: comps) {
+          if scheduled <= now {
+            targetDate = cal.date(byAdding: .day, value: 1, to: scheduled) ?? scheduled
+          } else {
+            targetDate = scheduled
+          }
+        } else {
+          targetDate = now.addingTimeInterval(60)
+        }
+      }
+
+      var alarmId = "alarm_\(UUID().uuidString)"
+
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) {
+        Task {
+          do {
+            let manager = AlarmManager.shared
+            let stopBtn = AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.circle")
+            let alert = AlarmPresentation.Alert(title: LocalizedStringResource(stringLiteral: label), stopButton: stopBtn)
+            let attributes = AlarmAttributes<KelivoAlarmMetadata>(presentation: AlarmPresentation(alert: alert), tintColor: .blue)
+
+            let schedule: Alarm.Schedule
+            if repeatMode == "daily" {
+              let comps = cal.dateComponents([.hour, .minute], from: targetDate)
+              schedule = .relative(Alarm.Schedule.Relative(
+                time: Alarm.Schedule.Relative.Time(hour: comps.hour ?? hour, minute: comps.minute ?? minute),
+                repeats: .weekly([.sunday, .monday, .tuesday, .wednesday, .thursday, .friday, .saturday])
+              ))
+            } else if repeatMode == "weekdays" {
+              let comps = cal.dateComponents([.hour, .minute], from: targetDate)
+              schedule = .relative(Alarm.Schedule.Relative(
+                time: Alarm.Schedule.Relative.Time(hour: comps.hour ?? hour, minute: comps.minute ?? minute),
+                repeats: .weekly([.monday, .tuesday, .wednesday, .thursday, .friday])
+              ))
+            } else {
+              schedule = .fixed(targetDate)
+            }
+
+            let config = AlarmManager.AlarmConfiguration(schedule: schedule, attributes: attributes)
+            let uuid = UUID()
+            alarmId = "alarm_\(uuid.uuidString)"
+            _ = try await manager.schedule(id: uuid, configuration: config)
+          } catch {
+            // AlarmKit failed, proceed with UserNotifications fallback below
+          }
+
+          // Always add UserNotifications request as well for double reliability
+          self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, result: result)
+        }
+        return
+      }
+      #endif
+
+      self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, result: result)
+    }
+  }
+
+  private func scheduleUNAlarm(
+    id: String,
+    label: String,
+    repeatMode: String,
+    hour: Int,
+    minute: Int,
+    targetDate: Date,
+    isISO: Bool,
+    isoDate: Date?,
+    result: @escaping FlutterResult
+  ) {
     let content = UNMutableNotificationContent()
     content.title = label
     content.body = "闹钟响铃了！"
@@ -75,39 +234,17 @@ final class AlarmTimerHandler: NSObject {
     var alarmDateComponents = DateComponents()
 
     if isISO, let date = isoDate {
-      alarmDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+      alarmDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
       trigger = UNCalendarNotificationTrigger(dateMatching: alarmDateComponents, repeats: false)
-    } else {
+    } else if repeatMode == "daily" || repeatMode == "weekdays" {
       alarmDateComponents.hour = hour
       alarmDateComponents.minute = minute
-
-      var repeats = false
-      if repeatMode == "daily" {
-        repeats = true
-      } else if repeatMode == "weekdays" {
-        // Simple daily repeat for weekdays
-        repeats = true
-      } else {
-        // One-time alarm
-        let now = Date()
-        let cal = Calendar.current
-        var comps = cal.dateComponents([.year, .month, .day], from: now)
-        comps.hour = hour
-        comps.minute = minute
-        comps.second = 0
-
-        if let scheduled = cal.date(from: comps), scheduled <= now {
-          // If time is past for today, schedule for tomorrow
-          if let tomorrow = cal.date(byAdding: .day, value: 1, to: scheduled) {
-            alarmDateComponents = cal.dateComponents([.year, .month, .day, .hour, .minute], from: tomorrow)
-          }
-        }
-      }
-
-      trigger = UNCalendarNotificationTrigger(dateMatching: alarmDateComponents, repeats: repeats)
+      trigger = UNCalendarNotificationTrigger(dateMatching: alarmDateComponents, repeats: true)
+    } else {
+      alarmDateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: targetDate)
+      trigger = UNCalendarNotificationTrigger(dateMatching: alarmDateComponents, repeats: false)
     }
 
-    let id = "alarm_\(UUID().uuidString)"
     let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
 
     center.add(request) { error in
@@ -115,20 +252,20 @@ final class AlarmTimerHandler: NSObject {
         if let error = error {
           result(FlutterError(code: "add_failed", message: error.localizedDescription, details: nil))
         } else {
-          let timeStr: String
+          let formattedTime: String
           if isISO, let date = isoDate {
             let cal = Calendar.current
             let h = cal.component(.hour, from: date)
             let m = cal.component(.minute, from: date)
-            timeStr = String(format: "%02d:%02d", h, m)
+            formattedTime = String(format: "%02d:%02d", h, m)
           } else {
-            timeStr = String(format: "%02d:%02d", hour, minute)
+            formattedTime = String(format: "%02d:%02d", hour, minute)
           }
           result([
             "success": true,
             "id": id,
             "label": label,
-            "time": timeStr,
+            "time": formattedTime,
             "repeat": repeatMode,
             "message": "Alarm set successfully."
           ])
@@ -155,13 +292,57 @@ final class AlarmTimerHandler: NSObject {
 
     let label = (args["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "倒计时定时器"
 
+    ensurePermission { [weak self] granted in
+      guard let self = self else { return }
+      guard granted else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "permission_denied", message: "Notification / Alarm permission is not granted.", details: nil))
+        }
+        return
+      }
+
+      var timerId = "timer_\(UUID().uuidString)"
+
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) {
+        Task {
+          do {
+            let manager = AlarmManager.shared
+            let stopBtn = AlarmButton(text: "Done", textColor: .green, systemImageName: "checkmark")
+            let alert = AlarmPresentation.Alert(title: LocalizedStringResource(stringLiteral: label), stopButton: stopBtn)
+            let attributes = AlarmAttributes<KelivoAlarmMetadata>(presentation: AlarmPresentation(alert: alert), tintColor: .orange)
+
+            let countdown = Alarm.CountdownDuration(preAlert: max(0.1, seconds), postAlert: nil)
+            let config = AlarmManager.AlarmConfiguration(countdownDuration: countdown, attributes: attributes)
+            let uuid = UUID()
+            timerId = "timer_\(uuid.uuidString)"
+            _ = try await manager.schedule(id: uuid, configuration: config)
+          } catch {
+            // Fallback to UNTimeIntervalNotificationTrigger
+          }
+
+          self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, result: result)
+        }
+        return
+      }
+      #endif
+
+      self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, result: result)
+    }
+  }
+
+  private func scheduleUNTimer(
+    id: String,
+    label: String,
+    seconds: Double,
+    result: @escaping FlutterResult
+  ) {
     let content = UNMutableNotificationContent()
     content.title = label
     content.body = "倒计时结束！"
     content.sound = .default
 
     let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(0.1, seconds), repeats: false)
-    let id = "timer_\(UUID().uuidString)"
     let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
 
     center.add(request) { error in
@@ -208,6 +389,45 @@ final class AlarmTimerHandler: NSObject {
         }
       }
 
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) {
+        Task {
+          do {
+            let manager = AlarmManager.shared
+            for await alarms in manager.alarmUpdates {
+              for alarm in alarms {
+                let uuidStr = "alarm_\(alarm.id.uuidString)"
+                if !items.contains(where: { ($0["id"] as? String) == uuidStr }) {
+                  var item: [String: Any] = [
+                    "id": uuidStr,
+                    "type": alarm.countdownDuration != nil ? "timer" : "alarm",
+                    "state": "\(alarm.state)"
+                  ]
+                  if let sched = alarm.schedule {
+                    if case .fixed(let date) = sched {
+                      item["next_trigger_date"] = isoFormatter.string(from: date)
+                    }
+                  }
+                  items.append(item)
+                }
+              }
+              break
+            }
+          } catch {
+            // Ignore AlarmKit query error
+          }
+
+          DispatchQueue.main.async {
+            result([
+              "count": items.count,
+              "items": items
+            ])
+          }
+        }
+        return
+      }
+      #endif
+
       DispatchQueue.main.async {
         result([
           "count": items.count,
@@ -223,17 +443,46 @@ final class AlarmTimerHandler: NSObject {
     let cancelAll = (args["all"] as? Bool) ?? false
     if cancelAll {
       center.removeAllPendingNotificationRequests()
+
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) {
+        Task {
+          let manager = AlarmManager.shared
+          for await alarms in manager.alarmUpdates {
+            for alarm in alarms {
+              try? manager.cancel(id: alarm.id)
+            }
+            break
+          }
+          DispatchQueue.main.async {
+            result(["success": true, "cancelled_all": true, "message": "All alarms and timers cancelled."])
+          }
+        }
+        return
+      }
+      #endif
+
       result(["success": true, "cancelled_all": true, "message": "All alarms and timers cancelled."])
       return
     }
 
-    guard let id = args["id"] as? String, !id.isEmpty else {
+    guard let rawId = args["id"] as? String, !rawId.isEmpty else {
       result(FlutterError(code: "invalid_args", message: "ID is required for cancel.", details: nil))
       return
     }
 
-    center.removePendingNotificationRequests(withIdentifiers: [id])
-    result(["success": true, "id": id, "message": "Cancelled alarm/timer with ID '\(id)'."])
+    center.removePendingNotificationRequests(withIdentifiers: [rawId])
+
+    #if canImport(AlarmKit)
+    if #available(iOS 26.0, *) {
+      let cleanUuidStr = rawId.replacingOccurrences(of: "alarm_", with: "").replacingOccurrences(of: "timer_", with: "")
+      if let uuid = UUID(uuidString: cleanUuidStr) {
+        try? AlarmManager.shared.cancel(id: uuid)
+      }
+    }
+    #endif
+
+    result(["success": true, "id": rawId, "message": "Cancelled alarm/timer with ID '\(rawId)'."])
   }
 
   // MARK: - Helper

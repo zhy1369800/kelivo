@@ -28,6 +28,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    UNUserNotificationCenter.current().delegate = self
     backgroundGenerationHandler.registerBackgroundTasks()
     if let controller = window?.rootViewController as? FlutterViewController {
       let clipboardChannel = FlutterMethodChannel(name: "app.clipboard", binaryMessenger: controller.binaryMessenger)
@@ -136,6 +137,18 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       return true
     }
     return super.application(app, open: url, options: options)
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    if #available(iOS 14.0, *) {
+      completionHandler([.banner, .list, .sound, .badge])
+    } else {
+      completionHandler([.alert, .sound, .badge])
+    }
   }
 }
 
