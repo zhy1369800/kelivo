@@ -9,6 +9,9 @@
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* KelivoGenerationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */; };
 		A10000000000000000000099 /* MapKitHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000098 /* MapKitHandler.swift */; };
+		A10000000000000000000101 /* AppleVisionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000100 /* AppleVisionHandler.swift */; };
+		A10000000000000000000103 /* AppleSpeechRecognizerHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000102 /* AppleSpeechRecognizerHandler.swift */; };
+		A10000000000000000000105 /* AppleSpeechSynthesizerHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000104 /* AppleSpeechSynthesizerHandler.swift */; };
 		A10000000000000000000097 /* WeatherKitHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000096 /* WeatherKitHandler.swift */; };
 		A10000000000000000000095 /* BleBridgeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000094 /* BleBridgeHandler.swift */; };
 		A10000000000000000000093 /* UserNotificationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000092 /* UserNotificationHandler.swift */; };
@@ -75,6 +78,9 @@
 /* Begin PBXFileReference section */
 		A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KelivoGenerationActivityAttributes.swift; sourceTree = "<group>"; };
 		A10000000000000000000098 /* MapKitHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitHandler.swift; sourceTree = "<group>"; };
+		A10000000000000000000100 /* AppleVisionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleVisionHandler.swift; sourceTree = "<group>"; };
+		A10000000000000000000102 /* AppleSpeechRecognizerHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechRecognizerHandler.swift; sourceTree = "<group>"; };
+		A10000000000000000000104 /* AppleSpeechSynthesizerHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechSynthesizerHandler.swift; sourceTree = "<group>"; };
 		A10000000000000000000096 /* WeatherKitHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherKitHandler.swift; sourceTree = "<group>"; };
 		A10000000000000000000094 /* BleBridgeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BleBridgeHandler.swift; sourceTree = "<group>"; };
 		A10000000000000000000092 /* UserNotificationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserNotificationHandler.swift; sourceTree = "<group>"; };
@@ -206,6 +212,9 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				A10000000000000000000098 /* MapKitHandler.swift */,
+				A10000000000000000000100 /* AppleVisionHandler.swift */,
+				A10000000000000000000102 /* AppleSpeechRecognizerHandler.swift */,
+				A10000000000000000000104 /* AppleSpeechSynthesizerHandler.swift */,
 				A10000000000000000000096 /* WeatherKitHandler.swift */,
 				A10000000000000000000094 /* BleBridgeHandler.swift */,
 				A10000000000000000000092 /* UserNotificationHandler.swift */,
@@ -516,6 +525,9 @@
 				A10000000000000000000001 /* KelivoGenerationActivityAttributes.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				A10000000000000000000099 /* MapKitHandler.swift in Sources */,
+				A10000000000000000000101 /* AppleVisionHandler.swift in Sources */,
+				A10000000000000000000103 /* AppleSpeechRecognizerHandler.swift in Sources */,
+				A10000000000000000000105 /* AppleSpeechSynthesizerHandler.swift in Sources */,
 				A10000000000000000000097 /* WeatherKitHandler.swift in Sources */,
 				A10000000000000000000095 /* BleBridgeHandler.swift in Sources */,
 				A10000000000000000000093 /* UserNotificationHandler.swift in Sources */,
