@@ -16,6 +16,7 @@ import '../services/asr/asr_service_options.dart';
 import '../services/network/request_logger.dart';
 import '../services/logging/flutter_logger.dart';
 import '../services/learning_mode_store.dart';
+import '../models/system_permission_policy.dart';
 import '../models/api_keys.dart';
 import '../models/backup.dart';
 import '../models/provider_group.dart';
@@ -268,6 +269,8 @@ class SettingsProvider extends ChangeNotifier {
   static const String _ocrEnabledKey = 'ocr_enabled_v1';
   static const String _learningModeEnabledKey = 'learning_mode_enabled_v1';
   static const String _learningModePromptKey = 'learning_mode_prompt_v1';
+  static const String _systemPermissionPoliciesKey =
+      'system_permission_policies_v1';
   static const String _searchServicesKey = 'search_services_v1';
   static const String _searchCommonKey = 'search_common_v1';
   static const String _searchSelectedKey = 'search_selected_v1';
@@ -703,6 +706,16 @@ class SettingsProvider extends ChangeNotifier {
     }
     _providerUngroupedPosition =
         prefs.getInt(_providerUngroupedPositionKey) ?? _providerGroups.length;
+    try {
+      final polStr = localPreferences.getString(_systemPermissionPoliciesKey) ?? '';
+      if (polStr.isNotEmpty) {
+        final raw = jsonDecode(polStr) as Map<String, dynamic>;
+        _systemPermissionPolicies = raw.map(
+          (k, v) => MapEntry(k, SystemPermissionPolicy.fromString(v.toString())),
+        );
+      }
+    } catch (_) {}
+
     // load pinned models
     final pinned = prefs.getStringList(_pinnedModelsKey) ?? const <String>[];
     _pinnedModels
@@ -5228,5 +5241,36 @@ class ProviderConfig {
         k.contains('vercel') ||
         k.contains('silicon') ||
         RegExp(r'kimi|moonshot|月之暗面').hasMatch(k);
+  }
+
+  Map<String, SystemPermissionPolicy> _systemPermissionPolicies = {};
+
+  Map<String, SystemPermissionPolicy> get systemPermissionPolicies =>
+      Map.unmodifiable(_systemPermissionPolicies);
+
+  SystemPermissionPolicy getSystemPermissionPolicy(String toolName) {
+    return _systemPermissionPolicies[toolName] ?? SystemPermissionPolicy.ask;
+  }
+
+  Future<void> setSystemPermissionPolicy(
+      String toolName, SystemPermissionPolicy policy) async {
+    _systemPermissionPolicies[toolName] = policy;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(_systemPermissionPolicies
+        .map((k, v) => MapEntry(k, v.toStorageString())));
+    await prefs.setString(_systemPermissionPoliciesKey, encoded);
+  }
+
+  Future<void> setAllSystemPermissionPolicies(
+      SystemPermissionPolicy policy, List<String> toolNames) async {
+    for (final name in toolNames) {
+      _systemPermissionPolicies[name] = policy;
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(_systemPermissionPolicies
+        .map((k, v) => MapEntry(k, v.toStorageString())));
+    await prefs.setString(_systemPermissionPoliciesKey, encoded);
   }
 }

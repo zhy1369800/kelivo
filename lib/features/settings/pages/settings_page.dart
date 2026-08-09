@@ -6,6 +6,7 @@ import '../../../core/providers/settings_provider.dart';
 import '../../model/pages/default_model_page.dart';
 import '../../provider/pages/providers_page.dart';
 import 'display_settings_page.dart';
+import 'system_permissions_page.dart';
 import '../../mcp/pages/mcp_page.dart';
 import '../../assistant/pages/assistant_settings_page.dart';
 import 'about_page.dart';
@@ -247,6 +248,19 @@ class SettingsPage extends StatelessWidget {
                   Navigator.of(
                     context,
                   ).push(MaterialPageRoute(builder: (_) => const McpPage()));
+                },
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
+                icon: Lucide.ShieldCheck,
+                label: l10n.systemPermissionsPageTitle,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SystemPermissionsPage(),
+                    ),
+                  );
                 },
               ),
               _iosDivider(context),

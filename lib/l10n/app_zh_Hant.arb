@@ -1786,6 +1786,13 @@
     }
   },
   "assistantEditPageMemoryTab": "記憶",
+  "systemPermissionsPageTitle": "權限管理",
+  "systemPermissionsBypassAll": "全部自動允許",
+  "systemPermissionsSectionHeader": "系統框架權限策略",
+  "systemPermissionsPolicyBypass": "Bypass",
+  "systemPermissionsPolicyAsk": "Ask",
+  "systemPermissionsPolicyDeny": "Deny",
+  "systemPermissionsFooterNote": "此處權限管理僅作用於系統原生框架工具（如 HealthKit、日曆、提醒事項、天氣等）。MCP 外部工具的獨立審批策略不受影響。",
   "assistantEditLocalToolTimeInfoTitle": "時間資訊",
   "assistantEditLocalToolTimeInfoSubtitle": "讀取裝置日期、星期、時間、時區、UTC 偏移和時間戳。",
   "assistantEditLocalToolClipboardTitle": "剪貼簿",

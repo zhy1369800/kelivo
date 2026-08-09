@@ -15,6 +15,7 @@ import '../../../core/services/api/chat_api_service.dart';
 import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/mcp/mcp_tool_service.dart';
 import '../../../core/services/search/search_tool_service.dart';
+import '../../../core/models/system_permission_policy.dart';
 import '../../../core/services/native_map_kit_service.dart';
 import '../../../core/services/native_weather_kit_service.dart';
 import '../../../core/services/native_ble_bridge_service.dart';
@@ -499,6 +500,35 @@ class ToolHandlerService {
           );
         }
 
+        // Helper function to check system framework permission policy (bypass / ask / deny)
+        Future<ToolApprovalResult> checkSystemPermission(
+          String toolName, {
+          bool defaultRequiresApproval = true,
+          String? defaultDenyMessage,
+        }) async {
+          final policy = settings.getSystemPermissionPolicy(toolName);
+          if (policy == SystemPermissionPolicy.deny) {
+            return ToolApprovalResult.denied(
+              'System permission for "$toolName" is set to Deny in Settings -> Permissions.',
+            );
+          }
+          if (policy == SystemPermissionPolicy.bypass) {
+            return ToolApprovalResult.approved();
+          }
+          // policy == SystemPermissionPolicy.ask
+          if (defaultRequiresApproval && approvalService != null) {
+            final toolCallId =
+                '${toolName}_${DateTime.now().microsecondsSinceEpoch}';
+            return await approvalService.requestApproval(
+              toolCallId: toolCallId,
+              toolName: toolName,
+              arguments: args,
+              conversationId: conversationId,
+            );
+          }
+          return ToolApprovalResult.approved();
+        }
+
         // Handle get_location_info tool
         if (name == LocalToolNames.locationInfo) {
           if (assistant == null ||
@@ -509,26 +539,17 @@ class ToolHandlerService {
               tool: name,
             );
           }
-          // 'search' action is forward geocoding via map API — no real device GPS access,
-          // so we skip the approval gate to avoid confusing the user.
           final locationAction = (args['action'] ?? 'current').toString().trim().toLowerCase();
-          if (locationAction != 'search' && approvalService != null) {
-            final toolCallId =
-                '${name}_${DateTime.now().microsecondsSinceEpoch}';
-            final result = await approvalService.requestApproval(
-              toolCallId: toolCallId,
-              toolName: name,
-              arguments: args,
-              conversationId: conversationId,
+          final approval = await checkSystemPermission(
+            name,
+            defaultRequiresApproval: locationAction != 'search',
+          );
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied access to location information.',
+              tool: name,
             );
-            if (!result.approved) {
-              return _toolError(
-                error: 'approval_denied',
-                message:
-                    result.denyReason ?? 'User denied access to location information.',
-                tool: name,
-              );
-            }
           }
           return await _handleLocationInfoTool(args: args);
         }
@@ -543,25 +564,17 @@ class ToolHandlerService {
               tool: name,
             );
           }
-          // open_navigation opens an external app — gate with approval
           final mapAction = (args['action'] ?? '').toString().trim().toLowerCase();
-          if (mapAction == 'open_navigation' && approvalService != null) {
-            final toolCallId =
-                '${name}_${DateTime.now().microsecondsSinceEpoch}';
-            final result = await approvalService.requestApproval(
-              toolCallId: toolCallId,
-              toolName: name,
-              arguments: args,
-              conversationId: conversationId,
+          final approval = await checkSystemPermission(
+            name,
+            defaultRequiresApproval: mapAction == 'open_navigation',
+          );
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied opening Apple Maps.',
+              tool: name,
             );
-            if (!result.approved) {
-              return _toolError(
-                error: 'approval_denied',
-                message:
-                    result.denyReason ?? 'User denied opening Apple Maps.',
-                tool: name,
-              );
-            }
           }
           return await _handleMapKitTool(args: args);
         }
@@ -579,24 +592,16 @@ class ToolHandlerService {
           final hasExplicitLocation =
               (args['location'] ?? '').toString().trim().isNotEmpty ||
                   args['latitude'] != null;
-          // If no explicit location provided, it will use current device GPS — gate with approval
-          if (!hasExplicitLocation && approvalService != null) {
-            final toolCallId =
-                '${name}_${DateTime.now().microsecondsSinceEpoch}';
-            final result = await approvalService.requestApproval(
-              toolCallId: toolCallId,
-              toolName: name,
-              arguments: args,
-              conversationId: conversationId,
+          final approval = await checkSystemPermission(
+            name,
+            defaultRequiresApproval: !hasExplicitLocation,
+          );
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied access to location for weather query.',
+              tool: name,
             );
-            if (!result.approved) {
-              return _toolError(
-                error: 'approval_denied',
-                message:
-                    result.denyReason ?? 'User denied access to location for weather query.',
-                tool: name,
-              );
-            }
           }
           return await _handleWeatherKitTool(args: args);
         }
@@ -612,35 +617,35 @@ class ToolHandlerService {
             );
           }
           final bleAction = (args['action'] ?? '').toString().trim().toLowerCase();
-          // Write action alters hardware state — gate with approval
-          if (bleAction == 'write' && approvalService != null) {
-            final toolCallId =
-                '${name}_${DateTime.now().microsecondsSinceEpoch}';
-            final result = await approvalService.requestApproval(
-              toolCallId: toolCallId,
-              toolName: name,
-              arguments: args,
-              conversationId: conversationId,
+          final approval = await checkSystemPermission(
+            name,
+            defaultRequiresApproval: bleAction == 'write',
+          );
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied BLE write operation.',
+              tool: name,
             );
-            if (!result.approved) {
-              return _toolError(
-                error: 'approval_denied',
-                message:
-                    result.denyReason ?? 'User denied BLE write operation.',
-                tool: name,
-              );
-            }
           }
           return await _handleBleBridgeTool(args: args);
         }
 
-        // Handle user_notification_tool (No approval required per user preference)
+        // Handle user_notification_tool
         if (name == LocalToolNames.userNotification) {
           if (assistant == null ||
               !assistant.localToolIds.contains(LocalToolNames.userNotification)) {
             return _toolError(
               error: 'tool_disabled',
               message: 'The user_notification_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final approval = await checkSystemPermission(name, defaultRequiresApproval: false);
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied UserNotification operation.',
               tool: name,
             );
           }
@@ -654,6 +659,14 @@ class ToolHandlerService {
             return _toolError(
               error: 'tool_disabled',
               message: 'The device_info_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final approval = await checkSystemPermission(name, defaultRequiresApproval: false);
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied DeviceInfo operation.',
               tool: name,
             );
           }
@@ -671,24 +684,16 @@ class ToolHandlerService {
             );
           }
           final hkAction = (args['action'] ?? '').toString().trim().toLowerCase();
-          // Write action or permission request — gate with approval
-          if ((hkAction == 'log_sample' || hkAction == 'request_permission') && approvalService != null) {
-            final toolCallId =
-                '${name}_${DateTime.now().microsecondsSinceEpoch}';
-            final result = await approvalService.requestApproval(
-              toolCallId: toolCallId,
-              toolName: name,
-              arguments: args,
-              conversationId: conversationId,
+          final approval = await checkSystemPermission(
+            name,
+            defaultRequiresApproval: hkAction == 'log_sample' || hkAction == 'request_permission',
+          );
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied HealthKit operation.',
+              tool: name,
             );
-            if (!result.approved) {
-              return _toolError(
-                error: 'approval_denied',
-                message:
-                    result.denyReason ?? 'User denied HealthKit operation.',
-                tool: name,
-              );
-            }
           }
           return await _handleHealthKitTool(args: args);
         }
@@ -704,27 +709,19 @@ class ToolHandlerService {
             );
           }
           final calAction = (args['action'] ?? '').toString().trim().toLowerCase();
-          // Write, delete action, or permission request — gate with approval
-          if ((calAction == 'create_event' ||
-                  calAction == 'delete_event' ||
-                  calAction == 'request_permission') &&
-              approvalService != null) {
-            final toolCallId =
-                '${name}_${DateTime.now().microsecondsSinceEpoch}';
-            final result = await approvalService.requestApproval(
-              toolCallId: toolCallId,
-              toolName: name,
-              arguments: args,
-              conversationId: conversationId,
+          final approval = await checkSystemPermission(
+            name,
+            defaultRequiresApproval: calAction == 'create_event' ||
+                calAction == 'update_event' ||
+                calAction == 'delete_event' ||
+                calAction == 'request_permission',
+          );
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied Calendar operation.',
+              tool: name,
             );
-            if (!result.approved) {
-              return _toolError(
-                error: 'approval_denied',
-                message:
-                    result.denyReason ?? 'User denied Calendar operation.',
-                tool: name,
-              );
-            }
           }
           return await _handleCalendarEventTool(args: args);
         }
@@ -740,39 +737,39 @@ class ToolHandlerService {
             );
           }
           final remAction = (args['action'] ?? '').toString().trim().toLowerCase();
-          // Write, update, delete, or permission request — gate with approval
-          if ((remAction == 'create_reminder' ||
-                  remAction == 'complete_reminder' ||
-                  remAction == 'delete_reminder' ||
-                  remAction == 'request_permission') &&
-              approvalService != null) {
-            final toolCallId =
-                '${name}_${DateTime.now().microsecondsSinceEpoch}';
-            final result = await approvalService.requestApproval(
-              toolCallId: toolCallId,
-              toolName: name,
-              arguments: args,
-              conversationId: conversationId,
+          final approval = await checkSystemPermission(
+            name,
+            defaultRequiresApproval: remAction == 'create_reminder' ||
+                remAction == 'update_reminder' ||
+                remAction == 'complete_reminder' ||
+                remAction == 'delete_reminder' ||
+                remAction == 'request_permission',
+          );
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied Reminders operation.',
+              tool: name,
             );
-            if (!result.approved) {
-              return _toolError(
-                error: 'approval_denied',
-                message:
-                    result.denyReason ?? 'User denied Reminders operation.',
-                tool: name,
-              );
-            }
           }
           return await _handleReminderTaskTool(args: args);
         }
 
-        // Handle alarm_timer_tool (No approval required for convenient timer/alarm setting)
+        // Handle alarm_timer_tool
         if (name == LocalToolNames.alarmTimer) {
           if (assistant == null ||
               !assistant.localToolIds.contains(LocalToolNames.alarmTimer)) {
             return _toolError(
               error: 'tool_disabled',
               message: 'The alarm_timer_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final approval = await checkSystemPermission(name, defaultRequiresApproval: false);
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied AlarmTimer operation.',
               tool: name,
             );
           }
