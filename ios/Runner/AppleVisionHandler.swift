@@ -106,7 +106,7 @@ final class AppleVisionHandler: NSObject {
     if #available(iOS 16.0, *) {
       request.automaticallyDetectsLanguage = true
     }
-    request.recognizedLanguages = languages
+    request.recognitionLanguages = languages
 
     let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
     DispatchQueue.global(qos: .userInitiated).async {
