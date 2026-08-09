@@ -117,7 +117,7 @@ final class ReminderTaskHandler: NSObject {
     let reminder = EKReminder(eventStore: eventStore)
     reminder.title = title
     reminder.notes = args["notes"] as? String
-    reminder.priority = (args["priority"] as? Int) ?? 0
+    reminder.priority = (args["priority"] as? NSNumber)?.intValue ?? 0
 
     if let listName = (args["list_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !listName.isEmpty {
       let calendars = eventStore.calendars(for: .reminder)

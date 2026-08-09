@@ -148,7 +148,7 @@ final class CalendarEventHandler: NSObject {
     event.notes = args["notes"] as? String
     event.calendar = eventStore.defaultCalendarForNewEvents
 
-    if let alarmMins = args["alarm_minutes"] as? Int, alarmMins >= 0 {
+    if let alarmMins = (args["alarm_minutes"] as? NSNumber)?.intValue, alarmMins >= 0 {
       let alarm = EKAlarm(relativeOffset: -Double(alarmMins * 60))
       event.addAlarm(alarm)
     }
