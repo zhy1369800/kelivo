@@ -16,6 +16,7 @@
 		A10000000000000000000089 /* HealthKitHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000088 /* HealthKitHandler.swift */; };
 		A10000000000000000000087 /* CalendarEventHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000086 /* CalendarEventHandler.swift */; };
 		A10000000000000000000085 /* ReminderTaskHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000084 /* ReminderTaskHandler.swift */; };
+		A10000000000000000000083 /* AlarmTimerHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000082 /* AlarmTimerHandler.swift */; };
 		A10000000000000000000002 /* KelivoGenerationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */; };
 		A10000000000000000000003 /* GenerationActivityExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* GenerationActivityExtension.swift */; };
 		A10000000000000000000004 /* GenerationActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* GenerationActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -81,6 +82,7 @@
 		A10000000000000000000088 /* HealthKitHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthKitHandler.swift; sourceTree = "<group>"; };
 		A10000000000000000000086 /* CalendarEventHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventHandler.swift; sourceTree = "<group>"; };
 		A10000000000000000000084 /* ReminderTaskHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderTaskHandler.swift; sourceTree = "<group>"; };
+		A10000000000000000000082 /* AlarmTimerHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmTimerHandler.swift; sourceTree = "<group>"; };
 		A10000000000000000000011 /* GenerationActivityExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationActivityExtension.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000000000013 /* GenerationActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = GenerationActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -211,6 +213,7 @@
 				A10000000000000000000088 /* HealthKitHandler.swift */,
 				A10000000000000000000086 /* CalendarEventHandler.swift */,
 				A10000000000000000000084 /* ReminderTaskHandler.swift */,
+				A10000000000000000000082 /* AlarmTimerHandler.swift */,
 				A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
@@ -520,6 +523,7 @@
 				A10000000000000000000089 /* HealthKitHandler.swift in Sources */,
 				A10000000000000000000087 /* CalendarEventHandler.swift in Sources */,
 				A10000000000000000000085 /* ReminderTaskHandler.swift in Sources */,
+				A10000000000000000000083 /* AlarmTimerHandler.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

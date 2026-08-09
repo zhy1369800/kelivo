@@ -23,6 +23,7 @@ import '../../../core/services/native_device_info_service.dart';
 import '../../../core/services/native_health_kit_service.dart';
 import '../../../core/services/native_calendar_event_service.dart';
 import '../../../core/services/native_reminder_task_service.dart';
+import '../../../core/services/native_alarm_timer_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -763,6 +764,19 @@ class ToolHandlerService {
             }
           }
           return await _handleReminderTaskTool(args: args);
+        }
+
+        // Handle alarm_timer_tool (No approval required for convenient timer/alarm setting)
+        if (name == LocalToolNames.alarmTimer) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.alarmTimer)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The alarm_timer_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          return await _handleAlarmTimerTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -2251,6 +2265,91 @@ class ToolHandlerService {
         error: 'reminder_task_error',
         message: e.toString(),
         tool: LocalToolNames.reminderTask,
+      );
+    }
+  }
+
+  /// Handle alarm_timer_tool (iOS UserNotifications & EventKit Alarm/Timer)
+  Future<String> _handleAlarmTimerTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'list').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'set_alarm':
+          final time = (args['time'] ?? '').toString().trim();
+          if (time.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "time" (e.g. "07:30") is required for set_alarm.',
+              tool: LocalToolNames.alarmTimer,
+            );
+          }
+          final label = (args['label'] ?? '闹钟').toString();
+          final repeat = (args['repeat'] ?? 'none').toString();
+
+          final data = await NativeAlarmTimerService.setAlarm(
+            time: time,
+            label: label,
+            repeat: repeat,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'set_timer':
+          final durSec = (args['duration_seconds'] as num?)?.toInt();
+          final durStr = args['duration']?.toString();
+          final label = (args['label'] ?? '倒计时定时器').toString();
+
+          if (durSec == null && (durStr == null || durStr.isEmpty)) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Provide "duration_seconds" (e.g. 300) or "duration" (e.g. "5m") for set_timer.',
+              tool: LocalToolNames.alarmTimer,
+            );
+          }
+
+          final data = await NativeAlarmTimerService.setTimer(
+            durationSeconds: durSec,
+            duration: durStr,
+            label: label,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'list':
+          final data = await NativeAlarmTimerService.list();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'cancel':
+          final id = args['id']?.toString();
+          final cancelAll = (args['all'] as bool?) ?? false;
+          if ((id == null || id.isEmpty) && !cancelAll) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Provide "id" or set "all" to true for cancel.',
+              tool: LocalToolNames.alarmTimer,
+            );
+          }
+          final data = await NativeAlarmTimerService.cancel(id: id, all: cancelAll);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'request_permission':
+          final data = await NativeAlarmTimerService.requestPermission();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message:
+                'Unknown action "$action". Valid: set_alarm, set_timer, list, cancel, request_permission.',
+            tool: LocalToolNames.alarmTimer,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'alarm_timer_error',
+        message: e.toString(),
+        tool: LocalToolNames.alarmTimer,
       );
     }
   }

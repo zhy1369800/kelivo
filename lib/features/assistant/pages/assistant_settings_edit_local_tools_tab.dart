@@ -54,6 +54,9 @@ class _LocalToolsTab extends StatelessWidget {
     final reminderTaskEnabled = assistant.localToolIds.contains(
       LocalToolNames.reminderTask,
     );
+    final alarmTimerEnabled = assistant.localToolIds.contains(
+      LocalToolNames.alarmTimer,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -201,6 +204,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: reminderTaskEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.reminderTask, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Clock,
+              title: l10n.assistantEditLocalToolAlarmTimerTitle,
+              subtitle: l10n.assistantEditLocalToolAlarmTimerSubtitle,
+              enabled: alarmTimerEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.alarmTimer, value),
             ),
           ],
         ),

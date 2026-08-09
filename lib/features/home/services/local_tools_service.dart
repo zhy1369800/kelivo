@@ -25,6 +25,7 @@ class LocalToolNames {
   static const String healthKit = 'health_kit_tool';
   static const String calendarEvent = 'calendar_event_tool';
   static const String reminderTask = 'reminder_task_tool';
+  static const String alarmTimer = 'alarm_timer_tool';
 }
 
 class LocalToolsService {
@@ -588,6 +589,63 @@ class LocalToolsService {
               'completed': {
                 'type': 'boolean',
                 'description': 'Completion status for complete_reminder. Default: true.',
+              },
+            },
+            'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.alarmTimer)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.alarmTimer,
+          'description':
+              'AlarmTimer tool for setting alarms for specific times, setting countdown timers, listing pending timers/alarms, and cancelling pending alarms/timers.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'set_alarm',
+                  'set_timer',
+                  'list',
+                  'cancel',
+                  'request_permission'
+                ],
+                'description':
+                    'The operation to perform: "set_alarm" (set alarm at specific HH:MM time), "set_timer" (set countdown timer), "list" (list pending alarms and timers), "cancel" (cancel alarm/timer by ID or all), "request_permission" (request permissions).',
+              },
+              'time': {
+                'type': 'string',
+                'description': 'Alarm time in HH:MM (e.g. "07:30") or ISO string for set_alarm. Required for set_alarm.',
+              },
+              'label': {
+                'type': 'string',
+                'description': 'Label or title description for the alarm or timer.',
+              },
+              'repeat': {
+                'type': 'string',
+                'enum': ['none', 'daily', 'weekdays'],
+                'description': 'Repeat frequency for set_alarm. Default: "none".',
+              },
+              'duration_seconds': {
+                'type': 'number',
+                'description': 'Countdown duration in seconds for set_timer (e.g. 300 for 5 minutes).',
+              },
+              'duration': {
+                'type': 'string',
+                'description': 'Shorthand countdown duration for set_timer (e.g. "5m", "1h", "30s").',
+              },
+              'id': {
+                'type': 'string',
+                'description': 'Alarm or timer ID for cancel. Required for cancel unless "all" is true.',
+              },
+              'all': {
+                'type': 'boolean',
+                'description': 'Whether to cancel all pending alarms and timers when action is "cancel". Default: false.',
               },
             },
             'required': ['action'],

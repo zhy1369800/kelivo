@@ -1858,6 +1858,8 @@
   "assistantEditLocalToolCalendarEventSubtitle": "允许大模型基于 EventKit 查看近期日程、搜索日程、创建含闹钟提醒的新日程及删除日程。",
   "assistantEditLocalToolReminderTaskTitle": "提醒事项与待办清单",
   "assistantEditLocalToolReminderTaskSubtitle": "允许大模型基于 EventKit 查看待办事项、新建提醒任务、标记完成/未完成、删除任务及管理提醒清单。",
+  "assistantEditLocalToolAlarmTimerTitle": "闹钟、倒计时与定时器",
+  "assistantEditLocalToolAlarmTimerSubtitle": "允许大模型基于系统级通知与定时器设定特定时间闹钟、启动倒计时定时器、查看挂起列表及一键取消。",
   "assistantEditMemorySwitchTitle": "记忆",
   "assistantEditMemorySwitchDescription": "允许助手主动存储并在对话间引用用户相关信息",
   "assistantEditOutlineModeTitle": "二级列表样式",
