@@ -551,17 +551,18 @@ class LocalToolsService {
                 'enum': [
                   'list_reminders',
                   'create_reminder',
+                  'update_reminder',
                   'complete_reminder',
                   'delete_reminder',
                   'list_lists',
                   'request_permission'
                 ],
                 'description':
-                    'The operation to perform: "list_reminders" (default, query to-do items), "create_reminder" (create a new reminder), "complete_reminder" (mark a reminder as complete or incomplete), "delete_reminder" (delete a reminder by ID), "list_lists" (list reminder categories/lists), "request_permission" (request Reminders access).',
+                    'The operation to perform: "list_reminders" (default, query to-do items), "create_reminder" (create a new reminder with optional due_date alarm), "update_reminder" (update title, due_date, list, priority, or notes of existing reminder), "complete_reminder" (mark a reminder as complete or incomplete), "delete_reminder" (delete a reminder by ID), "list_lists" (list reminder categories/lists), "request_permission" (request Reminders access).',
               },
               'list_name': {
                 'type': 'string',
-                'description': 'Reminder list name for filtering in list_reminders or targeting in create_reminder.',
+                'description': 'Reminder list name for filtering in list_reminders or targeting in create_reminder/update_reminder.',
               },
               'include_completed': {
                 'type': 'boolean',
@@ -569,27 +570,27 @@ class LocalToolsService {
               },
               'title': {
                 'type': 'string',
-                'description': 'Title for create_reminder. Required for create_reminder.',
+                'description': 'Title for create_reminder or update_reminder.',
               },
               'due_date': {
                 'type': 'string',
-                'description': 'Due date in ISO 8601 format (e.g. 2026-08-10T18:00:00Z) for create_reminder.',
+                'description': 'Due date in ISO 8601 format (e.g. 2026-08-10T18:00:00Z) for create_reminder or update_reminder. Automatically sets system alarm at due time.',
               },
               'priority': {
                 'type': 'number',
-                'description': 'Priority (0: none, 1-4: high/medium/low) for create_reminder. Default: 0.',
+                'description': 'Priority (0: none, 1-4: high/medium/low) for create_reminder or update_reminder.',
               },
               'notes': {
                 'type': 'string',
-                'description': 'Notes or description for create_reminder.',
+                'description': 'Notes or description for create_reminder or update_reminder.',
               },
               'id': {
                 'type': 'string',
-                'description': 'Reminder ID for complete_reminder or delete_reminder. Required for complete_reminder and delete_reminder.',
+                'description': 'Reminder ID for update_reminder, complete_reminder, or delete_reminder. Required for update_reminder, complete_reminder, delete_reminder.',
               },
               'completed': {
                 'type': 'boolean',
-                'description': 'Completion status for complete_reminder. Default: true.',
+                'description': 'Completion status for complete_reminder or update_reminder.',
               },
             },
             'required': ['action'],

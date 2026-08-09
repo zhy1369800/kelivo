@@ -2216,6 +2216,33 @@ class ToolHandlerService {
           );
           return jsonEncode({'success': true, 'action': action, ...data});
 
+        case 'update_reminder':
+          final id = (args['id'] ?? '').toString().trim();
+          if (id.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "id" is required for update_reminder.',
+              tool: LocalToolNames.reminderTask,
+            );
+          }
+          final title = args['title']?.toString();
+          final listName = args['list_name']?.toString();
+          final dueDate = args['due_date']?.toString();
+          final priority = (args['priority'] as num?)?.toInt();
+          final notes = args['notes']?.toString();
+          final completed = args['completed'] as bool?;
+
+          final data = await NativeReminderTaskService.updateReminder(
+            id: id,
+            title: title,
+            listName: listName,
+            dueDate: dueDate,
+            priority: priority,
+            notes: notes,
+            completed: completed,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
         case 'complete_reminder':
           final id = (args['id'] ?? '').toString().trim();
           if (id.isEmpty) {

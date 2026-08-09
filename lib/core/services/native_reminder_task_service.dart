@@ -46,6 +46,31 @@ class NativeReminderTaskService {
     return Map<String, dynamic>.from(res ?? {});
   }
 
+  /// Updates an existing reminder task.
+  static Future<Map<String, dynamic>> updateReminder({
+    required String id,
+    String? title,
+    String? listName,
+    String? dueDate,
+    int? priority,
+    String? notes,
+    bool? completed,
+  }) async {
+    final res = await _channel.invokeMapMethod<String, dynamic>(
+      'updateReminder',
+      {
+        'id': id,
+        if (title != null) 'title': title,
+        if (listName != null) 'list_name': listName,
+        if (dueDate != null) 'due_date': dueDate,
+        if (priority != null) 'priority': priority,
+        if (notes != null) 'notes': notes,
+        if (completed != null) 'completed': completed,
+      },
+    );
+    return Map<String, dynamic>.from(res ?? {});
+  }
+
   /// Marks a reminder task as completed or incomplete.
   static Future<Map<String, dynamic>> completeReminder({
     required String id,

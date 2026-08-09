@@ -14,6 +14,8 @@ final class ReminderTaskHandler: NSObject {
       listReminders(args: args, result: result)
     case "createReminder":
       createReminder(args: args, result: result)
+    case "updateReminder":
+      updateReminder(args: args, result: result)
     case "completeReminder":
       completeReminder(args: args, result: result)
     case "deleteReminder":
@@ -51,7 +53,19 @@ final class ReminderTaskHandler: NSObject {
     }
   }
 
-  // MARK: - Format Helper
+  // MARK: - Helper
+
+  private func fetchReminder(withId id: String, completion: @escaping (EKReminder?) -> Void) {
+    if let item = eventStore.calendarItem(withIdentifier: id) as? EKReminder {
+      completion(item)
+      return
+    }
+    let pred = eventStore.predicateForReminders(in: nil)
+    eventStore.fetchReminders(matching: pred) { reminders in
+      let found = reminders?.first(where: { $0.calendarItemIdentifier == id })
+      completion(found)
+    }
+  }
 
   private func formatReminder(_ reminder: EKReminder, isoFormatter: ISO8601DateFormatter) -> [String: Any] {
     var dueDateStr: Any = NSNull()
@@ -79,7 +93,7 @@ final class ReminderTaskHandler: NSObject {
     var targetCalendars: [EKCalendar]? = nil
     if let name = listName, !name.isEmpty {
       let calendars = eventStore.calendars(for: .reminder)
-      if let matched = calendars.first(where: { $0.title.lowercased() == name.lowercased() }) {
+      if let matched = calendars.first(where: { $0.title.lowercased() == name.lowercased() || $0.title.lowercased().contains(name.lowercased()) }) {
         targetCalendars = [matched]
       }
     }
@@ -121,7 +135,7 @@ final class ReminderTaskHandler: NSObject {
 
     if let listName = (args["list_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !listName.isEmpty {
       let calendars = eventStore.calendars(for: .reminder)
-      if let matched = calendars.first(where: { $0.title.lowercased() == listName.lowercased() }) {
+      if let matched = calendars.first(where: { $0.title.lowercased() == listName.lowercased() || $0.title.lowercased().contains(listName.lowercased()) }) {
         reminder.calendar = matched
       } else {
         reminder.calendar = eventStore.defaultCalendarForNewReminders()
@@ -134,6 +148,14 @@ final class ReminderTaskHandler: NSObject {
     if let dueStr = args["due_date"] as? String, let parsedDate = isoFormatter.date(from: dueStr) {
       let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: parsedDate)
       reminder.dueDateComponents = components
+
+      // Automatically attach an EKAlarm at the due date for system notification ringing
+      if let alarms = reminder.alarms {
+        for alarm in alarms {
+          reminder.removeAlarm(alarm)
+        }
+      }
+      reminder.addAlarm(EKAlarm(absoluteDate: parsedDate))
     }
 
     do {
@@ -143,10 +165,83 @@ final class ReminderTaskHandler: NSObject {
         "id": reminder.calendarItemIdentifier,
         "title": title,
         "list_name": reminder.calendar?.title ?? "",
-        "message": "Reminder created successfully."
+        "message": "Reminder created successfully with alarm."
       ])
     } catch {
       result(FlutterError(code: "save_failed", message: error.localizedDescription, details: nil))
+    }
+  }
+
+  // MARK: - Update Reminder
+
+  private func updateReminder(args: [String: Any], result: @escaping FlutterResult) {
+    guard let id = args["id"] as? String, !id.isEmpty else {
+      result(FlutterError(code: "invalid_args", message: "Reminder 'id' is required for update.", details: nil))
+      return
+    }
+
+    fetchReminder(withId: id) { [weak self] reminder in
+      guard let self = self, let reminder = reminder else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "not_found", message: "Reminder with ID '\(id)' not found.", details: nil))
+        }
+        return
+      }
+
+      if let title = args["title"] as? String, !title.isEmpty {
+        reminder.title = title
+      }
+
+      if let notes = args["notes"] as? String {
+        reminder.notes = notes
+      }
+
+      if let prio = args["priority"] as? NSNumber {
+        reminder.priority = prio.intValue
+      }
+
+      if let completed = args["completed"] as? Bool {
+        reminder.isCompleted = completed
+        reminder.completionDate = completed ? Date() : nil
+      }
+
+      if let listName = (args["list_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !listName.isEmpty {
+        let calendars = self.eventStore.calendars(for: .reminder)
+        if let matched = calendars.first(where: { $0.title.lowercased() == listName.lowercased() || $0.title.lowercased().contains(listName.lowercased()) }) {
+          reminder.calendar = matched
+        }
+      }
+
+      let isoFormatter = ISO8601DateFormatter()
+      if let dueStr = args["due_date"] as? String, let parsedDate = isoFormatter.date(from: dueStr) {
+        let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: parsedDate)
+        reminder.dueDateComponents = components
+
+        // Automatically attach/update EKAlarm at due date
+        if let alarms = reminder.alarms {
+          for alarm in alarms {
+            reminder.removeAlarm(alarm)
+          }
+        }
+        reminder.addAlarm(EKAlarm(absoluteDate: parsedDate))
+      }
+
+      do {
+        try self.eventStore.save(reminder, commit: true)
+        DispatchQueue.main.async {
+          result([
+            "success": true,
+            "id": id,
+            "title": reminder.title ?? "",
+            "list_name": reminder.calendar?.title ?? "",
+            "message": "Reminder updated successfully."
+          ])
+        }
+      } catch {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "update_failed", message: error.localizedDescription, details: nil))
+        }
+      }
     }
   }
 
@@ -160,28 +255,32 @@ final class ReminderTaskHandler: NSObject {
 
     let completed = (args["completed"] as? Bool) ?? true
 
-    guard let item = eventStore.calendarItem(withIdentifier: id) as? EKReminder else {
-      result(FlutterError(code: "not_found", message: "Reminder with ID '\(id)' not found.", details: nil))
-      return
-    }
+    fetchReminder(withId: id) { [weak self] item in
+      guard let self = self, let item = item else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "not_found", message: "Reminder with ID '\(id)' not found.", details: nil))
+        }
+        return
+      }
 
-    item.isCompleted = completed
-    if completed {
-      item.completionDate = Date()
-    } else {
-      item.completionDate = nil
-    }
+      item.isCompleted = completed
+      item.completionDate = completed ? Date() : nil
 
-    do {
-      try eventStore.save(item, commit: true)
-      result([
-        "success": true,
-        "id": id,
-        "completed": completed,
-        "message": "Reminder updated successfully."
-      ])
-    } catch {
-      result(FlutterError(code: "update_failed", message: error.localizedDescription, details: nil))
+      do {
+        try self.eventStore.save(item, commit: true)
+        DispatchQueue.main.async {
+          result([
+            "success": true,
+            "id": id,
+            "completed": completed,
+            "message": "Reminder updated successfully."
+          ])
+        }
+      } catch {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "update_failed", message: error.localizedDescription, details: nil))
+        }
+      }
     }
   }
 
@@ -193,20 +292,28 @@ final class ReminderTaskHandler: NSObject {
       return
     }
 
-    guard let item = eventStore.calendarItem(withIdentifier: id) as? EKReminder else {
-      result(FlutterError(code: "not_found", message: "Reminder with ID '\(id)' not found.", details: nil))
-      return
-    }
+    fetchReminder(withId: id) { [weak self] item in
+      guard let self = self, let item = item else {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "not_found", message: "Reminder with ID '\(id)' not found.", details: nil))
+        }
+        return
+      }
 
-    do {
-      try eventStore.remove(item, commit: true)
-      result([
-        "success": true,
-        "id": id,
-        "message": "Reminder '\(item.title ?? "")' deleted successfully."
-      ])
-    } catch {
-      result(FlutterError(code: "delete_failed", message: error.localizedDescription, details: nil))
+      do {
+        try self.eventStore.remove(item, commit: true)
+        DispatchQueue.main.async {
+          result([
+            "success": true,
+            "id": id,
+            "message": "Reminder '\(item.title ?? "")' deleted successfully."
+          ])
+        }
+      } catch {
+        DispatchQueue.main.async {
+          result(FlutterError(code: "delete_failed", message: error.localizedDescription, details: nil))
+        }
+      }
     }
   }
 
