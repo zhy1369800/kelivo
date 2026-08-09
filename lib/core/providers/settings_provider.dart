@@ -4468,6 +4468,7 @@ Requirements:
     copy._hiddenMobileAssistantEditTabs = _hiddenMobileAssistantEditTabs;
     copy._mobileAssistantDetailOutlineEnabled =
         _mobileAssistantDetailOutlineEnabled;
+    copy._systemPermissionPolicies = Map.from(_systemPermissionPolicies);
     return copy;
   }
 
@@ -4484,10 +4485,9 @@ Requirements:
       String toolName, SystemPermissionPolicy policy) async {
     _systemPermissionPolicies[toolName] = policy;
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(_systemPermissionPolicies
         .map((k, v) => MapEntry(k, v.toStorageString())));
-    await prefs.setString(_systemPermissionPoliciesKey, encoded);
+    await _preferences.setString(_systemPermissionPoliciesKey, encoded);
   }
 
   Future<void> setAllSystemPermissionPolicies(
@@ -4496,10 +4496,9 @@ Requirements:
       _systemPermissionPolicies[name] = policy;
     }
     notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(_systemPermissionPolicies
         .map((k, v) => MapEntry(k, v.toStorageString())));
-    await prefs.setString(_systemPermissionPoliciesKey, encoded);
+    await _preferences.setString(_systemPermissionPoliciesKey, encoded);
   }
 }
 
