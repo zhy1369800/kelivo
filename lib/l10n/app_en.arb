@@ -2229,6 +2229,8 @@
   "assistantEditLocalToolAlarmTimerSubtitle": "Allow the assistant to set alarms for specific times, start countdown timers, list active timers, and cancel pending alarms.",
   "assistantEditLocalToolAppleVisionTitle": "Apple Vision Computer Vision",
   "assistantEditLocalToolAppleVisionSubtitle": "Allow the assistant to perform fast on-device OCR text recognition, QR/barcode scanning, face detection, and image classification via Apple Vision.",
+  "assistantEditLocalToolSpeechRecognizerTitle": "SpeechRecognizer Offline STT",
+  "assistantEditLocalToolSpeechRecognizerSubtitle": "Allow the assistant to perform fast 100% on-device offline speech-to-text transcription of audio files via Apple SFSpeechRecognizer.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

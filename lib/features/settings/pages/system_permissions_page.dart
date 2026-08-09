@@ -23,6 +23,7 @@ class SystemPermissionsPage extends StatelessWidget {
     LocalToolNames.deviceInfo,
     LocalToolNames.alarmTimer,
     LocalToolNames.appleVision,
+    LocalToolNames.speechRecognizer,
   ];
 
   @override
@@ -166,8 +167,10 @@ class _PermissionRow extends StatelessWidget {
       case LocalToolNames.alarmTimer:
         return Lucide.clock;
       case LocalToolNames.appleVision:
-      default:
         return Lucide.Eye;
+      case LocalToolNames.speechRecognizer:
+      default:
+        return Lucide.Mic;
     }
   }
 
@@ -197,6 +200,8 @@ class _PermissionRow extends StatelessWidget {
         return 'Alarms & Timers';
       case LocalToolNames.appleVision:
         return 'Apple Vision';
+      case LocalToolNames.speechRecognizer:
+        return 'SpeechRecognizer';
       default:
         return toolName;
     }
@@ -228,6 +233,8 @@ class _PermissionRow extends StatelessWidget {
         return 'System alarms, countdown timers, and clock';
       case LocalToolNames.appleVision:
         return 'On-device OCR, QR scan, faces & image classification';
+      case LocalToolNames.speechRecognizer:
+        return '100% on-device offline speech-to-text transcription';
       default:
         return '';
     }

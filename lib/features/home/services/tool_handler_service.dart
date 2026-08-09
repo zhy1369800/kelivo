@@ -26,6 +26,7 @@ import '../../../core/services/native_calendar_event_service.dart';
 import '../../../core/services/native_reminder_task_service.dart';
 import '../../../core/services/native_alarm_timer_service.dart';
 import '../../../core/services/native_apple_vision_service.dart';
+import '../../../core/services/native_speech_recognizer_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -796,6 +797,27 @@ class ToolHandlerService {
             );
           }
           return await _handleAppleVisionTool(args: args);
+        }
+
+        // Handle speech_recognizer_tool
+        if (name == LocalToolNames.speechRecognizer) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.speechRecognizer)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The speech_recognizer_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final approval = await checkSystemPermission(name, defaultRequiresApproval: false);
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied SpeechRecognizer operation.',
+              tool: name,
+            );
+          }
+          return await _handleSpeechRecognizerTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -2520,6 +2542,58 @@ class ToolHandlerService {
         error: 'apple_vision_error',
         message: e.toString(),
         tool: LocalToolNames.appleVision,
+      );
+    }
+  }
+
+  Future<String> _handleSpeechRecognizerTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'transcribe_file').toString().trim().toLowerCase();
+
+    try {
+      switch (action) {
+        case 'transcribe_file':
+        case 'recognize_file':
+          final audioPath = (args['audio_path'] ?? '').toString().trim();
+          if (audioPath.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "audio_path" is required for transcribe_file action.',
+              tool: LocalToolNames.speechRecognizer,
+            );
+          }
+          final locale = (args['locale'] ?? 'zh-CN').toString().trim();
+          final forceOffline = (args['force_offline'] as bool?) ?? true;
+          final data = await NativeSpeechRecognizerService.transcribeFile(
+            audioPath: audioPath,
+            locale: locale,
+            forceOffline: forceOffline,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'get_locales':
+        case 'supported_locales':
+          final data = await NativeSpeechRecognizerService.getSupportedLocales();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'request_permission':
+          final data = await NativeSpeechRecognizerService.requestPermission();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        default:
+          return _toolError(
+            error: 'invalid_action',
+            message:
+                'Unknown action "$action". Valid: transcribe_file, get_locales, request_permission.',
+            tool: LocalToolNames.speechRecognizer,
+          );
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'speech_recognizer_error',
+        message: e.toString(),
+        tool: LocalToolNames.speechRecognizer,
       );
     }
   }

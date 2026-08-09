@@ -1827,6 +1827,8 @@
   "assistantEditLocalToolAlarmTimerSubtitle": "允許大型語言模型基於系統級通知與定時器設定特定時間鬧鐘、啟動倒計時定時器、查看掛起列表及一鍵取消。",
   "assistantEditLocalToolAppleVisionTitle": "Apple Vision 端側視覺分析",
   "assistantEditLocalToolAppleVisionSubtitle": "允許大型語言模型基於 Apple Vision 框架在端側毫秒級執行圖像文字識別 (OCR)、二維碼/條碼掃描、人臉檢測及圖像分類。",
+  "assistantEditLocalToolSpeechRecognizerTitle": "SFSpeechRecognizer 離線語音識別",
+  "assistantEditLocalToolSpeechRecognizerSubtitle": "允許大型語言模型基於 SFSpeechRecognizer 在端側 100% 離線將錄音與音訊檔案識別轉寫為精準文字 (STT)。",
   "assistantEditMemorySwitchTitle": "記憶",
   "assistantEditMemorySwitchDescription": "允許助理主動儲存並在對話間引用使用者相關資訊",
   "assistantEditOutlineModeTitle": "二級列表樣式",

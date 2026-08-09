@@ -27,6 +27,7 @@ class LocalToolNames {
   static const String reminderTask = 'reminder_task_tool';
   static const String alarmTimer = 'alarm_timer_tool';
   static const String appleVision = 'apple_vision_tool';
+  static const String speechRecognizer = 'speech_recognizer_tool';
 }
 
 class LocalToolsService {
@@ -711,6 +712,44 @@ class LocalToolsService {
               },
             },
             'required': ['action', 'image_path'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.speechRecognizer)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.speechRecognizer,
+          'description':
+              'Apple SFSpeechRecognizer tool for on-device offline speech-to-text (STT) transcription of audio files, checking supported locales, and requesting permissions.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'transcribe_file',
+                  'get_locales',
+                  'request_permission'
+                ],
+                'description':
+                    'The operation to perform: "transcribe_file" (transcribe local audio file to text), "get_locales" (list supported languages and on-device offline status), "request_permission" (request speech recognition permission).',
+              },
+              'audio_path': {
+                'type': 'string',
+                'description': 'Absolute local file path to the audio file (.m4a, .mp3, .wav, .aac, .caf) to transcribe. Required for transcribe_file.',
+              },
+              'locale': {
+                'type': 'string',
+                'description': 'Locale identifier for recognition (e.g. "zh-CN", "en-US", "zh-HK", "ja-JP"). Default: "zh-CN".',
+              },
+              'force_offline': {
+                'type': 'boolean',
+                'description': 'Whether to force 100% on-device offline recognition without network calls. Default: true.',
+              },
+            },
+            'required': ['action'],
           },
         },
       });

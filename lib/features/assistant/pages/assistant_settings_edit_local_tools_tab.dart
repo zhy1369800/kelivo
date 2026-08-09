@@ -60,6 +60,9 @@ class _LocalToolsTab extends StatelessWidget {
     final appleVisionEnabled = assistant.localToolIds.contains(
       LocalToolNames.appleVision,
     );
+    final speechRecognizerEnabled = assistant.localToolIds.contains(
+      LocalToolNames.speechRecognizer,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -225,6 +228,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: appleVisionEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.appleVision, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Mic,
+              title: l10n.assistantEditLocalToolSpeechRecognizerTitle,
+              subtitle: l10n.assistantEditLocalToolSpeechRecognizerSubtitle,
+              enabled: speechRecognizerEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.speechRecognizer, value),
             ),
           ],
         ),
