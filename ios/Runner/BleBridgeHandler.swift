@@ -3,30 +3,21 @@ import CoreBluetooth
 import Flutter
 
 final class BleBridgeHandler: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
-  private var centralManager: CBCentralManager!
-  private var discoveredPeripherals = [String: CBPeripheral]()
-  private var connectedPeripherals = [String: CBPeripheral]()
-  private var scanResults = [[String: Any]]()
+  private var _centralManager: CBCentralManager?
 
-  // Semaphores / callbacks for sync/async operations
-  private var pendingResult: FlutterResult?
-  private var pendingOperation: String?
-
-  // Current active read/write/discover targets
-  private var targetPeripheralUuid: String?
-  private var targetServiceUuid: String?
-  private var targetCharacteristicUuid: String?
-  private var writeValueHex: String?
-  private var writeValueData: Data?
-
-  // Read response
-  private var lastReadData: Data?
+  private var centralManager: CBCentralManager {
+    if let manager = _centralManager {
+      return manager
+    }
+    let manager = CBCentralManager(delegate: self, queue: nil, options: [
+      CBCentralManagerOptionShowPowerAlertKey: false
+    ])
+    _centralManager = manager
+    return manager
+  }
 
   override init() {
     super.init()
-    centralManager = CBCentralManager(delegate: self, queue: nil, options: [
-      CBCentralManagerOptionShowPowerAlertKey: false
-    ])
   }
 
   func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
