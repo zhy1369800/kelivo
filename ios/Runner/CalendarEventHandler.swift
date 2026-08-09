@@ -58,11 +58,13 @@ final class CalendarEventHandler: NSObject {
   // MARK: - Format Helpers
 
   private func formatEvent(_ event: EKEvent, isoFormatter: ISO8601DateFormatter) -> [String: Any] {
+    let startStr = event.startDate != nil ? isoFormatter.string(from: event.startDate!) : ""
+    let endStr = event.endDate != nil ? isoFormatter.string(from: event.endDate!) : ""
     return [
       "id": event.eventIdentifier ?? "",
       "title": event.title ?? "",
-      "start": isoFormatter.string(from: event.startDate),
-      "end": isoFormatter.string(from: event.endDate),
+      "start": startStr,
+      "end": endStr,
       "is_all_day": event.isAllDay,
       "location": event.location ?? "",
       "notes": event.notes ?? "",
@@ -92,7 +94,10 @@ final class CalendarEventHandler: NSObject {
     }
 
     let predicate = eventStore.predicateForEvents(withStart: startDate, end: endDate, calendars: targetCalendars)
-    let events = eventStore.events(matching: predicate).sorted { $0.startDate < $1.startDate }
+    let events = eventStore.events(matching: predicate).sorted { (a, b) in
+      guard let aStart = a.startDate, let bStart = b.startDate else { return false }
+      return aStart < bStart
+    }
 
     let isoFormatter = ISO8601DateFormatter()
     let items = events.map { formatEvent($0, isoFormatter: isoFormatter) }
@@ -240,13 +245,15 @@ final class CalendarEventHandler: NSObject {
 
     do {
       try eventStore.save(event, span: span)
+      let startStr = event.startDate != nil ? isoFormatter.string(from: event.startDate!) : ""
+      let endStr = event.endDate != nil ? isoFormatter.string(from: event.endDate!) : ""
       result([
         "success": true,
         "id": id,
         "title": event.title ?? "",
         "calendar": event.calendar?.title ?? "",
-        "start": isoFormatter.string(from: event.startDate),
-        "end": isoFormatter.string(from: event.endDate),
+        "start": startStr,
+        "end": endStr,
         "message": "Calendar event updated successfully."
       ])
     } catch {
@@ -319,7 +326,10 @@ final class CalendarEventHandler: NSObject {
     }
 
     let predicate = eventStore.predicateForEvents(withStart: startDate, end: endDate, calendars: nil)
-    let events = eventStore.events(matching: predicate).sorted { $0.startDate < $1.startDate }
+    let events = eventStore.events(matching: predicate).sorted { (a, b) in
+      guard let aStart = a.startDate, let bStart = b.startDate else { return false }
+      return aStart < bStart
+    }
 
     var busySlots = [[String: String]]()
     var freeSlots = [[String: String]]()
@@ -328,8 +338,9 @@ final class CalendarEventHandler: NSObject {
 
     for e in events {
       if e.isAllDay { continue }
-      let s = e.startDate > startDate ? e.startDate : startDate
-      let end = e.endDate < endDate ? e.endDate : endDate
+      guard let eStart = e.startDate, let eEnd = e.endDate else { continue }
+      let s = eStart > startDate ? eStart : startDate
+      let end = eEnd < endDate ? eEnd : endDate
 
       if s > lastEnd {
         freeSlots.append([
@@ -340,8 +351,8 @@ final class CalendarEventHandler: NSObject {
 
       busySlots.append([
         "title": e.title ?? "",
-        "start": isoFormatter.string(from: e.startDate),
-        "end": isoFormatter.string(from: e.endDate)
+        "start": isoFormatter.string(from: eStart),
+        "end": isoFormatter.string(from: eEnd)
       ])
 
       if end > lastEnd {
