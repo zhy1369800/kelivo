@@ -2414,11 +2414,16 @@ class ToolHandlerService {
           final data = await NativeAlarmTimerService.requestPermission();
           return jsonEncode({'success': true, 'action': action, ...data});
 
+        case 'open_clock_app':
+          final clockType = args['type']?.toString() ?? 'alarm';
+          final data = await NativeAlarmTimerService.openClockApp(type: clockType);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
         default:
           return _toolError(
             error: 'invalid_action',
             message:
-                'Unknown action "$action". Valid: set_alarm, set_timer, list, cancel, request_permission.',
+                'Unknown action "$action". Valid: set_alarm, set_timer, list, cancel, open_clock_app, request_permission.',
             tool: LocalToolNames.alarmTimer,
           );
       }

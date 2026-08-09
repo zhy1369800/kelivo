@@ -64,4 +64,13 @@ class NativeAlarmTimerService {
     );
     return Map<String, dynamic>.from(res ?? {});
   }
+
+  /// Opens Apple's native Clock App to show Alarms or Timers on screen.
+  static Future<Map<String, dynamic>> openClockApp({String type = 'alarm'}) async {
+    final res = await _channel.invokeMapMethod<String, dynamic>(
+      'openClockApp',
+      {'type': type},
+    );
+    return Map<String, dynamic>.from(res ?? {});
+  }
 }

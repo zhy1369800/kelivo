@@ -707,7 +707,7 @@ class SettingsProvider extends ChangeNotifier {
     _providerUngroupedPosition =
         prefs.getInt(_providerUngroupedPositionKey) ?? _providerGroups.length;
     try {
-      final polStr = localPreferences.getString(_systemPermissionPoliciesKey) ?? '';
+      final polStr = prefs.getString(_systemPermissionPoliciesKey) ?? '';
       if (polStr.isNotEmpty) {
         final raw = jsonDecode(polStr) as Map<String, dynamic>;
         _systemPermissionPolicies = raw.map(

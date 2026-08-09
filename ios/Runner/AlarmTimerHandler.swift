@@ -25,6 +25,8 @@ final class AlarmTimerHandler: NSObject {
       listPending(result: result)
     case "cancel":
       cancel(args: args, result: result)
+    case "openClockApp":
+      openClockApp(args: args, result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -512,5 +514,26 @@ final class AlarmTimerHandler: NSObject {
       }
     }
     return totalSeconds
+  }
+
+  // MARK: - Open Clock App
+
+  private func openClockApp(args: [String: Any], result: @escaping FlutterResult) {
+    let type = (args["type"] as? String)?.lowercased() ?? "alarm"
+    let urlString = type == "timer" ? "clock-timer://" : "clock-alarm://"
+
+    DispatchQueue.main.async {
+      if let url = URL(string: urlString), UIApplication.shared.canOpenURL(url) {
+        UIApplication.shared.open(url, options: [:]) { success in
+          result(["success": success, "message": "Opened Apple Clock App (\(type))."])
+        }
+      } else if let fallbackUrl = URL(string: "clock://"), UIApplication.shared.canOpenURL(fallbackUrl) {
+        UIApplication.shared.open(fallbackUrl, options: [:]) { success in
+          result(["success": success, "message": "Opened Apple Clock App."])
+        }
+      } else {
+        result(FlutterError(code: "open_failed", message: "Unable to open Apple Clock App on this device.", details: nil))
+      }
+    }
   }
 }
