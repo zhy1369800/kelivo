@@ -153,7 +153,7 @@ class _LocalToolsTab extends StatelessWidget {
             ),
             _iosDivider(context),
             _LocalToolRow(
-              icon: Lucide.Bluetooth,
+              icon: Lucide.Cable,
               title: l10n.assistantEditLocalToolBleBridgeTitle,
               subtitle: l10n.assistantEditLocalToolBleBridgeSubtitle,
               enabled: bleBridgeEnabled,
@@ -162,7 +162,7 @@ class _LocalToolsTab extends StatelessWidget {
             ),
             _iosDivider(context),
             _LocalToolRow(
-              icon: Lucide.Bell,
+              icon: Lucide.Vibrate,
               title: l10n.assistantEditLocalToolUserNotificationTitle,
               subtitle: l10n.assistantEditLocalToolUserNotificationSubtitle,
               enabled: userNotificationEnabled,
@@ -171,7 +171,7 @@ class _LocalToolsTab extends StatelessWidget {
             ),
             _iosDivider(context),
             _LocalToolRow(
-              icon: Lucide.Smartphone,
+              icon: Lucide.Phone,
               title: l10n.assistantEditLocalToolDeviceInfoTitle,
               subtitle: l10n.assistantEditLocalToolDeviceInfoSubtitle,
               enabled: deviceInfoEnabled,
@@ -207,7 +207,7 @@ class _LocalToolsTab extends StatelessWidget {
             ),
             _iosDivider(context),
             _LocalToolRow(
-              icon: Lucide.Clock,
+              icon: Lucide.clock,
               title: l10n.assistantEditLocalToolAlarmTimerTitle,
               subtitle: l10n.assistantEditLocalToolAlarmTimerSubtitle,
               enabled: alarmTimerEnabled,

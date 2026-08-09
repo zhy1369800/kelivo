@@ -133,13 +133,13 @@ IconData? _localToolIconFor(String name, Map<String, dynamic> args) {
     LocalToolNames.locationInfo => Lucide.Map,
     LocalToolNames.mapKit => Lucide.Map,
     LocalToolNames.weatherKit => Lucide.Sun,
-    LocalToolNames.bleBridge => Lucide.Bluetooth,
-    LocalToolNames.userNotification => Lucide.Bell,
-    LocalToolNames.deviceInfo => Lucide.Smartphone,
+    LocalToolNames.bleBridge => Lucide.Cable,
+    LocalToolNames.userNotification => Lucide.Vibrate,
+    LocalToolNames.deviceInfo => Lucide.Phone,
     LocalToolNames.healthKit => Lucide.Heart,
     LocalToolNames.calendarEvent => Lucide.Calendar,
     LocalToolNames.reminderTask => Lucide.CheckSquare,
-    LocalToolNames.alarmTimer => Lucide.Clock,
+    LocalToolNames.alarmTimer => Lucide.clock,
     _ => null,
   };
 }

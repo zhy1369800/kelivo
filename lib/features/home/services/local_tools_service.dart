@@ -287,6 +287,7 @@ class LocalToolsService {
               },
             },
           },
+        },
       });
     }
     if (assistant.localToolIds.contains(LocalToolNames.bleBridge)) {
