@@ -2105,7 +2105,11 @@ class ToolHandlerService {
       switch (action) {
         case 'list_events':
           final days = (args['days'] as num?)?.toInt() ?? 7;
-          final data = await NativeCalendarEventService.listEvents(days: days);
+          final calendarName = args['calendar_name']?.toString();
+          final data = await NativeCalendarEventService.listEvents(
+            days: days,
+            calendarName: calendarName,
+          );
           return jsonEncode({'success': true, 'action': action, ...data});
 
         case 'search_events':
@@ -2128,6 +2132,7 @@ class ToolHandlerService {
           final location = args['location']?.toString();
           final notes = args['notes']?.toString();
           final alarmMinutes = (args['alarm_minutes'] as num?)?.toInt();
+          final calendarName = args['calendar_name']?.toString();
 
           final data = await NativeCalendarEventService.createEvent(
             title: title,
@@ -2136,6 +2141,38 @@ class ToolHandlerService {
             location: location,
             notes: notes,
             alarmMinutes: alarmMinutes,
+            calendarName: calendarName,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'update_event':
+          final id = (args['id'] ?? '').toString().trim();
+          if (id.isEmpty) {
+            return _toolError(
+              error: 'invalid_parameters',
+              message: 'Parameter "id" is required for update_event.',
+              tool: LocalToolNames.calendarEvent,
+            );
+          }
+          final title = args['title']?.toString();
+          final start = args['start']?.toString();
+          final end = args['end']?.toString();
+          final location = args['location']?.toString();
+          final notes = args['notes']?.toString();
+          final alarmMinutes = (args['alarm_minutes'] as num?)?.toInt();
+          final calendarName = args['calendar_name']?.toString();
+          final span = args['span']?.toString();
+
+          final data = await NativeCalendarEventService.updateEvent(
+            id: id,
+            title: title,
+            start: start,
+            end: end,
+            location: location,
+            notes: notes,
+            alarmMinutes: alarmMinutes,
+            calendarName: calendarName,
+            span: span,
           );
           return jsonEncode({'success': true, 'action': action, ...data});
 
@@ -2148,11 +2185,26 @@ class ToolHandlerService {
               tool: LocalToolNames.calendarEvent,
             );
           }
-          final data = await NativeCalendarEventService.deleteEvent(id: id);
+          final span = args['span']?.toString();
+          final data = await NativeCalendarEventService.deleteEvent(
+            id: id,
+            span: span,
+          );
           return jsonEncode({'success': true, 'action': action, ...data});
 
         case 'list_calendars':
           final data = await NativeCalendarEventService.listCalendars();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'freebusy':
+          final days = (args['days'] as num?)?.toInt() ?? 1;
+          final start = args['start']?.toString();
+          final end = args['end']?.toString();
+          final data = await NativeCalendarEventService.freebusy(
+            days: days,
+            start: start,
+            end: end,
+          );
           return jsonEncode({'success': true, 'action': action, ...data});
 
         case 'request_permission':
@@ -2163,7 +2215,7 @@ class ToolHandlerService {
           return _toolError(
             error: 'invalid_action',
             message:
-                'Unknown action "$action". Valid: list_events, search_events, create_event, delete_event, list_calendars, request_permission.',
+                'Unknown action "$action". Valid: list_events, search_events, create_event, update_event, delete_event, list_calendars, freebusy, request_permission.',
             tool: LocalToolNames.calendarEvent,
           );
       }

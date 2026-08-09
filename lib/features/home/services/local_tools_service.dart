@@ -487,16 +487,18 @@ class LocalToolsService {
                   'list_events',
                   'search_events',
                   'create_event',
+                  'update_event',
                   'delete_event',
                   'list_calendars',
+                  'freebusy',
                   'request_permission'
                 ],
                 'description':
-                    'The operation to perform: "list_events" (default, list upcoming events over N days), "search_events" (search events by query keyword), "create_event" (create a new event), "delete_event" (delete an event by ID), "list_calendars" (list system calendars), "request_permission" (request calendar access).',
+                    'The operation to perform: "list_events" (default, list upcoming events), "search_events" (search events by query keyword), "create_event" (create a new event), "update_event" (update an existing event), "delete_event" (delete an event by ID), "list_calendars" (list system calendars), "freebusy" (query free/busy time slots), "request_permission" (request calendar access).',
               },
               'days': {
                 'type': 'number',
-                'description': 'Number of days to list or search events (default: 7 for list, 30 for search).',
+                'description': 'Number of days to query for list_events, search_events, or freebusy (default: 7 for list, 30 for search, 1 for freebusy).',
               },
               'query': {
                 'type': 'string',
@@ -504,31 +506,35 @@ class LocalToolsService {
               },
               'title': {
                 'type': 'string',
-                'description': 'Title for create_event. Required for create_event.',
+                'description': 'Title for create_event or update_event.',
               },
               'start': {
                 'type': 'string',
-                'description': 'Start datetime in ISO 8601 format (e.g. 2026-08-10T15:00:00Z) for create_event.',
+                'description': 'Start datetime in ISO 8601 format (e.g. 2026-08-10T15:00:00Z) for create_event, update_event, or freebusy.',
               },
               'end': {
                 'type': 'string',
-                'description': 'End datetime in ISO 8601 format for create_event.',
+                'description': 'End datetime in ISO 8601 format for create_event, update_event, or freebusy.',
               },
               'location': {
                 'type': 'string',
-                'description': 'Location string for create_event.',
+                'description': 'Location string for create_event or update_event.',
               },
               'notes': {
                 'type': 'string',
-                'description': 'Notes or description for create_event.',
+                'description': 'Notes or description for create_event or update_event.',
               },
               'alarm_minutes': {
                 'type': 'number',
-                'description': 'Alarm alert offset in minutes before event start for create_event (e.g. 15 for 15 mins before).',
+                'description': 'Alarm alert offset in minutes before event start for create_event or update_event.',
+              },
+              'calendar_name': {
+                'type': 'string',
+                'description': 'Target calendar name (e.g. "Work", "Personal") for list_events, create_event, or update_event.',
               },
               'id': {
                 'type': 'string',
-                'description': 'Calendar event ID for delete_event. Required for delete_event.',
+                'description': 'Calendar event ID for update_event or delete_event. Required for update_event and delete_event.',
               },
             },
             'required': ['action'],
