@@ -25,6 +25,7 @@ import '../../../core/services/native_health_kit_service.dart';
 import '../../../core/services/native_calendar_event_service.dart';
 import '../../../core/services/native_reminder_task_service.dart';
 import '../../../core/services/native_alarm_timer_service.dart';
+import '../../../core/services/native_apple_vision_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -774,6 +775,27 @@ class ToolHandlerService {
             );
           }
           return await _handleAlarmTimerTool(args: args);
+        }
+
+        // Handle apple_vision_tool
+        if (name == LocalToolNames.appleVision) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.appleVision)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The apple_vision_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final approval = await checkSystemPermission(name, defaultRequiresApproval: false);
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied AppleVision operation.',
+              tool: name,
+            );
+          }
+          return await _handleAppleVisionTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -2432,6 +2454,72 @@ class ToolHandlerService {
         error: 'alarm_timer_error',
         message: e.toString(),
         tool: LocalToolNames.alarmTimer,
+      );
+    }
+  }
+
+  Future<String> _handleAppleVisionTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? 'analyze_all').toString().trim().toLowerCase();
+    final imagePath = (args['image_path'] ?? '').toString().trim();
+
+    if (imagePath.isEmpty) {
+      return _toolError(
+        error: 'invalid_parameters',
+        message: 'Parameter "image_path" is required for apple_vision_tool.',
+        tool: LocalToolNames.appleVision,
+      );
+    }
+
+    try {
+      switch (action) {
+        case 'ocr':
+        case 'recognize_text':
+          final languages = (args['languages'] as List?)?.map((e) => e.toString()).toList();
+          final accurate = (args['accurate'] as bool?) ?? true;
+          final data = await NativeAppleVisionService.recognizeText(
+            imagePath: imagePath,
+            languages: languages,
+            accurate: accurate,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'detect_barcodes':
+        case 'qr_scan':
+          final data = await NativeAppleVisionService.detectBarcodes(imagePath: imagePath);
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'detect_faces':
+        case 'face_detection':
+          final includeLandmarks = (args['include_landmarks'] as bool?) ?? false;
+          final data = await NativeAppleVisionService.detectFaces(
+            imagePath: imagePath,
+            includeLandmarks: includeLandmarks,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'classify_image':
+        case 'image_classification':
+          final maxResults = (args['max_results'] as num?)?.toInt() ?? 10;
+          final minConfidence = (args['min_confidence'] as num?)?.toDouble() ?? 0.05;
+          final data = await NativeAppleVisionService.classifyImage(
+            imagePath: imagePath,
+            maxResults: maxResults,
+            minConfidence: minConfidence,
+          );
+          return jsonEncode({'success': true, 'action': action, ...data});
+
+        case 'analyze_all':
+        default:
+          final data = await NativeAppleVisionService.analyzeAll(imagePath: imagePath);
+          return jsonEncode({'success': true, 'action': action, ...data});
+      }
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'apple_vision_error',
+        message: e.toString(),
+        tool: LocalToolNames.appleVision,
       );
     }
   }

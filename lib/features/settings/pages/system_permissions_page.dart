@@ -22,6 +22,7 @@ class SystemPermissionsPage extends StatelessWidget {
     LocalToolNames.bleBridge,
     LocalToolNames.deviceInfo,
     LocalToolNames.alarmTimer,
+    LocalToolNames.appleVision,
   ];
 
   @override
@@ -163,8 +164,10 @@ class _PermissionRow extends StatelessWidget {
       case LocalToolNames.deviceInfo:
         return Lucide.Phone;
       case LocalToolNames.alarmTimer:
-      default:
         return Lucide.clock;
+      case LocalToolNames.appleVision:
+      default:
+        return Lucide.Eye;
     }
   }
 
@@ -192,6 +195,8 @@ class _PermissionRow extends StatelessWidget {
         return 'Device Info';
       case LocalToolNames.alarmTimer:
         return 'Alarms & Timers';
+      case LocalToolNames.appleVision:
+        return 'Apple Vision';
       default:
         return toolName;
     }
@@ -221,6 +226,8 @@ class _PermissionRow extends StatelessWidget {
         return 'Hardware model, iOS version, RAM, and battery';
       case LocalToolNames.alarmTimer:
         return 'System alarms, countdown timers, and clock';
+      case LocalToolNames.appleVision:
+        return 'On-device OCR, QR scan, faces & image classification';
       default:
         return '';
     }

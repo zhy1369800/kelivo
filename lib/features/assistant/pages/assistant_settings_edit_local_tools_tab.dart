@@ -57,6 +57,9 @@ class _LocalToolsTab extends StatelessWidget {
     final alarmTimerEnabled = assistant.localToolIds.contains(
       LocalToolNames.alarmTimer,
     );
+    final appleVisionEnabled = assistant.localToolIds.contains(
+      LocalToolNames.appleVision,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -213,6 +216,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: alarmTimerEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.alarmTimer, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Eye,
+              title: l10n.assistantEditLocalToolAppleVisionTitle,
+              subtitle: l10n.assistantEditLocalToolAppleVisionSubtitle,
+              enabled: appleVisionEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.appleVision, value),
             ),
           ],
         ),

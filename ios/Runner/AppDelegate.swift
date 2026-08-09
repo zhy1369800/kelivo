@@ -22,6 +22,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
   private let calendarEventHandler = CalendarEventHandler()
   private let reminderTaskHandler = ReminderTaskHandler()
   private let alarmTimerHandler = AlarmTimerHandler()
+  private let appleVisionHandler = AppleVisionHandler()
 
   override func application(
     _ application: UIApplication,
@@ -118,6 +119,11 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       let alarmTimerChannel = FlutterMethodChannel(name: "app.alarm_timer", binaryMessenger: controller.binaryMessenger)
       alarmTimerChannel.setMethodCallHandler { [weak self] call, result in
         self?.alarmTimerHandler.handle(call: call, result: result)
+      }
+
+      let appleVisionChannel = FlutterMethodChannel(name: "app.apple_vision", binaryMessenger: controller.binaryMessenger)
+      appleVisionChannel.setMethodCallHandler { [weak self] call, result in
+        self?.appleVisionHandler.handle(call: call, result: result)
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)

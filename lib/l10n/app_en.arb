@@ -2227,6 +2227,8 @@
   "assistantEditLocalToolReminderTaskSubtitle": "Allow the assistant to list reminders, create to-do tasks, mark items complete/incomplete, delete items, and manage reminder lists.",
   "assistantEditLocalToolAlarmTimerTitle": "Alarms, Timers & Countdown",
   "assistantEditLocalToolAlarmTimerSubtitle": "Allow the assistant to set alarms for specific times, start countdown timers, list active timers, and cancel pending alarms.",
+  "assistantEditLocalToolAppleVisionTitle": "Apple Vision Computer Vision",
+  "assistantEditLocalToolAppleVisionSubtitle": "Allow the assistant to perform fast on-device OCR text recognition, QR/barcode scanning, face detection, and image classification via Apple Vision.",
   "assistantEditMemorySwitchTitle": "Memory",
   "assistantEditMemorySwitchDescription": "Allow the assistant to create and use memories across chats.",
   "assistantEditRecentChatsSwitchTitle": "Recent Chats Reference",

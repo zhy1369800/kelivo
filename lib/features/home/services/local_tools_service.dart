@@ -26,6 +26,7 @@ class LocalToolNames {
   static const String calendarEvent = 'calendar_event_tool';
   static const String reminderTask = 'reminder_task_tool';
   static const String alarmTimer = 'alarm_timer_tool';
+  static const String appleVision = 'apple_vision_tool';
 }
 
 class LocalToolsService {
@@ -661,6 +662,55 @@ class LocalToolsService {
               },
             },
             'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.appleVision)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.appleVision,
+          'description':
+              'Apple Vision Framework tool for on-device fast OCR text recognition, QR/barcode scanning, face detection, and image classification.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'ocr',
+                  'detect_barcodes',
+                  'detect_faces',
+                  'classify_image',
+                  'analyze_all'
+                ],
+                'description':
+                    'The operation to perform: "ocr" (recognize text in image), "detect_barcodes" (detect QR codes & barcodes), "detect_faces" (detect face boxes & landmarks), "classify_image" (classify image category tags), "analyze_all" (run all vision analyses in a single pass).',
+              },
+              'image_path': {
+                'type': 'string',
+                'description': 'Absolute local file path to the image file to analyze. Required.',
+              },
+              'languages': {
+                'type': 'array',
+                'items': {'type': 'string'},
+                'description': 'Languages array for OCR (e.g. ["zh-Hans", "en-US"]). Optional.',
+              },
+              'accurate': {
+                'type': 'boolean',
+                'description': 'Whether to use high-accuracy mode for OCR. Default: true.',
+              },
+              'include_landmarks': {
+                'type': 'boolean',
+                'description': 'Whether to include facial landmark points count for face detection. Default: false.',
+              },
+              'max_results': {
+                'type': 'number',
+                'description': 'Maximum number of tags to return for classify_image. Default: 10.',
+              },
+            },
+            'required': ['action', 'image_path'],
           },
         },
       });
