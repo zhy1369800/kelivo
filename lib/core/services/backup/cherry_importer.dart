@@ -11,8 +11,10 @@ import '../../models/api_keys.dart';
 import '../../models/backup.dart';
 import '../../models/chat_message.dart';
 import '../../models/conversation.dart';
+import '../../models/message_part.dart';
 import '../chat/chat_service.dart';
 import '../../../utils/app_directories.dart';
+import '../../../utils/sandbox_path_resolver.dart';
 import 'cherry_direct_backup_reader.dart';
 
 export 'cherry_direct_backup_reader.dart'
@@ -265,6 +267,7 @@ class CherryImporter {
           (fileObj?['type']?.toString().toLowerCase().startsWith('image') ??
               false);
       if (fileObj != null && (fileObj['id'] ?? '').toString().isNotEmpty) {
+        final originPath = (fileObj['path'] ?? '').toString().trim();
         (pendingAttachmentsByMessage[messageId] ??= <_PendingAttachmentRef>[])
             .add(
               _PendingAttachmentRef(
@@ -272,6 +275,7 @@ class CherryImporter {
                 name: (fileObj['origin_name'] ?? fileObj['name'] ?? '')
                     .toString(),
                 mime: (fileObj['type'] ?? '').toString(),
+                originPath: originPath.isNotEmpty ? originPath : null,
                 isImage: isImageType,
               ),
             );
@@ -467,10 +471,7 @@ class CherryImporter {
       } else if (raw.length > speculativeJsonProbeBytes) {
         return null;
       }
-      return _tryDecodeBackupJsonBytes(
-        raw,
-        allowMalformed: identified,
-      );
+      return _tryDecodeBackupJsonBytes(raw, allowMalformed: identified);
     } catch (_) {
       return null;
     }
@@ -513,10 +514,7 @@ class CherryImporter {
     if (_looksLikeGzip(bytes)) {
       try {
         final gunzipped = GZipDecoder().decodeBytes(bytes, verify: false);
-        final obj = _tryDecodeBackupJsonBytes(
-          gunzipped,
-          allowMalformed: true,
-        );
+        final obj = _tryDecodeBackupJsonBytes(gunzipped, allowMalformed: true);
         if (obj != null) return obj;
       } catch (_) {}
     }
@@ -685,7 +683,7 @@ class CherryImporter {
         'customHeaders': const <Map<String, String>>[],
         'customBody': const <Map<String, String>>[],
         'enableMemory': false,
-        'enableRecentChatsReference': false,
+        'allowPastConversationRecall': false,
       };
       out.add(json);
     }
@@ -930,8 +928,19 @@ class CherryImporter {
         final fn = safeName.isNotEmpty
             ? safeName
             : (ext.isNotEmpty ? 'file.$ext' : 'file');
-        final fileName = 'cherry_${id}_$fn';
+        // `id` comes straight from the imported archive's JSON. Sanitize it
+        // like the display name: an id such as `x/../../y` would otherwise
+        // escape the upload directory on Windows, whose Win32 path
+        // normalization resolves `..` lexically without requiring the
+        // intermediate directory to exist.
+        final safeId = id.replaceAll(RegExp(r'[/\\\0]'), '_');
+        final fileName = 'cherry_${safeId}_$fn';
         final outPath = p.join(uploadDirPath, fileName);
+        // Defense in depth: never write outside the upload directory even if
+        // a future refactor weakens the sanitization above.
+        if (!p.isWithin(p.normalize(uploadDirPath), p.normalize(outPath))) {
+          continue;
+        }
 
         if (File(outPath).existsSync()) {
           result[id] = outPath;
@@ -988,10 +997,7 @@ class CherryImporter {
               if (!done &&
                   diskFilesIndexByRel != null &&
                   diskFilesIndexByRel.containsKey(key)) {
-                if (_copyDiskFileToUpload(
-                  diskFilesIndexByRel[key]!,
-                  outPath,
-                )) {
+                if (_copyDiskFileToUpload(diskFilesIndexByRel[key]!, outPath)) {
                   result[id] = outPath;
                   done = true;
                 }
@@ -1053,7 +1059,8 @@ class CherryImporter {
               continue;
             }
           }
-          if (filesIndexByBase != null && filesIndexByBase.containsKey(idPlus)) {
+          if (filesIndexByBase != null &&
+              filesIndexByBase.containsKey(idPlus)) {
             if (_writeArchiveEntryToFile(filesIndexByBase[idPlus]!, outPath)) {
               result[id] = outPath;
               continue;
@@ -1249,9 +1256,9 @@ class CherryImporter {
         );
         final totalTokens = (usage?['total_tokens'] as num?)?.toInt();
 
-        // Attachments -> appended as user-style markers or assistant markdown
+        // Attachments -> structured ImagePart/FilePart (no mid-pipeline markers)
         final files = (m['files'] as List?) ?? const <dynamic>[];
-        final attachmentLines = <String>[];
+        final attachmentParts = <MessagePart>[];
         for (final f in files) {
           if (f is! Map) continue;
           final fid = (f['id'] ?? '').toString();
@@ -1259,25 +1266,57 @@ class CherryImporter {
           final name = (f['origin_name'] ?? f['name'] ?? 'file').toString();
           final mime = (f['type'] ?? '').toString();
           final savedPath = filePaths[fid];
+          final isImageByMeta =
+              mime.toLowerCase().startsWith('image') ||
+              (name.toLowerCase().contains('.') &&
+                  RegExp(
+                    r"\.(png|jpg|jpeg|gif|webp)",
+                  ).hasMatch(name.toLowerCase()));
           if (savedPath != null && savedPath.isNotEmpty) {
-            final isImage =
-                mime.toLowerCase().startsWith('image') ||
-                (name.toLowerCase().contains('.') &&
-                    RegExp(
-                      r"\.(png|jpg|jpeg|gif|webp)",
-                    ).hasMatch(name.toLowerCase()));
-            attachmentLines.add(
-              _formatAttachmentLine(role, isImage, savedPath, name, mime),
+            attachmentParts.add(
+              _attachmentPart(
+                isImage: isImageByMeta,
+                target: savedPath,
+                name: name,
+                mime: mime,
+              ),
             );
           } else {
             // Fallback to URL if present (no download)
             final url = (f['url'] ?? '').toString();
             if (url.isNotEmpty) {
-              final isImage = url.toLowerCase().contains(
-                RegExp(r"\.(png|jpg|jpeg|gif|webp)$"),
+              // Trust known image MIME even on extensionless / presigned URLs.
+              final lowerUrl = url.toLowerCase();
+              final isImage =
+                  mime.toLowerCase().startsWith('image/') ||
+                  RegExp(
+                    r'\.(png|jpg|jpeg|gif|webp)(?:$|[?#])',
+                  ).hasMatch(lowerUrl);
+              attachmentParts.add(
+                _attachmentPart(
+                  isImage: isImage,
+                  target: url,
+                  name: name,
+                  mime: mime,
+                ),
               );
-              attachmentLines.add(
-                _formatAttachmentLine(role, isImage, url, name, mime),
+            } else {
+              // Archive file missing and no URL — keep an unavailable part so
+              // the attachment is not silently dropped from history.
+              // Prefer an archive-relative origin path when present; otherwise a
+              // stable non-empty placeholder (uri must not be empty).
+              final originPath = (f['path'] ?? '').toString().trim();
+              final placeholder = originPath.isNotEmpty
+                  ? originPath
+                  : 'cherry-missing:$fid';
+              attachmentParts.add(
+                _attachmentPart(
+                  isImage: isImageByMeta,
+                  target: placeholder,
+                  name: name,
+                  mime: mime,
+                  unavailable: true,
+                ),
               );
             }
           }
@@ -1290,41 +1329,71 @@ class CherryImporter {
         for (final ref in extraAtt) {
           if (ref.fileId != null) {
             final savedPath = filePaths[ref.fileId!];
-            if (savedPath != null) {
-              attachmentLines.add(
-                _formatAttachmentLine(
-                  role,
-                  ref.isImage,
-                  savedPath,
-                  ref.name ?? (ref.isImage ? 'image' : 'file'),
-                  ref.mime ??
-                      (ref.isImage ? 'image/png' : 'application/octet-stream'),
+            final fileName = ref.name ?? (ref.isImage ? 'image' : 'file');
+            final fileMime =
+                ref.mime ??
+                (ref.isImage ? 'image/png' : 'application/octet-stream');
+            if (savedPath != null && savedPath.isNotEmpty) {
+              attachmentParts.add(
+                _attachmentPart(
+                  isImage: ref.isImage,
+                  target: savedPath,
+                  name: fileName,
+                  mime: fileMime,
+                ),
+              );
+            } else {
+              // Same contract as m['files']: keep an unavailable placeholder
+              // when the archive file is missing.
+              final originPath = (ref.originPath ?? '').trim();
+              final placeholder = originPath.isNotEmpty
+                  ? originPath
+                  : 'cherry-missing:${ref.fileId}';
+              attachmentParts.add(
+                _attachmentPart(
+                  isImage: ref.isImage,
+                  target: placeholder,
+                  name: fileName,
+                  mime: fileMime,
+                  unavailable: true,
                 ),
               );
             }
           } else if (ref.dataUrl != null) {
             final savedPath = await _saveDataUrlToUpload(ref.dataUrl!);
+            final fileName = ref.name ?? (ref.isImage ? 'image' : 'file');
+            final fileMime =
+                ref.mime ??
+                (ref.isImage ? 'image/png' : 'application/octet-stream');
             if (savedPath != null) {
               extraSaved += 1;
-              attachmentLines.add(
-                _formatAttachmentLine(
-                  role,
-                  ref.isImage,
-                  savedPath,
-                  ref.name ?? (ref.isImage ? 'image' : 'file'),
-                  ref.mime ??
-                      (ref.isImage ? 'image/png' : 'application/octet-stream'),
+              attachmentParts.add(
+                _attachmentPart(
+                  isImage: ref.isImage,
+                  target: savedPath,
+                  name: fileName,
+                  mime: fileMime,
+                ),
+              );
+            } else {
+              attachmentParts.add(
+                _attachmentPart(
+                  isImage: ref.isImage,
+                  target: 'cherry-missing:data-url',
+                  name: fileName,
+                  mime: fileMime,
+                  unavailable: true,
                 ),
               );
             }
           } else if (ref.url != null && ref.url!.isNotEmpty) {
-            attachmentLines.add(
-              _formatAttachmentLine(
-                role,
-                ref.isImage,
-                ref.url!,
-                ref.name ?? (ref.isImage ? 'image' : 'file'),
-                ref.mime ??
+            attachmentParts.add(
+              _attachmentPart(
+                isImage: ref.isImage,
+                target: ref.url!,
+                name: ref.name ?? (ref.isImage ? 'image' : 'file'),
+                mime:
+                    ref.mime ??
                     (ref.isImage ? 'image/png' : 'application/octet-stream'),
               ),
             );
@@ -1347,19 +1416,23 @@ class CherryImporter {
               final saved = await _saveDataUrlToUpload(s);
               if (saved != null) {
                 extraSaved += 1;
-                attachmentLines.add(
-                  _formatAttachmentLine(
-                    role,
-                    true,
-                    saved,
-                    'image',
-                    'image/png',
+                attachmentParts.add(
+                  _attachmentPart(
+                    isImage: true,
+                    target: saved,
+                    name: 'image',
+                    mime: 'image/png',
                   ),
                 );
               }
             } else if (s.startsWith('http://') || s.startsWith('https://')) {
-              attachmentLines.add(
-                _formatAttachmentLine(role, true, s, 'image', 'image/png'),
+              attachmentParts.add(
+                _attachmentPart(
+                  isImage: true,
+                  target: s,
+                  name: 'image',
+                  mime: 'image/png',
+                ),
               );
             } else {
               // raw base64 without prefix
@@ -1368,13 +1441,12 @@ class CherryImporter {
               );
               if (saved != null) {
                 extraSaved += 1;
-                attachmentLines.add(
-                  _formatAttachmentLine(
-                    role,
-                    true,
-                    saved,
-                    'image',
-                    'image/png',
+                attachmentParts.add(
+                  _attachmentPart(
+                    isImage: true,
+                    target: saved,
+                    name: 'image',
+                    mime: 'image/png',
                   ),
                 );
               }
@@ -1390,13 +1462,12 @@ class CherryImporter {
               final saved = await _saveDataUrlToUpload(du);
               if (saved != null) {
                 extraSaved += 1;
-                attachmentLines.add(
-                  _formatAttachmentLine(
-                    role,
-                    true,
-                    saved,
-                    'image',
-                    'image/png',
+                attachmentParts.add(
+                  _attachmentPart(
+                    isImage: true,
+                    target: saved,
+                    name: 'image',
+                    mime: 'image/png',
                   ),
                 );
               }
@@ -1405,17 +1476,13 @@ class CherryImporter {
             content = _stripDataImageUrls(content);
           }
         }
-        final mergedContent = attachmentLines.isEmpty
-            ? content
-            : (content.isEmpty
-                  ? attachmentLines.join('\n')
-                  : '$content\n${attachmentLines.join('\n')}');
+        final parts = <MessagePart>[TextPart(content), ...attachmentParts];
 
         messages.add(
           ChatMessage(
             id: msgId,
             role: role,
-            content: mergedContent,
+            parts: parts,
             timestamp: ts,
             modelId: modelId,
             providerId: providerId,
@@ -1457,29 +1524,27 @@ class CherryImporter {
     return (convCount, msgCount, extraSaved);
   }
 
-  static String _formatAttachmentLine(
-    String role,
-    bool isImage,
-    String target,
-    String name,
-    String mime,
-  ) {
-    if (role == 'assistant') {
-      if (isImage) {
-        return '![]($target)';
-      } else {
-        final label = (name.isNotEmpty ? name : 'file');
-        return '[$label]($target)';
-      }
-    } else {
-      if (isImage) {
-        return '[image:$target]';
-      } else {
-        final m = (mime.isEmpty ? 'application/octet-stream' : mime);
-        final label = (name.isNotEmpty ? name : 'file');
-        return '[file:$target|$label|$m]';
-      }
+  static MessagePart _attachmentPart({
+    required bool isImage,
+    required String target,
+    required String name,
+    required String mime,
+    bool unavailable = false,
+  }) {
+    final uri = SandboxPathResolver.canonicalize(target);
+    if (isImage) {
+      return ImagePart(
+        uri: uri,
+        mime: mime.isNotEmpty ? mime : null,
+        unavailable: unavailable,
+      );
     }
+    return FilePart(
+      uri: uri,
+      name: name.isNotEmpty ? name : 'file',
+      mime: mime.isNotEmpty ? mime : 'application/octet-stream',
+      unavailable: unavailable,
+    );
   }
 
   static List<String> _extractDataImageUrls(String text) {
@@ -1594,6 +1659,7 @@ class _PendingAttachmentRef {
   final String? url; // remote url
   final String? name;
   final String? mime;
+  final String? originPath; // archive-relative path when available
   final bool isImage;
   const _PendingAttachmentRef({
     this.fileId,
@@ -1601,6 +1667,7 @@ class _PendingAttachmentRef {
     this.url,
     this.name,
     this.mime,
+    this.originPath,
     this.isImage = true,
   });
 }

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, TargetPlatform;
+    show defaultTargetPlatform, TargetPlatform, visibleForTesting;
 import 'dart:ui' as ui;
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
@@ -15,6 +15,7 @@ import 'dart:convert';
 import '../../home/widgets/file_processing_indicator.dart';
 import '../pages/image_viewer_page.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/message_part.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../icons/reasoning_icons.dart';
 // import '../../../theme/design_tokens.dart';
@@ -40,6 +41,7 @@ import '../../../shared/widgets/ios_tactile.dart';
 import '../../../desktop/desktop_context_menu.dart';
 import '../../../desktop/menu_anchor.dart';
 import '../../../shared/widgets/emoji_text.dart';
+import '../../../utils/platform_utils.dart';
 import '../../home/services/ask_user_interaction_service.dart';
 import '../../home/services/local_tools_service.dart';
 import '../../home/services/tool_approval_service.dart';
@@ -47,8 +49,9 @@ import '../utils/thinking_tag_parser.dart';
 import 'citation_sources_sheet.dart';
 import 'chat_suggestion_bubbles.dart';
 import 'token_display_widget.dart';
+import 'screen_time_tool_ui.dart';
+import 'tool_detail_text_section.dart';
 import '../../../theme/app_font_weights.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 final RegExp _urlSchemeRe = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*:');
 
@@ -77,8 +80,13 @@ Uri? _tryNormalizeExternalUri(String raw) {
   return uri;
 }
 
-/// Extract image paths from tool result content.
-/// Returns (cleanText, imagePaths). Supports local file paths and HTTP URLs.
+/// Extract markdown images from MCP/tool result content.
+///
+/// Returns `(cleanText, imagePaths)`. Matches `![alt](url)` only — custom
+/// attachment marker strings are left as plain text.
+///
+/// Destinations may contain parentheses (e.g. `/tmp/run (1)/image.png`); the
+/// parser finds `![...](` then scans balanced parentheses to the matching `)`.
 (String, List<String>) _parseMcpImagePaths(String? content) {
   if (content == null || content.isEmpty) return ('', const []);
 
@@ -90,23 +98,179 @@ Uri? _tryNormalizeExternalUri(String raw) {
     // Filter invalid values
     if (path.isNotEmpty && path != 'generated') {
       images.add(path);
+  final buffer = StringBuffer();
+  var i = 0;
+  while (i < content.length) {
+    if (content.startsWith('![', i)) {
+      final altClose = content.indexOf('](', i + 2);
+      if (altClose != -1) {
+        final destStart = altClose + 2;
+        var depth = 1;
+        var j = destStart;
+        while (j < content.length && depth > 0) {
+          final ch = content.codeUnitAt(j);
+          if (ch == 0x28) {
+            // (
+            depth += 1;
+          } else if (ch == 0x29) {
+            // )
+            depth -= 1;
+            if (depth == 0) break;
+          }
+          j += 1;
+        }
+        if (depth == 0 && j < content.length) {
+          final path = content.substring(destStart, j).trim();
+          if (path.isNotEmpty && path != 'generated') {
+            images.add(path);
+          }
+          i = j + 1;
+          continue;
+        }
+      }
     }
-    return '';
-  });
+    buffer.writeCharCode(content.codeUnitAt(i));
+    i += 1;
+  }
 
-  return (cleanText.trim(), images);
+  return (buffer.toString().trim(), images);
+}
+
+@visibleForTesting
+(String, List<String>) parseMcpImagePathsForTesting(String? content) =>
+    _parseMcpImagePaths(content);
+
+String _resolveAttachmentImageUri(String uri) {
+  final path = uri.trim();
+  if (path.isEmpty) return path;
+  if (path.startsWith('http://') ||
+      path.startsWith('https://') ||
+      path.startsWith('data:')) {
+    return path;
+  }
+  return SandboxPathResolver.fix(path);
+}
+
+/// Decoded `data:` image bytes, keyed by the full data URI.
+///
+/// Reusing the same [Uint8List] keeps [MemoryImage] cache keys stable across
+/// rebuilds, so the image is decoded once instead of on every frame. Entries
+/// are evicted least-recently-used first, bounded by both entry count and
+/// total decoded bytes so a few large images cannot pin unbounded memory.
+final Map<String, Uint8List?> _dataUriBytesCache = <String, Uint8List?>{};
+const int _dataUriBytesCacheLimit = 24;
+const int _dataUriBytesCacheMaxBytes = 16 << 20;
+int _dataUriBytesCacheBytes = 0;
+
+Uint8List? _decodeDataUriBytes(String path) {
+  if (_dataUriBytesCache.containsKey(path)) {
+    // Re-insert to mark as most recently used (LinkedHashMap keeps order).
+    final cached = _dataUriBytesCache.remove(path);
+    _dataUriBytesCache[path] = cached;
+    return cached;
+  }
+
+  Uint8List? bytes;
+  try {
+    const marker = 'base64,';
+    final idx = path.indexOf(marker);
+    if (idx != -1) bytes = base64Decode(path.substring(idx + marker.length));
+  } catch (_) {
+    bytes = null;
+  }
+
+  _dataUriBytesCache[path] = bytes;
+  _dataUriBytesCacheBytes += bytes?.length ?? 0;
+  // Evict oldest entries first. The entry just added is always kept (even if
+  // it alone exceeds the byte budget) so its MemoryImage key stays stable.
+  while (_dataUriBytesCache.length > 1 &&
+      (_dataUriBytesCache.length > _dataUriBytesCacheLimit ||
+          _dataUriBytesCacheBytes > _dataUriBytesCacheMaxBytes)) {
+    final evicted = _dataUriBytesCache.remove(_dataUriBytesCache.keys.first);
+    _dataUriBytesCacheBytes -= evicted?.length ?? 0;
+  }
+  return bytes;
+}
+
+/// Shared image widget for tool thumbnails and message attachment previews.
+///
+/// `http(s)` → [Image.network], `data:` → [Image.memory], otherwise local
+/// [Image.file]. Unavailable/empty/decode failures use [placeholder].
+Widget _buildResolvedImage(
+  BuildContext context,
+  String rawPath, {
+  double? width,
+  double? height,
+  BoxFit fit = BoxFit.contain,
+  Widget Function()? placeholder,
+}) {
+  final cs = Theme.of(context).colorScheme;
+  Widget errorWidget() =>
+      placeholder?.call() ??
+      Container(
+        width: width ?? (height != null ? height * 0.67 : 120),
+        height: height ?? 180,
+        color: cs.surfaceContainerHighest,
+        alignment: Alignment.center,
+        child: Icon(
+          Lucide.ImageOff,
+          size: 24,
+          color: cs.onSurface.withValues(alpha: 0.5),
+        ),
+      );
+
+  final path = rawPath.trim();
+  if (path.isEmpty) return errorWidget();
+
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return Image.network(
+      path,
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (_, __, ___) => errorWidget(),
+    );
+  }
+
+  if (path.startsWith('data:')) {
+    final bytes = _decodeDataUriBytes(path);
+    if (bytes == null) return errorWidget();
+    return Image.memory(
+      bytes,
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (_, __, ___) => errorWidget(),
+    );
+  }
+
+  final fixed = SandboxPathResolver.fix(path);
+  return Image.file(
+    File(fixed),
+    width: width,
+    height: height,
+    fit: fit,
+    errorBuilder: (_, __, ___) => errorWidget(),
+  );
 }
 
 IconData _toolIconFor(String name, [Map<String, dynamic> args = const {}]) {
   final localIcon = _localToolIconFor(name, args);
   if (localIcon != null) return localIcon;
   switch (name) {
+    case 'memory_read':
+    case 'memory_update':
+    case 'memory_search_profile':
+    case 'memory_edit':
+    case 'update_user_profile':
     case 'create_memory':
-      return Lucide.bookHeart;
     case 'edit_memory':
       return Lucide.bookHeart;
+    case 'memory_delete':
     case 'delete_memory':
       return Lucide.bookDashed;
+    case 'chat_search':
+      return Lucide.Search;
     case 'search_web':
       return Lucide.Earth;
     case 'builtin_search':
@@ -127,8 +291,11 @@ IconData? _localToolIconFor(String name, Map<String, dynamic> args) {
       'write' => Lucide.ClipboardPen,
       _ => Lucide.Clipboard,
     },
-    LocalToolNames.textToSpeech => Lucide.Volume2,
-    LocalToolNames.calculate => Lucide.Calculator,
+     LocalToolNames.textToSpeech => Lucide.Volume2,
+     LocalToolNames.calculate => Lucide.Calculator,
+     LocalToolNames.screenTime => Lucide.Smartphone,
+     LocalToolNames.calendarQuery => Lucide.Calendar,
+     LocalToolNames.calendarCreate => Lucide.CalendarPlus,
     LocalToolNames.mcpServersTool => Lucide.Boxes,
     LocalToolNames.locationInfo => Lucide.Map,
     LocalToolNames.mapKit => Lucide.Map,
@@ -159,8 +326,13 @@ String? _localToolTitleFor(
       'write' => l10n.chatMessageWidgetWriteClipboard,
       _ => l10n.assistantEditLocalToolClipboardTitle,
     },
-    LocalToolNames.textToSpeech => l10n.chatMessageWidgetSpeakingTitle,
-    LocalToolNames.calculate => l10n.assistantEditLocalToolCalculateTitle,
+     LocalToolNames.textToSpeech => l10n.chatMessageWidgetSpeakingTitle,
+     LocalToolNames.calculate => l10n.assistantEditLocalToolCalculateTitle,
+     LocalToolNames.screenTime => l10n.assistantEditLocalToolScreenTimeTitle,
+     LocalToolNames.calendarQuery =>
+       l10n.assistantEditLocalToolCalendarQueryTitle,
+     LocalToolNames.calendarCreate =>
+       l10n.assistantEditLocalToolCalendarCreateTitle,
     LocalToolNames.mcpServersTool => l10n.assistantEditLocalToolMcpServersTitle,
     LocalToolNames.locationInfo => l10n.assistantEditLocalToolLocationTitle,
     LocalToolNames.mapKit => l10n.assistantEditLocalToolMapKitTitle,
@@ -268,12 +440,24 @@ String _toolTitleFor(
   final localToolTitle = _localToolTitleFor(l10n, name, args);
   if (localToolTitle != null) return localToolTitle;
   switch (name) {
+    case 'memory_read':
+      return l10n.chatMessageWidgetMemoryRead;
+    case 'memory_update':
+      return l10n.chatMessageWidgetMemoryUpdate;
+    case 'memory_search_profile':
+      return l10n.chatMessageWidgetMemorySearchProfile;
+    case 'memory_edit':
+    case 'edit_memory':
+      return l10n.chatMessageWidgetMemoryEdit;
+    case 'memory_delete':
+    case 'delete_memory':
+      return l10n.chatMessageWidgetMemoryDelete;
+    case 'update_user_profile':
+      return l10n.chatMessageWidgetUpdateUserProfile;
+    case 'chat_search':
+      return l10n.chatMessageWidgetChatSearch;
     case 'create_memory':
       return l10n.chatMessageWidgetCreateMemory;
-    case 'edit_memory':
-      return l10n.chatMessageWidgetEditMemory;
-    case 'delete_memory':
-      return l10n.chatMessageWidgetDeleteMemory;
     case 'search_web':
       final q = (args['query'] ?? '').toString();
       return l10n.chatMessageWidgetWebSearch(q);
@@ -301,32 +485,11 @@ Widget _buildToolImageFromPath(
   double? height,
   BoxFit fit = BoxFit.contain,
 }) {
-  final cs = Theme.of(context).colorScheme;
-  Widget errorWidget() => Container(
-    width: height != null ? height * 0.67 : 120,
-    height: height ?? 180,
-    color: cs.surfaceContainerHighest,
-    child: Icon(
-      Lucide.ImageOff,
-      size: 24,
-      color: cs.onSurface.withValues(alpha: 0.5),
-    ),
-  );
-
-  if (path.startsWith('http://') || path.startsWith('https://')) {
-    return Image.network(
-      path,
-      height: height,
-      fit: fit,
-      errorBuilder: (_, __, ___) => errorWidget(),
-    );
-  }
-
-  return Image.file(
-    File(path),
+  return _buildResolvedImage(
+    context,
+    path,
     height: height,
     fit: fit,
-    errorBuilder: (_, __, ___) => errorWidget(),
   );
 }
 
@@ -371,104 +534,268 @@ void _showToolDetail(BuildContext context, ToolUIPart part) {
     part.arguments,
     isResult: !part.loading,
   );
+  final closeSemanticLabel = l10n.mcpPageClose;
+  final screenTime = part.toolName == LocalToolNames.screenTime
+      ? ScreenTimeResult.tryParse(cleanText)
+      : null;
+  final useScreenTimeDetail = screenTime != null && screenTime.hasApps;
+
+  if (PlatformUtils.isDesktopTarget) {
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (dialogContext) => _ToolDetailDesktopDialog(
+          title: title,
+          closeSemanticLabel: closeSemanticLabel,
+          argsPretty: argsPretty,
+          resultText: resultText,
+          images: images,
+          argumentsLabel: l10n.chatMessageWidgetArguments,
+          resultLabel: l10n.chatMessageWidgetResult,
+          imagesLabel: l10n.chatMessageWidgetImages,
+          screenTimeResult: useScreenTimeDetail ? screenTime : null,
+        ),
+      ),
+    );
+    return;
+  }
 
   unawaited(
     showCustomBottomSheet<void>(
       context: context,
       title: title,
-      closeSemanticLabel: l10n.mcpPageClose,
+      closeSemanticLabel: closeSemanticLabel,
       builder: (sheetContext, scrollController) {
-        final theme = Theme.of(sheetContext);
-        final cs = theme.colorScheme;
-        return ListView(
-          controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          children: [
-            Text(
-              l10n.chatMessageWidgetArguments,
-              style: TextStyle(
-                fontSize: 12,
-                color: cs.onSurface.withValues(alpha: 0.6),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: context.appColors.surfaceFill,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: cs.outlineVariant.withValues(alpha: 0.2),
-                ),
-              ),
-              child: SelectableText(
-                argsPretty,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              l10n.chatMessageWidgetResult,
-              style: TextStyle(
-                fontSize: 12,
-                color: cs.onSurface.withValues(alpha: 0.6),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: context.appColors.surfaceFill,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: cs.outlineVariant.withValues(alpha: 0.2),
-                ),
-              ),
-              child: SelectableText(
-                resultText,
-                style: const TextStyle(fontSize: 12),
-              ),
-            ),
-            if (images.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                l10n.chatMessageWidgetImages,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: cs.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
-              const SizedBox(height: 6),
-              SizedBox(
-                height: 220,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: images.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final path = images[index];
-                    return GestureDetector(
-                      onTap: () => _showToolFullImage(sheetContext, path),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: _buildToolImageFromPath(
-                          sheetContext,
-                          path,
-                          height: 220,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ],
+        if (useScreenTimeDetail) {
+          return ScreenTimeToolDetailBody(
+            result: screenTime,
+            scrollController: scrollController,
+          );
+        }
+        return _ToolDetailBody(
+          scrollController: scrollController,
+          argsPretty: argsPretty,
+          resultText: resultText,
+          images: images,
+          argumentsLabel: l10n.chatMessageWidgetArguments,
+          resultLabel: l10n.chatMessageWidgetResult,
+          imagesLabel: l10n.chatMessageWidgetImages,
         );
       },
     ),
   );
+}
+
+class _ToolDetailDesktopDialog extends StatefulWidget {
+  const _ToolDetailDesktopDialog({
+    required this.title,
+    required this.closeSemanticLabel,
+    required this.argsPretty,
+    required this.resultText,
+    required this.images,
+    required this.argumentsLabel,
+    required this.resultLabel,
+    required this.imagesLabel,
+    this.screenTimeResult,
+  });
+
+  static const dialogKey = ValueKey('tool_detail_desktop_dialog');
+  static const closeButtonKey = ValueKey('tool_detail_desktop_dialog_close');
+
+  final String title;
+  final String closeSemanticLabel;
+  final String argsPretty;
+  final String resultText;
+  final List<String> images;
+  final String argumentsLabel;
+  final String resultLabel;
+  final String imagesLabel;
+  final ScreenTimeResult? screenTimeResult;
+
+  @override
+  State<_ToolDetailDesktopDialog> createState() =>
+      _ToolDetailDesktopDialogState();
+}
+
+class _ToolDetailDesktopDialogState extends State<_ToolDetailDesktopDialog> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Dialog(
+      key: _ToolDetailDesktopDialog.dialogKey,
+      elevation: 12,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minWidth: 420,
+          maxWidth: 640,
+          maxHeight: 680,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Material(
+            color: cs.surface,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: cs.onSurface,
+                            fontSize: 16,
+                            fontWeight: AppFontWeights.emphasis,
+                            height: 1.2,
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        key: _ToolDetailDesktopDialog.closeButtonKey,
+                        width: 28,
+                        height: 28,
+                        child: IosIconButton(
+                          icon: Lucide.X,
+                          size: 20,
+                          padding: EdgeInsets.zero,
+                          color: cs.onSurface.withValues(alpha: 0.62),
+                          semanticLabel: widget.closeSemanticLabel,
+                          onTap: () => Navigator.of(context).maybePop(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Scrollbar(
+                    controller: _scrollController,
+                    child: widget.screenTimeResult != null
+                        ? ScreenTimeToolDetailBody(
+                            result: widget.screenTimeResult!,
+                            scrollController: _scrollController,
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                          )
+                        : _ToolDetailBody(
+                            scrollController: _scrollController,
+                            argsPretty: widget.argsPretty,
+                            resultText: widget.resultText,
+                            images: widget.images,
+                            argumentsLabel: widget.argumentsLabel,
+                            resultLabel: widget.resultLabel,
+                            imagesLabel: widget.imagesLabel,
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ToolDetailBody extends StatelessWidget {
+  const _ToolDetailBody({
+    required this.scrollController,
+    required this.argsPretty,
+    required this.resultText,
+    required this.images,
+    required this.argumentsLabel,
+    required this.resultLabel,
+    required this.imagesLabel,
+    this.padding = const EdgeInsets.fromLTRB(16, 8, 16, 24),
+  });
+
+  final ScrollController scrollController;
+  final String argsPretty;
+  final String resultText;
+  final List<String> images;
+  final String argumentsLabel;
+  final String resultLabel;
+  final String imagesLabel;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SelectionArea(
+      child: CustomScrollView(
+        controller: scrollController,
+        slivers: [
+          SliverPadding(
+            padding: padding,
+            sliver: SliverMainAxisGroup(
+              slivers: [
+                ToolDetailTextSection(label: argumentsLabel, text: argsPretty),
+                const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                ToolDetailTextSection(label: resultLabel, text: resultText),
+                if (images.isNotEmpty) ...[
+                  const SliverToBoxAdapter(child: SizedBox(height: 12)),
+                  SliverToBoxAdapter(
+                    child: Text(
+                      imagesLabel,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 6)),
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: 220,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: images.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final path = images[index];
+                          return GestureDetector(
+                            onTap: () => _showToolFullImage(context, path),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: _buildToolImageFromPath(
+                                context,
+                                path,
+                                height: 220,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class ChatMessageWidget extends StatefulWidget {
@@ -977,7 +1304,9 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                       filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: cs.surfaceContainerHigh.withValues(alpha: 0.66),
+                          color: cs.surfaceContainerHigh.withValues(
+                            alpha: 0.66,
+                          ),
                         ),
                         child: Material(
                           color: Colors.transparent,
@@ -1151,19 +1480,21 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     final userProvider = context.watch<UserProvider>();
     final l10n = AppLocalizations.of(context)!;
     final settings = context.watch<SettingsProvider>();
-    final parsed = _parseUserContent(widget.message.content);
+    // Attachments come from structured parts only. Literal marker-like text
+    // inside TextPart stays plain text and is never re-parsed.
     final assistant = _assistantForMessage();
     final visualText = _applyVisualAssistantRegexes(
-      parsed.text,
+      widget.message.content,
       assistant: assistant,
       scope: AssistantRegexScope.user,
     );
     final showUserActions = settings.showUserMessageActions;
     final showVersionSwitcher = (widget.versionCount ?? 1) > 1;
-    final mediaPreview = _buildUserAttachmentPreview(
+    final mediaPreview = _buildAttachmentPreview(
       context,
-      parsed: parsed,
+      parts: widget.message.parts,
       isDark: isDark,
+      alignEnd: true,
     );
     final textBubble = visualText.isNotEmpty
         ? Container(
@@ -1480,86 +1811,183 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
         : content;
   }
 
-  Widget? _buildUserAttachmentPreview(
+  /// Attachment previews in [parts] ordinal order (not images-then-files).
+  ///
+  /// [alignEnd] true for user bubbles (trailing), false for assistant (start).
+  Widget? _buildAttachmentPreview(
     BuildContext context, {
-    required _ParsedUserContent parsed,
+    required List<MessagePart> parts,
     required bool isDark,
+    required bool alignEnd,
   }) {
-    if (parsed.images.isEmpty && parsed.docs.isEmpty) return null;
+    final attachmentEntries = <({int index, MessagePart part})>[
+      for (var i = 0; i < parts.length; i++)
+        if (parts[i] is ImagePart ||
+            parts[i] is FilePart ||
+            (parts[i] is MalformedPart &&
+                (parts[i] as MalformedPart).isAttachmentKind))
+          (index: i, part: parts[i]),
+    ];
+    if (attachmentEntries.isEmpty) return null;
 
     final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
-    final imageItems = <Widget>[];
-    final docItems = <Widget>[];
+    final roleKey = alignEnd ? 'user' : 'assistant';
 
-    if (parsed.images.isNotEmpty) {
-      final imgs = parsed.images;
-      imageItems.addAll(
-        imgs.asMap().entries.map((entry) {
-          final idx = entry.key;
-          final p = entry.value;
-          return IosCardPress(
+    Widget unavailableImagePlaceholder() => Container(
+      width: 112,
+      height: 112,
+      color: cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.06),
+      alignment: Alignment.center,
+      child: Icon(
+        Lucide.ImageOff,
+        color: cs.onSurface.withValues(alpha: 0.45),
+      ),
+    );
+
+    final viewablePaths = <String>[
+      for (final entry in attachmentEntries)
+        if (entry.part is ImagePart)
+          if (!(entry.part as ImagePart).unavailable &&
+              (entry.part as ImagePart).uri.trim().isNotEmpty)
+            _resolveAttachmentImageUri((entry.part as ImagePart).uri),
+    ];
+
+    final items = <Widget>[];
+    for (final entry in attachmentEntries) {
+      final part = entry.part;
+      final partIndex = entry.index;
+      if (part is MalformedPart) {
+        if (part.rawKind == 'image') {
+          items.add(
+            IosCardPress(
+              key: ValueKey(
+                '$roleKey-message-attachment:${widget.message.id}:$partIndex',
+              ),
+              baseColor: Colors.transparent,
+              pressedScale: 0.985,
+              borderRadius: BorderRadius.circular(10),
+              padding: EdgeInsets.zero,
+              onTap: null,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: unavailableImagePlaceholder(),
+              ),
+            ),
+          );
+        } else {
+          items.add(
+            IosCardPress(
+              key: ValueKey(
+                '$roleKey-message-attachment:${widget.message.id}:$partIndex',
+              ),
+              baseColor: isDark
+                  ? cs.onSurface.withValues(alpha: 0.08)
+                  : cs.surface.withValues(alpha: 0.92),
+              pressedScale: 0.99,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: cs.outlineVariant.withValues(alpha: 0.18),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              onTap: null,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.insert_drive_file,
+                    size: 16,
+                    color: cs.onSurface.withValues(alpha: 0.45),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    l10n.chatMessageWidgetAttachmentUnavailable,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+        continue;
+      }
+      if (part is ImagePart) {
+        final path = part.uri.trim();
+        final fixed = path.isEmpty ? '' : _resolveAttachmentImageUri(path);
+        final viewIndex = viewablePaths.indexOf(fixed);
+        items.add(
+          IosCardPress(
+            key: ValueKey(
+              '$roleKey-message-attachment:${widget.message.id}:$partIndex',
+            ),
             baseColor: Colors.transparent,
             pressedScale: 0.985,
             borderRadius: BorderRadius.circular(10),
             padding: EdgeInsets.zero,
-            onTap: () {
-              Navigator.of(context).push(
-                PageRouteBuilder(
-                  pageBuilder: (_, __, ___) =>
-                      ImageViewerPage(images: imgs, initialIndex: idx),
-                  transitionDuration: const Duration(milliseconds: 360),
-                  reverseTransitionDuration: const Duration(milliseconds: 280),
-                  transitionsBuilder: (context, anim, sec, child) {
-                    final curved = CurvedAnimation(
-                      parent: anim,
-                      curve: Curves.easeOutCubic,
-                      reverseCurve: Curves.easeInCubic,
-                    );
-                    return FadeTransition(
-                      opacity: curved,
-                      child: SlideTransition(
-                        position: Tween<Offset>(
-                          begin: const Offset(0, 0.02),
-                          end: Offset.zero,
-                        ).animate(curved),
-                        child: child,
+            onTap: part.unavailable || viewIndex < 0
+                ? null
+                : () {
+                    Navigator.of(context).push(
+                      PageRouteBuilder(
+                        pageBuilder: (_, __, ___) => ImageViewerPage(
+                          images: viewablePaths,
+                          initialIndex: viewIndex,
+                        ),
+                        transitionDuration: const Duration(milliseconds: 360),
+                        reverseTransitionDuration: const Duration(
+                          milliseconds: 280,
+                        ),
+                        transitionsBuilder: (context, anim, sec, child) {
+                          final curved = CurvedAnimation(
+                            parent: anim,
+                            curve: Curves.easeOutCubic,
+                            reverseCurve: Curves.easeInCubic,
+                          );
+                          return FadeTransition(
+                            opacity: curved,
+                            child: SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(0, 0.02),
+                                end: Offset.zero,
+                              ).animate(curved),
+                              child: child,
+                            ),
+                          );
+                        },
                       ),
                     );
                   },
-                ),
-              );
-            },
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: Hero(
-                tag: 'img:$p',
-                child: Image.file(
-                  File(SandboxPathResolver.fix(p)),
-                  width: 112,
-                  height: 112,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    width: 112,
-                    height: 112,
-                    color: cs.onSurface.withValues(alpha: isDark ? 0.08 : 0.06),
-                    child: Icon(
-                      Icons.broken_image,
-                      color: cs.onSurface.withValues(alpha: 0.45),
-                    ),
-                  ),
-                ),
+                tag: 'img:${fixed.isNotEmpty ? fixed : 'unavailable-$partIndex'}',
+                child: part.unavailable || fixed.isEmpty
+                    ? unavailableImagePlaceholder()
+                    : _buildResolvedImage(
+                        context,
+                        fixed,
+                        width: 112,
+                        height: 112,
+                        fit: BoxFit.cover,
+                        placeholder: unavailableImagePlaceholder,
+                      ),
               ),
             ),
-          );
-        }),
-      );
-    }
+          ),
+        );
+        continue;
+      }
 
-    if (parsed.docs.isNotEmpty) {
-      docItems.addAll(
-        parsed.docs.map((d) {
-          return IosCardPress(
+      if (part is FilePart) {
+        final d = part;
+        items.add(
+          IosCardPress(
+            key: ValueKey(
+              '$roleKey-message-attachment:${widget.message.id}:$partIndex',
+            ),
             baseColor: isDark
                 ? cs.onSurface.withValues(alpha: 0.08)
                 : cs.surface.withValues(alpha: 0.92),
@@ -1569,42 +1997,89 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
               color: cs.outlineVariant.withValues(alpha: 0.18),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            onTap: () async {
-              try {
-                final fixed = SandboxPathResolver.fix(d.path);
-                final f = File(fixed);
-                if (!(await f.exists())) {
-                  if (!context.mounted) return;
-                  showAppSnackBar(
-                    context,
-                    message: l10n.chatMessageWidgetFileNotFound(d.fileName),
-                    type: NotificationType.error,
-                  );
-                  return;
-                }
-                final res = await OpenFilex.open(fixed, type: d.mime);
-                if (res.type != ResultType.done) {
-                  if (!context.mounted) return;
-                  final openMessage = res.message;
-                  showAppSnackBar(
-                    context,
-                    message: l10n.chatMessageWidgetCannotOpenFile(
-                      openMessage.isNotEmpty
-                          ? openMessage
-                          : res.type.toString(),
-                    ),
-                    type: NotificationType.error,
-                  );
-                }
-              } catch (e) {
-                if (!context.mounted) return;
-                showAppSnackBar(
-                  context,
-                  message: l10n.chatMessageWidgetOpenFileError(e.toString()),
-                  type: NotificationType.error,
-                );
-              }
-            },
+            onTap: d.unavailable
+                ? null
+                : () async {
+                    try {
+                      final uri = d.uri.trim();
+                      if (uri.startsWith('http://') ||
+                          uri.startsWith('https://')) {
+                        final normalized = _tryNormalizeExternalUri(uri);
+                        if (normalized == null) {
+                          if (!context.mounted) return;
+                          showAppSnackBar(
+                            context,
+                            message: l10n.chatMessageWidgetOpenLinkError,
+                            type: NotificationType.error,
+                          );
+                          return;
+                        }
+                        final ok = await launchUrl(
+                          normalized,
+                          mode: LaunchMode.externalApplication,
+                        );
+                        if (!ok) {
+                          if (!context.mounted) return;
+                          showAppSnackBar(
+                            context,
+                            message: l10n.chatMessageWidgetCannotOpenUrl(
+                              normalized.toString(),
+                            ),
+                            type: NotificationType.error,
+                          );
+                        }
+                        return;
+                      }
+                      if (uri.startsWith('data:')) {
+                        if (!context.mounted) return;
+                        showAppSnackBar(
+                          context,
+                          message: l10n.chatMessageWidgetCannotOpenFile(
+                            'unsupported data URI',
+                          ),
+                          type: NotificationType.warning,
+                        );
+                        return;
+                      }
+                      final fixed = SandboxPathResolver.fix(uri);
+                      final f = File(fixed);
+                      if (!(await f.exists())) {
+                        if (!context.mounted) return;
+                        showAppSnackBar(
+                          context,
+                          message: l10n.chatMessageWidgetFileNotFound(d.name),
+                          type: NotificationType.error,
+                        );
+                        return;
+                      }
+                      final res = await OpenFilex.open(
+                        fixed,
+                        type: d.mime ?? 'application/octet-stream',
+                      );
+                      if (res.type != ResultType.done) {
+                        if (!context.mounted) return;
+                        final openMessage = res.message;
+                        showAppSnackBar(
+                          context,
+                          message: l10n.chatMessageWidgetCannotOpenFile(
+                            openMessage.isNotEmpty
+                                ? openMessage
+                                : res.type.toString(),
+                          ),
+                          type: NotificationType.error,
+                        );
+                      }
+                    } catch (e) {
+                      if (!context.mounted) return;
+                      showAppSnackBar(
+                        context,
+                        message: l10n.chatMessageWidgetOpenFileError(
+                          e.toString(),
+                        ),
+                        type: NotificationType.error,
+                      );
+                    }
+                  },
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1617,7 +2092,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 180),
                   child: Text(
-                    d.fileName,
+                    d.name,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 13,
@@ -1627,36 +2102,19 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                 ),
               ],
             ),
-          );
-        }),
-      );
+          ),
+        );
+      }
     }
 
     return Align(
-      key: ValueKey('user-message-attachments:${widget.message.id}'),
-      alignment: Alignment.centerRight,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (imageItems.isNotEmpty)
-            Wrap(
-              key: ValueKey('user-message-images:${widget.message.id}'),
-              alignment: WrapAlignment.end,
-              spacing: 8,
-              runSpacing: 8,
-              children: imageItems,
-            ),
-          if (imageItems.isNotEmpty && docItems.isNotEmpty)
-            const SizedBox(height: 8),
-          if (docItems.isNotEmpty)
-            Wrap(
-              key: ValueKey('user-message-docs:${widget.message.id}'),
-              alignment: WrapAlignment.end,
-              spacing: 8,
-              runSpacing: 8,
-              children: docItems,
-            ),
-        ],
+      key: ValueKey('$roleKey-message-attachments:${widget.message.id}'),
+      alignment: alignEnd ? Alignment.centerRight : Alignment.centerLeft,
+      child: Wrap(
+        alignment: alignEnd ? WrapAlignment.end : WrapAlignment.start,
+        spacing: 8,
+        runSpacing: 8,
+        children: items,
       ),
     );
   }
@@ -1689,36 +2147,6 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
   }) {
     // Reuse same styles, but flag as non-user for default fallthrough
     return _buildBubbleContainer(context: context, isUser: false, child: child);
-  }
-
-  _ParsedUserContent _parseUserContent(String raw) {
-    final imgRe = RegExp(r"\[image:(.+?)\]");
-    final fileRe = RegExp(r"\[file:(.+?)\|(.+?)\|(.+?)\]");
-    final images = <String>[];
-    final docs = <_DocRef>[];
-    final buffer = StringBuffer();
-    int idx = 0;
-    while (idx < raw.length) {
-      final m1 = imgRe.matchAsPrefix(raw, idx);
-      final m2 = fileRe.matchAsPrefix(raw, idx);
-      if (m1 != null) {
-        final p = m1.group(1)?.trim();
-        if (p != null && p.isNotEmpty) images.add(p);
-        idx = m1.end;
-        continue;
-      }
-      if (m2 != null) {
-        final path = m2.group(1)?.trim() ?? '';
-        final name = m2.group(2)?.trim() ?? 'file';
-        final mime = m2.group(3)?.trim() ?? 'text/plain';
-        docs.add(_DocRef(path: path, fileName: name, mime: mime));
-        idx = m2.end;
-        continue;
-      }
-      buffer.write(raw[idx]);
-      idx++;
-    }
-    return _ParsedUserContent(buffer.toString().trim(), images, docs);
   }
 
   Widget _buildAssistantTextContent(
@@ -1969,6 +2397,13 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     final bool isTranslating =
         translationText == l10n.chatMessageWidgetTranslating;
     final searchItems = _allSearchItems();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final mediaPreview = _buildAttachmentPreview(
+      context,
+      parts: widget.message.parts,
+      isDark: isDark,
+      alignEnd: false,
+    );
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -2038,6 +2473,11 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
             ],
           ),
           const SizedBox(height: 8),
+
+          if (mediaPreview != null) ...[
+            mediaPreview,
+            const SizedBox(height: 8),
+          ],
 
           // File Processing Indicator (inserted before content)
           if (widget.isProcessingFiles) ...[
@@ -3157,20 +3597,6 @@ class _StreamingAssistantMessageMotion extends StatelessWidget {
   }
 }
 
-class _ParsedUserContent {
-  final String text;
-  final List<String> images;
-  final List<_DocRef> docs;
-  _ParsedUserContent(this.text, this.images, this.docs);
-}
-
-class _DocRef {
-  final String path;
-  final String fileName;
-  final String mime;
-  _DocRef({required this.path, required this.fileName, required this.mime});
-}
-
 // UI data for MCP tool calls/results
 class ToolUIPart {
   final String id;
@@ -3715,10 +4141,18 @@ class _ChainOfThoughtReasoningStepState
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: const [
-                      Color(0x00FFFFFF), // color-gate: ignore (dstIn alpha mask)
-                      Color(0xFFFFFFFF), // color-gate: ignore (dstIn alpha mask)
-                      Color(0xFFFFFFFF), // color-gate: ignore (dstIn alpha mask)
-                      Color(0x00FFFFFF), // color-gate: ignore (dstIn alpha mask)
+                      Color(
+                        0x00FFFFFF,
+                      ), // color-gate: ignore (dstIn alpha mask)
+                      Color(
+                        0xFFFFFFFF,
+                      ), // color-gate: ignore (dstIn alpha mask)
+                      Color(
+                        0xFFFFFFFF,
+                      ), // color-gate: ignore (dstIn alpha mask)
+                      Color(
+                        0x00FFFFFF,
+                      ), // color-gate: ignore (dstIn alpha mask)
                     ],
                     stops: [0.0, sTop, sBot, 1.0],
                   ).createShader(rect);
@@ -3784,8 +4218,18 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
   bool get _isAskUser => widget.part.toolName == LocalToolNames.askUser;
   bool? _askUserExpanded;
 
+  String? _cachedContent;
+  String _cleanText = '';
+  List<String> _imagePaths = const [];
+
   bool get _askUserAnswered =>
       widget.part.content?.trim().isNotEmpty == true && !widget.part.loading;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateContentCache();
+  }
 
   @override
   void didUpdateWidget(covariant _ChainOfThoughtToolStep oldWidget) {
@@ -3796,6 +4240,18 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
     if (_isAskUser && !wasAnswered && _askUserAnswered) {
       _askUserExpanded = true;
     }
+    if (oldWidget.part.content != widget.part.content) {
+      _updateContentCache();
+    }
+  }
+
+  void _updateContentCache() {
+    final content = widget.part.content;
+    if (content == _cachedContent) return;
+    _cachedContent = content;
+    final (cleanText, paths) = _parseMcpImagePaths(content);
+    _cleanText = cleanText;
+    _imagePaths = paths;
   }
 
   IconData _iconFor(String name, Map<String, dynamic> args) {
@@ -3919,7 +4375,11 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
       ),
     );
 
-    final (cleanText, _) = _parseMcpImagePaths(widget.part.content);
+    final cleanText = _cleanText;
+    final imagePaths = _imagePaths;
+    final screenTimeResult = widget.part.toolName == LocalToolNames.screenTime
+        ? ScreenTimeResult.tryParse(cleanText)
+        : null;
     final String summaryText = approvalRequest != null
         ? _argsSummary(approvalRequest.arguments)
         : cleanText.isNotEmpty
@@ -3934,7 +4394,7 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
     final ttsText = widget.part.toolName == LocalToolNames.textToSpeech
         ? _textToSpeechToolText(widget.part.arguments)
         : '';
-    final Widget? content = _isAskUser
+    final Widget? summaryContent = _isAskUser
         ? _AskUserInlineBody(
             part: widget.part,
             compact: true,
@@ -3946,6 +4406,14 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
             text: ttsText,
             textColor: fg.body,
             buttonColor: fg.accent,
+          )
+        : screenTimeResult != null &&
+              (screenTimeResult.isNoPermission || screenTimeResult.hasApps)
+        ? ScreenTimeToolSummary(
+            result: screenTimeResult,
+            textColor: fg.body,
+            secondaryColor: fg.muted,
+            errorColor: cs.error,
           )
         : !shouldShowSummary || summaryText.trim().isEmpty
         ? null
@@ -3959,6 +4427,42 @@ class _ChainOfThoughtToolStepState extends State<_ChainOfThoughtToolStep> {
               fontFamily: isPendingApproval ? 'monospace' : null,
               color: fg.body,
             ),
+          );
+    final Widget? imageThumbnails = (!_isAskUser && imagePaths.isNotEmpty)
+        ? SizedBox(
+            key: ValueKey('tool-image-thumbnails:${widget.part.id}'),
+            height: 120,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: imagePaths.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (ctx, i) {
+                final path = imagePaths[i];
+                return GestureDetector(
+                  onTap: () => _showToolFullImage(context, path),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: _buildToolImageFromPath(
+                      context,
+                      path,
+                      height: 120,
+                    ),
+                  ),
+                );
+              },
+            ),
+          )
+        : null;
+    final Widget? content = (summaryContent == null && imageThumbnails == null)
+        ? null
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (summaryContent != null) summaryContent,
+              if (summaryContent != null && imageThumbnails != null)
+                const SizedBox(height: 8),
+              if (imageThumbnails != null) imageThumbnails,
+            ],
           );
 
     final extra = approvalRequest != null
@@ -4039,41 +4543,18 @@ class _ToolCallItemState extends State<_ToolCallItem> {
     _imagePaths = paths;
   }
 
-  /// Build image widget from path (supports local file and HTTP URL)
+  /// Build image widget from path (http(s), data URI, or local file).
   Widget _buildImageFromPath(
     String path, {
     double? height,
     BoxFit fit = BoxFit.contain,
   }) {
-    final cs = Theme.of(context).colorScheme;
-    Widget errorWidget() => Container(
-      width: height != null ? height * 0.67 : 120,
-      height: height ?? 180,
-      color: cs.surfaceContainerHighest,
-      child: Icon(
-        Lucide.ImageOff,
-        size: 24,
-        color: cs.onSurface.withValues(alpha: 0.5),
-      ),
+    return _buildResolvedImage(
+      context,
+      path,
+      height: height,
+      fit: fit,
     );
-
-    if (path.startsWith('http://') || path.startsWith('https://')) {
-      // HTTP URL
-      return Image.network(
-        path,
-        height: height,
-        fit: fit,
-        errorBuilder: (_, __, ___) => errorWidget(),
-      );
-    } else {
-      // Local file path
-      return Image.file(
-        File(path),
-        height: height,
-        fit: fit,
-        errorBuilder: (_, __, ___) => errorWidget(),
-      );
-    }
   }
 
   @override
@@ -4245,6 +4726,30 @@ class _ToolCallItemState extends State<_ToolCallItem> {
                 text: ttsText,
                 textColor: fg.body,
                 buttonColor: fg.accent,
+              ),
+            ],
+            if (!widget.part.loading &&
+                !isPendingApproval &&
+                widget.part.toolName == LocalToolNames.screenTime) ...[
+              Builder(
+                builder: (context) {
+                  final screenTime = ScreenTimeResult.tryParse(
+                    widget.part.content,
+                  );
+                  if (screenTime == null ||
+                      (!screenTime.isNoPermission && !screenTime.hasApps)) {
+                    return const SizedBox.shrink();
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: ScreenTimeToolSummary(
+                      result: screenTime,
+                      textColor: fg.body,
+                      secondaryColor: fg.muted,
+                      errorColor: cs.error,
+                    ),
+                  );
+                },
               ),
             ],
             // Argument summary so users know what the tool is about to do
@@ -5576,10 +6081,18 @@ class _ReasoningSectionState extends State<_ReasoningSection>
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: const [
-                        Color(0x00FFFFFF), // color-gate: ignore (dstIn alpha mask)
-                        Color(0xFFFFFFFF), // color-gate: ignore (dstIn alpha mask)
-                        Color(0xFFFFFFFF), // color-gate: ignore (dstIn alpha mask)
-                        Color(0x00FFFFFF), // color-gate: ignore (dstIn alpha mask)
+                        Color(
+                          0x00FFFFFF,
+                        ), // color-gate: ignore (dstIn alpha mask)
+                        Color(
+                          0xFFFFFFFF,
+                        ), // color-gate: ignore (dstIn alpha mask)
+                        Color(
+                          0xFFFFFFFF,
+                        ), // color-gate: ignore (dstIn alpha mask)
+                        Color(
+                          0x00FFFFFF,
+                        ), // color-gate: ignore (dstIn alpha mask)
                       ],
                       stops: [0.0, sTop, sBot, 1.0],
                     ).createShader(rect);
@@ -5690,9 +6203,15 @@ class _ShimmerState extends State<_Shimmer> with TickerProviderStateMixin {
             );
             return LinearGradient(
               colors: [
-                Colors.white.withValues(alpha: 0.0), // color-gate: ignore (shimmer effect)
-                Colors.white.withValues(alpha: 0.35), // color-gate: ignore (shimmer effect)
-                Colors.white.withValues(alpha: 0.0), // color-gate: ignore (shimmer effect)
+                Colors.white.withValues(
+                  alpha: 0.0,
+                ), // color-gate: ignore (shimmer effect)
+                Colors.white.withValues(
+                  alpha: 0.35,
+                ), // color-gate: ignore (shimmer effect)
+                Colors.white.withValues(
+                  alpha: 0.0,
+                ), // color-gate: ignore (shimmer effect)
               ],
               stops: const [0.0, 0.5, 1.0],
               begin: Alignment.centerLeft,

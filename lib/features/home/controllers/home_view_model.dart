@@ -10,6 +10,8 @@ import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
 import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/logging/flutter_logger.dart';
+import '../../../core/services/memory/memory_pipeline.dart';
+import '../../../core/services/memory/memory_trace.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../chat/widgets/chat_message_widget.dart' show ToolUIPart;
 import '../services/message_builder_service.dart';
@@ -21,6 +23,8 @@ import 'generation_controller.dart';
 import 'stream_controller.dart' as stream_ctrl;
 
 enum CompressContextLimitMode { start, recent, unlimited }
+
+enum BackgroundTaskKind { ocr, title, summary, suggestions, memory }
 
 class CompressContextOptions {
   const CompressContextOptions({required this.mode, this.maxChars});
@@ -184,11 +188,14 @@ class HomeViewModel extends ChangeNotifier {
   /// Called when an error occurs (UI should show snackbar).
   void Function(String error)? onError;
 
+  /// Called when a non-blocking background model task fails.
+  void Function(BackgroundTaskKind task, Object error)? onBackgroundTaskError;
+
   /// Called when a warning occurs (UI should show snackbar).
   void Function(String warning)? onWarning;
 
   /// Called when streaming finishes (UI may show notification).
-  VoidCallback? onStreamFinished;
+  void Function(String conversationId)? onStreamFinished;
 
   /// Called when a successful assistant reply is finalized.
   void Function(ChatMessage message)? onAssistantMessageFinished;
@@ -286,25 +293,73 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   void _onMaybeGenerateTitle(String conversationId) {
-    // Trigger title generation asynchronously
-    _maybeGenerateTitleFor(conversationId);
+    _runBackgroundTask(
+      BackgroundTaskKind.title,
+      _maybeGenerateTitleFor(conversationId),
+    );
   }
 
   void _onMaybeGenerateSummary(String conversationId) {
-    // Trigger summary generation asynchronously
-    _maybeGenerateSummaryFor(conversationId);
+    _runBackgroundTask(
+      BackgroundTaskKind.summary,
+      _maybeGenerateSummaryFor(conversationId),
+    );
   }
 
   void _onMaybeGenerateSuggestions(String conversationId) {
-    _maybeGenerateSuggestionsFor(conversationId);
+    _runBackgroundTask(
+      BackgroundTaskKind.suggestions,
+      _maybeGenerateSuggestionsFor(conversationId),
+    );
   }
 
-  void _onStreamFinished() {
-    onStreamFinished?.call();
+  void _runBackgroundTask(BackgroundTaskKind task, Future<void> future) {
+    unawaited(
+      future.onError((error, stackTrace) {
+        final reportedError = error ?? 'unknown error';
+        FlutterLogger.log(
+          '[BackgroundTask:$task] failed: $reportedError\n$stackTrace',
+          tag: 'HomeViewModel',
+        );
+        onBackgroundTaskError?.call(task, reportedError);
+      }),
+    );
+  }
+
+  void _onStreamFinished(String conversationId) {
+    onStreamFinished?.call(conversationId);
   }
 
   void _onAssistantMessageFinished(ChatMessage message) {
     onAssistantMessageFinished?.call(message);
+    _onMaybeOrganizeMemory(message.conversationId);
+  }
+
+  /// Schedule background memory organize after a successful finalize (§12.1).
+  /// Never awaited; failures must not surface as chat errors.
+  void _onMaybeOrganizeMemory(String conversationId) {
+    try {
+      final convo = _chatService.getConversation(conversationId);
+      if (convo == null) return;
+      final assistantProvider = _contextProvider.read<AssistantProvider>();
+      final assistant = convo.assistantId != null
+          ? assistantProvider.getById(convo.assistantId!)
+          : assistantProvider.currentAssistant;
+      if (assistant == null || !assistant.enableMemory) return;
+      if (!assistant.autoOrganizeMemory) return;
+      final pipeline = _contextProvider.read<MemoryPipelineService>();
+      pipeline.scheduleIfNeeded(
+        conversationId: conversationId,
+        assistantId: assistant.id,
+        onError: (error) =>
+            onBackgroundTaskError?.call(BackgroundTaskKind.memory, error),
+      );
+    } catch (e, st) {
+      FlutterLogger.log(
+        '[MemoryPipeline] schedule failed: $e\n$st',
+        tag: 'HomeViewModel',
+      );
+    }
   }
 
   void _onFileProcessingStarted() {
@@ -1037,6 +1092,9 @@ class HomeViewModel extends ChangeNotifier {
     if (provKey == null || mdlId == null) return 'no_model';
 
     final cfg = settings.getProviderConfig(provKey);
+    final budget = settings.compressGenerationThinkingBudgetFor(
+      assistant?.thinkingBudget,
+    );
 
     // Build compression prompt from settings template
     final prompt = settings.compressPrompt
@@ -1048,6 +1106,7 @@ class HomeViewModel extends ChangeNotifier {
         config: cfg,
         modelId: mdlId,
         prompt: prompt,
+        thinkingBudget: budget,
       )).trim();
 
       if (summary.isEmpty) return 'empty_summary';
@@ -1190,12 +1249,9 @@ class HomeViewModel extends ChangeNotifier {
     final configured = (assistant?.limitContextMessages ?? false)
         ? (assistant?.contextMessageSize ?? 0)
         : 0;
-    // Pure count from the persisted total: no message bodies needed, exact
-    // even when the cache only holds a tail window.
+    // Timeline totals and truncateIndex both use logical message slots.
     final remaining = computeClearContextRemainingMessageCount(
-      totalMessages: _chatService.getMessageCount(
-        currentConversation?.id ?? '',
-      ),
+      totalMessages: _chatController.totalMessageCount,
       truncateIndex: currentConversation == null
           ? -1
           : _chatService.getContextStartIndex(currentConversation!.id),
@@ -1206,6 +1262,11 @@ class HomeViewModel extends ChangeNotifier {
     }
     return defaultLabel;
   }
+
+  /// Test entry for [_maybeGenerateSummaryFor].
+  @visibleForTesting
+  Future<void> debugMaybeGenerateSummaryFor(String conversationId) =>
+      _maybeGenerateSummaryFor(conversationId);
 
   @visibleForTesting
   static int computeClearContextRemainingMessageCount({
@@ -1283,13 +1344,18 @@ class HomeViewModel extends ChangeNotifier {
           );
           notifyListeners();
         }
+      } else {
+        onBackgroundTaskError?.call(
+          BackgroundTaskKind.title,
+          'empty_response',
+        );
       }
     } catch (e) {
       FlutterLogger.log(
         '[TitleGen] Generation failed: $e',
         tag: 'HomeViewModel',
       );
-      // Ignore title generation failure silently
+      onBackgroundTaskError?.call(BackgroundTaskKind.title, e);
     }
   }
 
@@ -1310,8 +1376,11 @@ class HomeViewModel extends ChangeNotifier {
   Future<void> _maybeGenerateSummaryFor(String conversationId) async {
     final convo = _chatService.getConversation(conversationId);
     if (convo == null) return;
+    // Summaries only feed past-conversation search; temporary chats are never searchable.
+    if (_chatService.isTemporaryConversation(convo.id)) return;
 
     final settings = _contextProvider.read<SettingsProvider>();
+    if (!_chatService.isMessageCountKnown(conversationId)) return;
     final msgCount = _chatService.getMessageCount(conversationId);
     final assistantProvider = _contextProvider.read<AssistantProvider>();
 
@@ -1320,10 +1389,19 @@ class HomeViewModel extends ChangeNotifier {
         ? assistantProvider.getById(convo.assistantId!)
         : assistantProvider.currentAssistant;
 
-    final budget = assistant?.thinkingBudget ?? settings.thinkingBudget;
+    final budget = settings.summaryGenerationThinkingBudgetFor(
+      assistant?.thinkingBudget,
+    );
 
-    // Only generate summary if assistant has recent chats reference enabled
-    if (assistant?.enableRecentChatsReference != true) return;
+    // §12.10 / D-27: both switches must be on.
+    if (!MemoryPipelineService.shouldGenerateConversationSummary(
+      allowPastConversationRecall:
+          assistant?.allowPastConversationRecall == true,
+      generateConversationSummary:
+          assistant?.generateConversationSummary == true,
+    )) {
+      return;
+    }
 
     final triggerMessageCount =
         assistant?.recentChatsSummaryMessageCount ??
@@ -1386,6 +1464,12 @@ class HomeViewModel extends ChangeNotifier {
         .replaceAll('{previous_summary}', previousSummary)
         .replaceAll('{user_messages}', content);
 
+    final traceHandle = _beginSummaryTrace(convo, assistant);
+    final traceStep = traceHandle?.beginStep(
+      MemoryTraceStepKind.conversationSummary,
+    );
+    traceStep?.appendPrompt(prompt);
+
     try {
       final summary = (await ChatApiService.generateText(
         config: cfg,
@@ -1393,6 +1477,7 @@ class HomeViewModel extends ChangeNotifier {
         prompt: prompt,
         thinkingBudget: budget,
       )).trim();
+      traceStep?.appendResponse(summary);
 
       if (summary.isNotEmpty) {
         await _chatService.updateConversationSummary(
@@ -1400,15 +1485,61 @@ class HomeViewModel extends ChangeNotifier {
           summary,
           msgCount,
         );
+        traceStep?.addMutation(
+          MemoryTraceMutation(
+            kind: MemoryTraceMutationKind.conversationSummaryWritten,
+            targetId: convo.id,
+            before: previousSummary.isEmpty ? null : previousSummary,
+            after: summary,
+          ),
+        );
+      }
+      traceStep?.finish(MemoryTraceStepStatus.success);
+      traceHandle?.commit(advanced: summary.isNotEmpty);
+      if (summary.isNotEmpty) {
         if (currentConversation?.id == convo.id) {
           _chatController.updateCurrentConversation(
             _chatService.getConversation(convo.id),
           );
           notifyListeners();
         }
+      } else {
+        onBackgroundTaskError?.call(
+          BackgroundTaskKind.summary,
+          'empty_response',
+        );
       }
+    } catch (e) {
+      // Keep the old summary when background generation fails.
+      traceStep?.finish(MemoryTraceStepStatus.failed, error: e.toString());
+      traceHandle?.commit(error: e.toString());
+      onBackgroundTaskError?.call(BackgroundTaskKind.summary, e);
+    }
+  }
+
+  /// Open a trace for background summary generation (feeds past-conversation
+  /// recall). Never throws.
+  MemoryTraceHandle? _beginSummaryTrace(
+    Conversation convo,
+    Assistant? assistant,
+  ) {
+    // Temporary chats are discarded on exit; keep their traces out of the UI.
+    if (_chatService.isTemporaryConversation(convo.id)) {
+      return null;
+    }
+    try {
+      return MemoryTraceRecorder.instance.begin(
+        trigger: MemoryTraceTrigger.conversationSummary,
+        scope: assistant == null
+            ? MemoryTraceScope.global
+            : memoryTraceScopeOf(assistant.memoryWriteScope),
+        conversationId: convo.id,
+        conversationTitle: convo.title,
+        assistantId: assistant?.id,
+        assistantName: assistant?.name,
+      );
     } catch (_) {
-      // Keep old summary on failure, ignore silently
+      return null;
     }
   }
 
@@ -1443,7 +1574,9 @@ class HomeViewModel extends ChangeNotifier {
         ? assistantProvider.getById(convo.assistantId!)
         : assistantProvider.currentAssistant;
     final locale = Localizations.localeOf(_contextProvider).toLanguageTag();
-    final budget = assistant?.thinkingBudget ?? settings.thinkingBudget;
+    final budget = settings.suggestionGenerationThinkingBudgetFor(
+      assistant?.thinkingBudget,
+    );
 
     final loadedMessages = await _chatService.loadMessages(convo.id);
     // Raw revision count snapshot for the post-generation freshness check:
@@ -1471,9 +1604,17 @@ class HomeViewModel extends ChangeNotifier {
         locale: locale,
         thinkingBudget: budget,
       );
-      if (suggestions.isEmpty) return;
+      if (suggestions.isEmpty) {
+        onBackgroundTaskError?.call(
+          BackgroundTaskKind.suggestions,
+          'empty_response',
+        );
+        return;
+      }
 
       final latest = _chatService.getConversation(conversationId);
+      // loadMessages above populates the count; unknown (-1) ≠ loaded length
+      // and correctly aborts publishing stale suggestions.
       if (latest == null ||
           _chatService.getMessageCount(latest.id) != loadedMessageCount) {
         return;
@@ -1494,6 +1635,7 @@ class HomeViewModel extends ChangeNotifier {
         '[SuggestionGen] Generation failed: $e',
         tag: 'HomeViewModel',
       );
+      onBackgroundTaskError?.call(BackgroundTaskKind.suggestions, e);
     }
   }
 

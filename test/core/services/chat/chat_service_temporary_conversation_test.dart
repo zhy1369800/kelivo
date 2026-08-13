@@ -1,3 +1,6 @@
+import 'package:Kelivo/core/models/message_part.dart';
+import 'package:Kelivo/core/models/chat_message.dart';
+import 'package:Kelivo/core/models/conversation.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -10,6 +13,7 @@ import 'package:sqlite3/sqlite3.dart' as sqlite;
 import 'package:Kelivo/core/database/app_database.dart';
 import 'package:Kelivo/core/database/generation_run.dart';
 import 'package:Kelivo/core/services/chat/chat_service.dart';
+import 'package:Kelivo/utils/sandbox_path_resolver.dart';
 
 class _FakePathProviderPlatform extends PathProviderPlatform {
   _FakePathProviderPlatform(this.path);
@@ -40,6 +44,10 @@ void main() {
       'kelivo_chat_service_test_',
     );
     PathProviderPlatform.instance = _FakePathProviderPlatform(tempDir.path);
+    SandboxPathResolver.debugSetDirs(
+      docsDir: tempDir.path,
+      supportDir: tempDir.path,
+    );
   });
 
   tearDown(() async {
@@ -48,6 +56,7 @@ void main() {
     }
     services.clear();
     await Hive.close();
+    SandboxPathResolver.debugSetDirs(docsDir: null, supportDir: null);
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
     }
@@ -103,7 +112,7 @@ void main() {
 
     final result = await service.beginSendGeneration(
       conversationId: conversation.id,
-      userContent: 'next question',
+      userParts: const [TextPart('next question')],
       modelId: 'model',
       providerId: 'provider',
     );
@@ -144,7 +153,9 @@ void main() {
       final message = await service.addMessage(
         conversationId: conversation.id,
         role: 'user',
-        content: '[file:${upload.path}|spec.pdf|application/pdf]',
+        parts: [
+          FilePart(uri: upload.path, name: 'spec.pdf', mime: 'application/pdf'),
+        ],
       );
 
       await service.deleteMessage(message.id);
@@ -154,6 +165,32 @@ void main() {
         now: DateTime.now().toUtc().add(const Duration(days: 8)),
       );
       expect(await upload.exists(), isFalse);
+    },
+  );
+
+  test(
+    'unavailable local attachment does not leave asset sync dirty',
+    () async {
+      final service = createService();
+      await service.init();
+      final conversation = await service.createConversation(title: 'Missing');
+      final missing = File('${tempDir.path}/upload/gone.png');
+      await missing.parent.create(recursive: true);
+      // Path is under upload/, but the file itself is intentionally absent.
+      expect(await missing.exists(), isFalse);
+
+      await service.addMessage(
+        conversationId: conversation.id,
+        role: 'user',
+        parts: [
+          ImagePart(uri: missing.path, mime: 'image/png', unavailable: true),
+        ],
+      );
+
+      await service.runAssetReferenceMaintenance();
+      final repo = service.chatRepositoryOrNull;
+      expect(repo, isNotNull);
+      expect(await repo!.hasPendingAssetReferenceSync(), isFalse);
     },
   );
 
@@ -169,7 +206,9 @@ void main() {
       final message = await first.addMessage(
         conversationId: conversation.id,
         role: 'user',
-        content: '[file:${upload.path}|legacy.txt|text/plain]',
+        parts: [
+          FilePart(uri: upload.path, name: 'legacy.txt', mime: 'text/plain'),
+        ],
       );
       await first.close();
       services.remove(first);
@@ -207,6 +246,222 @@ void main() {
       );
 
       expect(await upload.exists(), isFalse);
+    },
+  );
+
+  test(
+    'asset backfill skips malformed attachment without clearing its references',
+    () async {
+      final first = createService();
+      await first.init();
+      final repository = first.chatRepositoryOrNull!;
+      final now = DateTime.utc(2026, 8, 10);
+      const conversationId = 'conversation-malformed-backfill';
+      const messageIds = ['a-healthy', 'b-malformed', 'c-healthy'];
+      final files = <String, File>{
+        for (final id in messageIds)
+          id: File('${tempDir.path}/upload/$id.txt'),
+      };
+      for (final file in files.values) {
+        await file.parent.create(recursive: true);
+        await file.writeAsString('payload:${file.path}');
+      }
+      final messages = [
+        for (final id in messageIds)
+          ChatMessage(
+            id: id,
+            role: 'user',
+            conversationId: conversationId,
+            timestamp: now,
+            parts: [
+              FilePart(
+                uri: files[id]!.path,
+                name: '$id.txt',
+                mime: 'text/plain',
+              ),
+            ],
+          ),
+      ];
+      await repository.putMigrationBatch(
+        conversations: [
+          Conversation(
+            id: conversationId,
+            title: 'Malformed backfill',
+            createdAt: now,
+            updatedAt: now,
+            messageIds: messageIds,
+          ),
+        ],
+        messages: [
+          for (var i = 0; i < messages.length; i++)
+            (message: messages[i], messageOrder: i),
+        ],
+        toolEventsByMessageId: const {},
+        geminiSignaturesByMessageId: const {},
+      );
+      for (var i = 0; i < messageIds.length; i++) {
+        await repository.registerAsset(
+          id: 'legacy-asset-$i',
+          contentHash: List.filled(64, '${i + 1}').join(),
+          path: files[messageIds[i]]!.path,
+          byteSize: await files[messageIds[i]]!.length(),
+          createdAt: now,
+        );
+        await repository.linkMessageAsset(
+          conversationId: conversationId,
+          revisionId: messageIds[i],
+          assetId: 'legacy-asset-$i',
+          kind: 'file',
+        );
+      }
+      await first.close();
+      services.remove(first);
+
+      final database = sqlite.sqlite3.open(
+        '${tempDir.path}/${AppDatabase.databaseFileName}',
+      );
+      try {
+        database.execute(
+          'DELETE FROM message_asset_rows '
+          "WHERE revision_id IN ('a-healthy', 'c-healthy');",
+        );
+        database.execute(
+          'UPDATE message_part_rows SET payload = ? '
+          "WHERE revision_id = 'b-malformed' AND kind = 'file';",
+          ['{"uri":"${files['b-malformed']!.path}"}'],
+        );
+        database.execute(
+          'INSERT OR IGNORE INTO asset_reference_dirty_rows(revision_id) '
+          "VALUES ('a-healthy'), ('b-malformed'), ('c-healthy');",
+        );
+        database.execute(
+          "DELETE FROM chat_storage_meta_rows "
+          "WHERE key = 'sandbox_path_migration_version';",
+        );
+      } finally {
+        database.close();
+      }
+
+      final restarted = createService();
+      await restarted.init().timeout(const Duration(seconds: 2));
+      await restarted.runAssetReferenceMaintenance();
+
+      final verify = sqlite.sqlite3.open(
+        '${tempDir.path}/${AppDatabase.databaseFileName}',
+      );
+      try {
+        expect(
+          verify.select(
+            "SELECT 1 FROM message_asset_rows WHERE revision_id = 'a-healthy';",
+          ),
+          isNotEmpty,
+        );
+        expect(
+          verify.select(
+            "SELECT 1 FROM message_asset_rows WHERE revision_id = 'c-healthy';",
+          ),
+          isNotEmpty,
+        );
+        final malformedRefs = verify.select(
+          "SELECT asset_id FROM message_asset_rows "
+          "WHERE revision_id = 'b-malformed';",
+        );
+        expect(malformedRefs, hasLength(1));
+        expect(malformedRefs.single['asset_id'], 'legacy-asset-1');
+        expect(
+          verify.select(
+            "SELECT revision_id FROM asset_reference_dirty_rows "
+            'ORDER BY revision_id;',
+          ).map((row) => row['revision_id']),
+          ['b-malformed'],
+        );
+        expect(
+          verify.select(
+            "SELECT 1 FROM chat_storage_meta_rows "
+            "WHERE key = 'sandbox_path_migration_version';",
+          ),
+          hasLength(1),
+        );
+      } finally {
+        verify.close();
+      }
+    },
+  );
+
+  test(
+    'editing malformed attachment preserves live asset references and dirty state',
+    () async {
+      final first = createService();
+      await first.init();
+      final conversation = await first.createConversation(title: 'Malformed');
+      final upload = File('${tempDir.path}/upload/live.txt');
+      await upload.parent.create(recursive: true);
+      await upload.writeAsString('live attachment');
+      final message = await first.addMessage(
+        conversationId: conversation.id,
+        role: 'user',
+        parts: [
+          FilePart(uri: upload.path, name: 'live.txt', mime: 'text/plain'),
+        ],
+      );
+      await first.close();
+      services.remove(first);
+
+      final databasePath =
+          '${tempDir.path}/${AppDatabase.databaseFileName}';
+      final corrupt = sqlite.sqlite3.open(databasePath);
+      late final String originalAssetId;
+      const secret = '/private/attachment-metadata';
+      final malformedPayload =
+          '{"uri":"${upload.path}","name":"live.txt","mime":["$secret"]}';
+      try {
+        originalAssetId = corrupt
+            .select(
+              'SELECT asset_id FROM message_asset_rows WHERE revision_id = ?;',
+              [message.id],
+            )
+            .single['asset_id'] as String;
+        corrupt.execute(
+          'UPDATE message_part_rows SET payload = ? '
+          'WHERE revision_id = ? AND kind = ?;',
+          [malformedPayload, message.id, 'file'],
+        );
+        corrupt.execute(
+          'DELETE FROM asset_reference_dirty_rows WHERE revision_id = ?;',
+          [message.id],
+        );
+      } finally {
+        corrupt.close();
+      }
+
+      final restarted = createService();
+      await restarted.init();
+      final loaded = await restarted.loadMessages(conversation.id);
+      final malformed = loaded.single.parts.single as MalformedPart;
+      expect(malformed.parseError, 'invalid_mime');
+      expect(malformed.parseError, isNot(contains(secret)));
+
+      await restarted.updateMessage(message.id, content: 'edited');
+
+      final verify = sqlite.sqlite3.open(databasePath);
+      try {
+        final references = verify.select(
+          'SELECT asset_id FROM message_asset_rows WHERE revision_id = ?;',
+          [message.id],
+        );
+        expect(references, hasLength(1));
+        expect(references.single['asset_id'], originalAssetId);
+        expect(
+          verify.select(
+            'SELECT 1 FROM asset_reference_dirty_rows WHERE revision_id = ?;',
+            [message.id],
+          ),
+          hasLength(1),
+        );
+      } finally {
+        verify.close();
+      }
+      expect(await upload.exists(), isTrue);
     },
   );
 
@@ -349,6 +604,9 @@ void main() {
         role: 'assistant',
         content: 'second',
       );
+      await service.updateConversationSuggestions(conversation.id, const [
+        'stale suggestion',
+      ]);
 
       final deleted = await service.deleteMessages(
         conversationId: conversation.id,
@@ -360,6 +618,10 @@ void main() {
       expect(deleted, {second.id});
       expect(page!.slots.map((slot) => slot.identity.revisionId), [first.id]);
       expect(await service.loadMessages(conversation.id), [first]);
+      expect(
+        service.getConversation(conversation.id)!.chatSuggestions,
+        isEmpty,
+      );
     });
 
     test(
@@ -419,8 +681,185 @@ void main() {
         expect(service.getMessages(temporary.id), isEmpty);
         expect(service.currentConversationId, ordinary.id);
         expect(service.getAllConversations(), isEmpty);
+        expect(service.isTemporaryConversation(temporary.id), isTrue);
       },
     );
+
+    test(
+      'late message cannot revive a discarded temporary conversation',
+      () async {
+        final service = createService();
+        await service.init();
+
+        final temporary = await service.createDraftConversation(
+          title: 'Temporary Chat',
+          temporary: true,
+        );
+        await service.createDraftConversation(title: 'Next Chat');
+
+        final lateMessage = await service.addMessage(
+          conversationId: temporary.id,
+          role: 'assistant',
+          content: 'late secret',
+        );
+        await service.setGeminiThoughtSignature(
+          lateMessage.id,
+          'late signature',
+        );
+
+        expect(service.getConversation(temporary.id), isNull);
+        expect(service.getMessages(temporary.id), isEmpty);
+        expect(service.getGeminiThoughtSignature(lateMessage.id), isNull);
+        expect(
+          service.getAllConversations().map((conversation) => conversation.id),
+          isNot(contains(temporary.id)),
+        );
+      },
+    );
+
+    test(
+      'late checkpoint leaves no artifacts for a discarded temporary conversation',
+      () async {
+        final service = createService();
+        await service.init();
+
+        final temporary = await service.createDraftConversation(
+          title: 'Temporary Chat',
+          temporary: true,
+        );
+        final assistantMessage = await service.addMessage(
+          conversationId: temporary.id,
+          role: 'assistant',
+          content: '',
+          isStreaming: true,
+        );
+        await service.createDraftConversation(title: 'Next Chat');
+
+        await service.updateStreamingCheckpointSilent(
+          assistantMessage.copyWith(content: 'late secret'),
+          const [
+            {'id': 'tool-1', 'name': 'memory_read'},
+          ],
+        );
+
+        expect(service.getConversation(temporary.id), isNull);
+        expect(service.getMessages(temporary.id), isEmpty);
+        expect(service.getToolEvents(assistantMessage.id), isEmpty);
+      },
+    );
+
+    test('late Gemini signature is ignored after temporary discard', () async {
+      final service = createService();
+      await service.init();
+
+      final temporary = await service.createDraftConversation(
+        title: 'Temporary Chat',
+        temporary: true,
+      );
+      final assistantMessage = await service.addMessage(
+        conversationId: temporary.id,
+        role: 'assistant',
+        content: '',
+        isStreaming: true,
+      );
+      await service.createDraftConversation(title: 'Next Chat');
+
+      await service.setGeminiThoughtSignature(
+        assistantMessage.id,
+        'late signature',
+      );
+
+      expect(service.getGeminiThoughtSignature(assistantMessage.id), isNull);
+    });
+
+    test(
+      'clearing data keeps discarded temporary conversations protected',
+      () async {
+        final service = createService();
+        await service.init();
+
+        final temporary = await service.createDraftConversation(
+          title: 'Temporary Chat',
+          temporary: true,
+        );
+        await service.createDraftConversation(title: 'Next Chat');
+
+        await service.clearAllData(deleteUploads: false);
+
+        expect(service.isTemporaryConversation(temporary.id), isTrue);
+        await service.addMessage(
+          conversationId: temporary.id,
+          role: 'assistant',
+          content: 'late secret',
+        );
+        expect(service.getConversation(temporary.id), isNull);
+        expect(service.getAllConversations(), isEmpty);
+      },
+    );
+
+    test(
+      'overwrite restore protects an active temporary conversation',
+      () async {
+        final service = createService();
+        await service.init();
+
+        final temporary = await service.createDraftConversation(
+          title: 'Temporary Chat',
+          temporary: true,
+        );
+        final assistantMessage = await service.addMessage(
+          conversationId: temporary.id,
+          role: 'assistant',
+          content: '',
+          isStreaming: true,
+        );
+
+        await service.replaceAllDataFromBackup(
+          conversations: const [],
+          messages: const [],
+          toolEventsByMessageId: const {},
+          geminiSignaturesByMessageId: const {},
+        );
+
+        expect(service.isTemporaryConversation(temporary.id), isTrue);
+        await service.setGeminiThoughtSignature(
+          assistantMessage.id,
+          'late signature',
+        );
+        expect(service.getGeminiThoughtSignature(assistantMessage.id), isNull);
+        expect(service.getConversation(temporary.id), isNull);
+      },
+    );
+
+    test('database merge preserves an active temporary conversation', () async {
+      final service = createService();
+      await service.init();
+
+      final temporary = await service.createDraftConversation(
+        title: 'Temporary Chat',
+        temporary: true,
+      );
+      final assistantMessage = await service.addMessage(
+        conversationId: temporary.id,
+        role: 'assistant',
+        content: 'still streaming',
+        isStreaming: true,
+      );
+      final snapshot = File('${tempDir.path}/merge.sqlite');
+      await service.createBackupDatabaseSnapshot(snapshot);
+
+      await service.mergeDatabaseSnapshot(snapshot);
+
+      expect(service.getMessages(temporary.id), [assistantMessage]);
+      await service.setGeminiThoughtSignature(
+        assistantMessage.id,
+        'live signature',
+      );
+      expect(
+        service.getGeminiThoughtSignature(assistantMessage.id),
+        'live signature',
+      );
+    });
 
     test('temporary message deletion only affects memory', () async {
       final service = createService();
@@ -435,12 +874,19 @@ void main() {
         role: 'user',
         content: 'secret',
       );
+      await service.updateConversationSuggestions(conversation.id, const [
+        'stale suggestion',
+      ]);
 
       await service.deleteMessage(message.id);
 
       expect(service.getAllConversations(), isEmpty);
       expect(service.getMessages(conversation.id), isEmpty);
       expect(service.getConversation(conversation.id)?.messageIds, isEmpty);
+      expect(
+        service.getConversation(conversation.id)?.chatSuggestions,
+        isEmpty,
+      );
     });
 
     test('temporary message editing appends an in-memory version', () async {
@@ -481,6 +927,37 @@ void main() {
         fromStart: true,
       );
       expect(timeline!.slots.single.message.id, edited.id);
+    });
+
+    test('temporary content-only append keeps prior ImagePart', () async {
+      final service = createService();
+      await service.init();
+
+      final conversation = await service.createDraftConversation(
+        title: 'Temporary Chat',
+        temporary: true,
+      );
+      final original = await service.addMessage(
+        conversationId: conversation.id,
+        role: 'user',
+        parts: const [
+          ImagePart(uri: '/tmp/keep.png', mime: 'image/png'),
+          TextPart('original caption'),
+        ],
+      );
+
+      final edited = await service.appendMessageVersion(
+        messageId: original.id,
+        content: 'edited caption',
+      );
+
+      expect(edited, isNotNull);
+      expect(edited!.content, 'edited caption');
+      expect(edited.parts, hasLength(2));
+      expect(edited.parts[0], isA<ImagePart>());
+      expect((edited.parts[0] as ImagePart).uri, '/tmp/keep.png');
+      expect(edited.parts[1], isA<TextPart>());
+      expect((edited.parts[1] as TextPart).text, 'edited caption');
     });
   });
 
@@ -530,7 +1007,7 @@ void main() {
     final conversation = await service.createConversation(title: 'Stats');
     final generation = await service.beginSendGeneration(
       conversationId: conversation.id,
-      userContent: 'question',
+      userParts: const [TextPart('question')],
       modelId: 'model',
       providerId: 'provider',
     );

@@ -1,6 +1,7 @@
 import "../../../support/business_test_harness.dart";
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -686,6 +687,94 @@ void main() {
       );
     });
 
+    testWidgets('memory tool cards use friendly names instead of tool ids', (
+      tester,
+    ) async {
+      final settings = await _createSettings(
+        ChatMessageBackgroundStyle.defaultStyle,
+      );
+
+      await tester.pumpWidget(
+        _buildHarness(
+          settings: settings,
+          child: ChatMessageWidget(
+            message: ChatMessage(
+              role: 'assistant',
+              content: '',
+              conversationId: 'conversation-memory-tools',
+              isStreaming: true,
+            ),
+            showModelIcon: false,
+            reasoningSegments: const [
+              ReasoningSegment(text: 'Updating memory', expanded: true, loading: false),
+            ],
+            toolParts: const [
+              ToolUIPart(
+                id: 'memory-read',
+                toolName: 'memory_read',
+                arguments: {'type': 'identity'},
+                content: '{"entries":[]}',
+              ),
+              ToolUIPart(
+                id: 'memory-update',
+                toolName: 'memory_update',
+                arguments: {'type': 'identity', 'content': 'User prefers Chinese'},
+                content: '{"ok":true}',
+              ),
+              ToolUIPart(
+                id: 'memory-search',
+                toolName: 'memory_search_profile',
+                arguments: {'query': 'name'},
+                content: '{"results":[]}',
+              ),
+              ToolUIPart(
+                id: 'memory-edit',
+                toolName: 'memory_edit',
+                arguments: {'id': 'mem_a1', 'content': 'Updated'},
+                content: '{"ok":true}',
+              ),
+              ToolUIPart(
+                id: 'memory-delete',
+                toolName: 'memory_delete',
+                arguments: {'id': 'mem_a1'},
+                content: '{"ok":true}',
+              ),
+              ToolUIPart(
+                id: 'update-profile',
+                toolName: 'update_user_profile',
+                arguments: {
+                  'fields': [
+                    {'key': 'preferred_name', 'value': 'Alex'},
+                  ],
+                },
+                content: '{"ok":true}',
+              ),
+              ToolUIPart(
+                id: 'chat-search',
+                toolName: 'chat_search',
+                arguments: {'query': 'flutter'},
+                content: '{"results":[]}',
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Read Memory'), findsOneWidget);
+      expect(find.text('Update Memory'), findsOneWidget);
+      expect(find.text('Search Memory'), findsOneWidget);
+      expect(find.text('Edit Memory'), findsOneWidget);
+      expect(find.text('Delete Memory'), findsOneWidget);
+      expect(find.text('Update User Profile'), findsOneWidget);
+      expect(find.text('Search Past Chats'), findsOneWidget);
+      expect(find.text('Tool Call: memory_update'), findsNothing);
+      expect(find.text('Tool Result: memory_update'), findsNothing);
+      expect(find.text('Tool Call: memory_search_profile'), findsNothing);
+      expect(find.text('Tool Result: memory_search_profile'), findsNothing);
+    });
+
     testWidgets('two-line tool timeline keeps connector gap around icon', (
       tester,
     ) async {
@@ -810,53 +899,115 @@ void main() {
     testWidgets('tool card opens custom details and shows the full result', (
       tester,
     ) async {
-      final settings = await _createSettings(
-        ChatMessageBackgroundStyle.defaultStyle,
-      );
-      final longResult = List<String>.generate(
-        100,
-        (index) => 'result-$index',
-      ).join('\n');
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        final settings = await _createSettings(
+          ChatMessageBackgroundStyle.defaultStyle,
+        );
+        final longResult = List<String>.generate(
+          100,
+          (index) => 'result-$index',
+        ).join('\n');
 
-      await tester.pumpWidget(
-        _buildHarness(
-          settings: settings,
-          child: ChatMessageWidget(
-            message: ChatMessage(
-              role: 'assistant',
-              content: '',
-              conversationId: 'conversation-local-tts-toggle',
-              isStreaming: true,
-            ),
-            showModelIcon: false,
-            toolParts: [
-              ToolUIPart(
-                id: 'tts',
-                toolName: 'text_to_speech',
-                arguments: const {'text': 'Replay this line'},
-                content: longResult,
+        await tester.pumpWidget(
+          _buildHarness(
+            settings: settings,
+            child: ChatMessageWidget(
+              message: ChatMessage(
+                role: 'assistant',
+                content: '',
+                conversationId: 'conversation-local-tts-toggle',
+                isStreaming: true,
               ),
-            ],
+              showModelIcon: false,
+              toolParts: [
+                ToolUIPart(
+                  id: 'tts',
+                  toolName: 'text_to_speech',
+                  arguments: const {'text': 'Replay this line'},
+                  content: longResult,
+                ),
+              ],
+            ),
           ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
 
-      expect(find.byTooltip('Replay'), findsOneWidget);
+        expect(find.byTooltip('Replay'), findsOneWidget);
 
-      await tester.tap(find.text('Speaking:'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Speaking:'));
+        await tester.pumpAndSettle();
 
-      expect(find.byKey(CustomBottomSheet.panelKey), findsOneWidget);
-      expect(find.text('Arguments'), findsOneWidget);
-      expect(find.text('Replay this line'), findsWidgets);
-      expect(find.textContaining('result-99'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('bounded-large-text-toggle')),
-        findsNothing,
-      );
-      expect(find.byTooltip('Replay'), findsOneWidget);
+        expect(find.byKey(CustomBottomSheet.panelKey), findsOneWidget);
+        expect(find.text('Arguments'), findsOneWidget);
+        expect(find.text('Replay this line'), findsWidgets);
+        expect(find.textContaining('result-99'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('bounded-large-text-toggle')),
+          findsNothing,
+        );
+        expect(find.byTooltip('Replay'), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    });
+
+    testWidgets('tool details stay mounted after the source card is removed', (
+      tester,
+    ) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        final settings = await _createSettings(
+          ChatMessageBackgroundStyle.defaultStyle,
+        );
+        var showToolCard = true;
+        late StateSetter setHostState;
+
+        await tester.pumpWidget(
+          _buildHarness(
+            settings: settings,
+            child: StatefulBuilder(
+              builder: (context, setState) {
+                setHostState = setState;
+                return showToolCard
+                    ? ChatMessageWidget(
+                        message: ChatMessage(
+                          role: 'assistant',
+                          content: '',
+                          conversationId: 'conversation-removed-tool-card',
+                          isStreaming: true,
+                        ),
+                        showModelIcon: false,
+                        toolParts: const [
+                          ToolUIPart(
+                            id: 'time-info',
+                            toolName: 'get_time_info',
+                            arguments: {},
+                            content: '{"date":"2026-08-08"}',
+                          ),
+                        ],
+                      )
+                    : const SizedBox.shrink();
+              },
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+
+        await tester.tap(find.text('Time Info'));
+        await tester.pump();
+        setHostState(() => showToolCard = false);
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.byKey(CustomBottomSheet.panelKey), findsOneWidget);
+        expect(find.textContaining('2026-08-08'), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     });
 
     testWidgets('unclosed think tag remains visible as assistant content', (

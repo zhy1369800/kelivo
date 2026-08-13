@@ -5,6 +5,7 @@ import '../../providers/mcp_provider.dart';
 import '../chat/chat_service.dart';
 import '../../providers/assistant_provider.dart';
 import '../../../utils/app_directories.dart';
+import '../../../utils/sandbox_path_resolver.dart';
 
 class _McpToolRoute {
   const _McpToolRoute({
@@ -135,11 +136,12 @@ class McpToolService extends ChangeNotifier {
               prefix: 'mcp_img',
             );
             if (savedPath != null) {
-              buf.writeln('[image:$savedPath]');
+              final uri = SandboxPathResolver.canonicalize(savedPath);
+              buf.writeln('![]($uri)');
             }
           } else {
             final url = (c.url ?? '').toString();
-            if (url.isNotEmpty) buf.writeln('[image:$url]');
+            if (url.isNotEmpty) buf.writeln('![]($url)');
           }
           continue;
         }
@@ -243,11 +245,12 @@ class McpToolService extends ChangeNotifier {
                   prefix: 'mcp_img',
                 );
                 if (savedPath != null) {
-                  buf.writeln('[image:$savedPath]');
+                  final uri = SandboxPathResolver.canonicalize(savedPath);
+                  buf.writeln('![]($uri)');
                 }
               } else {
                 final url = (c.url ?? '').toString();
-                if (url.isNotEmpty) buf.writeln('[image:$url]');
+                if (url.isNotEmpty) buf.writeln('![]($url)');
               }
               continue;
             }

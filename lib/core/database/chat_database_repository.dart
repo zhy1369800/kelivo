@@ -4,11 +4,18 @@ import 'dart:isolate';
 
 import 'package:crypto/crypto.dart';
 import 'package:drift/drift.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:sqlite3/sqlite3.dart' as sqlite;
+import 'package:uuid/uuid.dart';
 
 import '../models/chat_message.dart';
 import '../models/conversation.dart';
+import '../models/message_part.dart';
+import '../utils/multimodal_input_utils.dart';
+import '../../utils/sandbox_path_resolver.dart';
+import '../../utils/kelivo_file_uri.dart';
+import '../models/memory_entry.dart';
+import '../models/user_profile_field.dart';
 import 'app_database.dart';
 import 'business_data.dart';
 import 'business_repository.dart';
@@ -78,12 +85,18 @@ class BackupMergeReport {
   const BackupMergeReport({
     required this.importedConversations,
     required this.deduplicatedConversations,
+    required this.skippedConversations,
     required this.remappedConversationIds,
+    this.importedConversationIds = const <String>[],
   });
 
   final int importedConversations;
   final int deduplicatedConversations;
+  final int skippedConversations;
   final Map<String, String> remappedConversationIds;
+
+  /// Target conversation ids newly inserted by this merge (post-remap ids).
+  final List<String> importedConversationIds;
 
   int get remappedConversations => remappedConversationIds.length;
 }
@@ -93,11 +106,13 @@ class SandboxPathMigrationResult {
     required this.ran,
     required this.scannedMessages,
     required this.updatedMessages,
+    required this.skippedParts,
   });
 
   final bool ran;
   final int scannedMessages;
   final int updatedMessages;
+  final int skippedParts;
 }
 
 class ChatDatabaseRepository {
@@ -562,6 +577,9 @@ class ChatDatabaseRepository {
       'instruction_injection_rows',
       'assistant_tag_rows',
       'preference_rows',
+      'memory_entry_rows',
+      'user_profile_field_rows',
+      'message_prompt_rows',
     };
     final tableRows = database.select(
       "SELECT name FROM sqlite_master WHERE type = 'table';",
@@ -598,6 +616,8 @@ class ChatDatabaseRepository {
         'summary',
         'last_summarized_message_count',
         'chat_suggestions_json',
+        'injected_memory_hash',
+        'last_memory_extracted_order',
       ],
       'conversation_mcp_server_rows': [
         'conversation_id',
@@ -699,6 +719,28 @@ class ChatDatabaseRepository {
       ],
       'assistant_tag_rows': ['id', 'sort_order', 'payload', 'updated_at'],
       'preference_rows': ['key', 'value', 'updated_at'],
+      'memory_entry_rows': [
+        'id',
+        'sort_order',
+        'scope',
+        'assistant_id',
+        'type',
+        'status',
+        'content',
+        'content_normalized',
+        'entry_created_at',
+        'entry_updated_at',
+        'payload',
+        'updated_at',
+      ],
+      'user_profile_field_rows': ['id', 'sort_order', 'payload', 'updated_at'],
+      'message_prompt_rows': [
+        'revision_id',
+        'conversation_id',
+        'payload',
+        'carries_memory_snapshot',
+        'created_at',
+      ],
     };
     for (final entry in expectedColumns.entries) {
       final tableInfo = database.select('PRAGMA table_info(${entry.key});');
@@ -729,6 +771,9 @@ class ChatDatabaseRepository {
       'instruction_injection_rows': ['id'],
       'assistant_tag_rows': ['id'],
       'preference_rows': ['key'],
+      'memory_entry_rows': ['id'],
+      'user_profile_field_rows': ['id'],
+      'message_prompt_rows': ['revision_id'],
     };
     const sortOrderTables = {
       'assistant_rows',
@@ -742,6 +787,8 @@ class ChatDatabaseRepository {
       'tts_service_rows',
       'instruction_injection_rows',
       'assistant_tag_rows',
+      'memory_entry_rows',
+      'user_profile_field_rows',
     };
     for (final entry in expectedPrimaryKeys.entries) {
       final primaryRows =
@@ -795,6 +842,47 @@ class ChatDatabaseRepository {
     ])) {
       throw StateError('index_schema:$memoryIndexName');
     }
+
+    void requireIndex({
+      required String table,
+      required String name,
+      required List<String> columns,
+    }) {
+      final indexRows = database.select('PRAGMA index_list($table);');
+      final index = indexRows.where((row) => row['name'] == name);
+      if (index.length != 1 || index.single['unique'] != 0) {
+        throw StateError('index_schema:$name');
+      }
+      final actual = database
+          .select('PRAGMA index_info($name);')
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toList(growable: false);
+      if (!_sameOrderedStrings(actual, columns)) {
+        throw StateError('index_schema:$name');
+      }
+    }
+
+    requireIndex(
+      table: 'memory_entry_rows',
+      name: 'idx_memory_entries_visible',
+      columns: const ['status', 'type', 'scope', 'assistant_id'],
+    );
+    requireIndex(
+      table: 'memory_entry_rows',
+      name: 'idx_memory_entries_recent',
+      columns: const ['status', 'type', 'entry_updated_at', 'id'],
+    );
+    requireIndex(
+      table: 'memory_entry_rows',
+      name: 'idx_memory_entries_dedupe',
+      columns: const ['scope', 'assistant_id', 'type', 'content_normalized'],
+    );
+    requireIndex(
+      table: 'message_prompt_rows',
+      name: 'idx_message_prompts_conversation_snapshot',
+      columns: const ['conversation_id', 'carries_memory_snapshot'],
+    );
 
     const assetIndexName = 'idx_message_assets_asset';
     final assetIndexRows = database.select(
@@ -868,6 +956,9 @@ class ChatDatabaseRepository {
       'instruction_injection_rows': <String>{},
       'assistant_tag_rows': <String>{},
       'preference_rows': <String>{},
+      'memory_entry_rows': <String>{},
+      'user_profile_field_rows': <String>{},
+      'message_prompt_rows': {'revision_id->message_rows.id:CASCADE'},
     };
     for (final entry in expectedForeignKeys.entries) {
       final actual = database
@@ -995,7 +1086,7 @@ class ChatDatabaseRepository {
   Future<SandboxPathMigrationResult> migrateSandboxPaths({
     required int targetVersion,
     required String targetRoot,
-    required String Function(String content) rewriteContent,
+    required String Function(String uri) rewriteUri,
     int batchSize = 360,
   }) async {
     if (targetVersion <= 0) {
@@ -1037,35 +1128,49 @@ class ChatDatabaseRepository {
           ran: false,
           scannedMessages: 0,
           updatedMessages: 0,
+          skippedParts: 0,
         );
       }
 
       var scanned = 0;
       var updated = 0;
+      var skipped = 0;
       // Cursor on part_id (AUTOINCREMENT PK): stable order, no missed rows,
       // and no re-scan loop after payload rewrites (part_id is unchanged).
       var cursor = 0;
       while (true) {
         final rows = await _db
             .customSelect(
-              "SELECT part_id, payload FROM message_part_rows "
-              "WHERE kind = 'text' AND part_id > ? "
-              'AND (payload LIKE ? OR payload LIKE ?) '
+              'SELECT part_id, revision_id, ordinal, kind, payload '
+              'FROM message_part_rows '
+              "WHERE kind IN ('image', 'file') AND part_id > ? "
               'ORDER BY part_id LIMIT ?;',
-              variables: [
-                Variable<int>(cursor),
-                const Variable<String>('%[image:%'),
-                const Variable<String>('%[file:%'),
-                Variable<int>(batchSize),
-              ],
+              variables: [Variable<int>(cursor), Variable<int>(batchSize)],
             )
             .get();
         if (rows.isEmpty) break;
         for (final row in rows) {
           final partId = row.read<int>('part_id');
+          final revisionId = row.read<String>('revision_id');
+          final ordinal = row.read<int>('ordinal');
+          final kind = row.read<String>('kind');
           final payload = row.read<String>('payload');
-          final rewritten = rewriteContent(payload);
+          final rewrite = _rewriteAttachmentPartUri(
+            kind: kind,
+            payload: payload,
+            rewriteUri: rewriteUri,
+          );
           scanned += 1;
+          if (rewrite.parseError case final parseError?) {
+            skipped += 1;
+            await markMessageAssetReferencesDirty(revisionId);
+            debugPrint(
+              'Sandbox path migration skipped malformed part: '
+              'revisionId=$revisionId ordinal=$ordinal kind=$kind '
+              'parseError=$parseError',
+            );
+          }
+          final rewritten = rewrite.payload;
           if (rewritten != payload) {
             await _db.customStatement(
               'UPDATE message_part_rows SET payload = ? WHERE part_id = ?;',
@@ -1091,8 +1196,66 @@ class ChatDatabaseRepository {
         ran: true,
         scannedMessages: scanned,
         updatedMessages: updated,
+        skippedParts: skipped,
       );
     });
+  }
+
+  ({String payload, String? parseError}) _rewriteAttachmentPartUri({
+    required String kind,
+    required String payload,
+    required String Function(String uri) rewriteUri,
+  }) {
+    final MessagePart part;
+    try {
+      part = MessagePart.fromRow(kind, payload);
+    } on FormatException catch (error) {
+      return (
+        payload: payload,
+        parseError: messagePartParseErrorCategory(error),
+      );
+    }
+    if (part is ImagePart) {
+      final nextUri = rewriteUri(part.uri);
+      final nextUnavailable = _unavailableForRewrittenUri(nextUri);
+      if (nextUri == part.uri && nextUnavailable == part.unavailable) {
+        return (payload: payload, parseError: null);
+      }
+      return (
+        payload: ImagePart(
+          uri: nextUri,
+          mime: part.mime,
+          assetId: part.assetId,
+          unavailable: nextUnavailable,
+        ).encodePayload(),
+        parseError: null,
+      );
+    }
+    if (part is FilePart) {
+      final nextUri = rewriteUri(part.uri);
+      final nextUnavailable = _unavailableForRewrittenUri(nextUri);
+      if (nextUri == part.uri && nextUnavailable == part.unavailable) {
+        return (payload: payload, parseError: null);
+      }
+      return (
+        payload: FilePart(
+          uri: nextUri,
+          name: part.name,
+          mime: part.mime,
+          assetId: part.assetId,
+          unavailable: nextUnavailable,
+        ).encodePayload(),
+        parseError: null,
+      );
+    }
+    return (payload: payload, parseError: null);
+  }
+
+  /// Remote/data URIs stay available; local paths use [localFileExists]
+  /// (no fix→File SMB probe).
+  bool _unavailableForRewrittenUri(String nextUri) {
+    if (isRemoteOrDataUri(nextUri)) return false;
+    return !SandboxPathResolver.localFileExists(nextUri);
   }
 
   Future<bool> needsAssetReferenceBackfill({
@@ -1146,15 +1309,10 @@ class ChatDatabaseRepository {
               SELECT 1 FROM asset_reference_dirty_rows d
               WHERE d.revision_id = m.id
             ) OR (? AND (
-              m.role = 'user' OR
               EXISTS (
                 SELECT 1 FROM message_part_rows p
                 WHERE p.revision_id = m.id
-                  AND p.kind = 'text'
-                  AND (
-                    p.payload LIKE '%[image:%' OR
-                    p.payload LIKE '%[file:%'
-                  )
+                  AND p.kind IN ('image', 'file')
               ) OR
               EXISTS (
                 SELECT 1 FROM message_asset_rows a WHERE a.revision_id = m.id
@@ -1441,6 +1599,130 @@ class ChatDatabaseRepository {
     );
   }
 
+  Future<int> getImagePartCount() async {
+    return _observer.measure(
+      ChatDatabaseOperation.queryImagePartCount,
+      () async {
+        final count = _db.messagePartRows.partId.count();
+        final row =
+            await (_db.selectOnly(_db.messagePartRows)
+                  ..addColumns([count])
+                  ..where(_db.messagePartRows.kind.equals('image')))
+                .getSingle();
+        return row.read(count) ?? 0;
+      },
+      resultCount: (count) => count,
+    );
+  }
+
+  Future<int> getFilePartCount() async {
+    return _observer.measure(
+      ChatDatabaseOperation.queryFilePartCount,
+      () async {
+        final count = _db.messagePartRows.partId.count();
+        final row =
+            await (_db.selectOnly(_db.messagePartRows)
+                  ..addColumns([count])
+                  ..where(_db.messagePartRows.kind.equals('file')))
+                .getSingle();
+        return row.read(count) ?? 0;
+      },
+      resultCount: (count) => count,
+    );
+  }
+
+  /// Strictly validates every persisted attachment payload in bounded pages.
+  ///
+  /// This is a migration publication guard, not a normal hydration path:
+  /// malformed rows fail the migration instead of becoming [MalformedPart]s.
+  Future<void> validateAttachmentPartPayloads({
+    void Function(int processed, int total)? onProgress,
+    @visibleForTesting void Function(int rowCount)? onMetadataWindow,
+  }) async {
+    final totalRow = await _db
+        .customSelect(
+          "SELECT COUNT(*) AS total FROM message_part_rows "
+          "WHERE kind IN ('image', 'file');",
+          readsFrom: {_db.messagePartRows},
+        )
+        .getSingle();
+    final total = totalRow.read<int>('total');
+    onProgress?.call(0, total);
+
+    const metadataPageSize = 256;
+    const payloadPageByteBudget = 2 * 1024 * 1024;
+    var cursor = 0;
+    var processed = 0;
+    while (true) {
+      final metadataRows = await _db
+          .customSelect(
+            'SELECT part_id, LENGTH(CAST(payload AS BLOB)) AS payload_bytes '
+            'FROM message_part_rows '
+            "WHERE kind IN ('image', 'file') AND part_id > ? "
+            'ORDER BY part_id LIMIT ?;',
+            variables: [
+              Variable<int>(cursor),
+              const Variable<int>(metadataPageSize),
+            ],
+            readsFrom: {_db.messagePartRows},
+          )
+          .get();
+      if (metadataRows.isEmpty) break;
+      onMetadataWindow?.call(metadataRows.length);
+
+      var metadataIndex = 0;
+      while (metadataIndex < metadataRows.length) {
+        final partIds = <int>[];
+        var selectedBytes = 0;
+        while (metadataIndex < metadataRows.length) {
+          final row = metadataRows[metadataIndex];
+          final payloadBytes = row.read<int>('payload_bytes');
+          if (partIds.isNotEmpty &&
+              selectedBytes + payloadBytes > payloadPageByteBudget) {
+            break;
+          }
+          partIds.add(row.read<int>('part_id'));
+          selectedBytes += payloadBytes;
+          metadataIndex += 1;
+        }
+        final placeholders = List.filled(partIds.length, '?').join(', ');
+        final rows = await _db
+            .customSelect(
+              'SELECT part_id, revision_id, ordinal, kind, payload '
+              'FROM message_part_rows WHERE part_id IN ($placeholders) '
+              'ORDER BY part_id;',
+              variables: [for (final partId in partIds) Variable<int>(partId)],
+              readsFrom: {_db.messagePartRows},
+            )
+            .get();
+        if (rows.length != partIds.length) {
+          throw StateError(
+            'Migration validation failed (attachment payload page incomplete): '
+            'expected=${partIds.length} actual=${rows.length}.',
+          );
+        }
+        for (final row in rows) {
+          final partId = row.read<int>('part_id');
+          final revisionId = row.read<String>('revision_id');
+          final ordinal = row.read<int>('ordinal');
+          final kind = row.read<String>('kind');
+          final payload = row.read<String>('payload');
+          try {
+            MessagePart.fromRow(kind, payload);
+          } on FormatException {
+            throw StateError(
+              'Migration validation failed (attachment part payload): '
+              'revisionId=$revisionId ordinal=$ordinal kind=$kind.',
+            );
+          }
+          cursor = partId;
+          processed += 1;
+        }
+        onProgress?.call(processed, total);
+      }
+    }
+  }
+
   /// When true, the worker-isolate digest path throws before spawn so tests can
   /// assert the Drift fallback still completes validation.
   @visibleForTesting
@@ -1515,10 +1797,7 @@ class ChatDatabaseRepository {
             'payload_length FROM message_part_rows '
             "WHERE kind = 'text' AND part_id > ? "
             'ORDER BY part_id LIMIT ?;',
-            variables: [
-              Variable<int>(cursor),
-              const Variable<int>(pageSize),
-            ],
+            variables: [Variable<int>(cursor), const Variable<int>(pageSize)],
             readsFrom: {_db.messagePartRows},
           )
           .get();
@@ -1545,11 +1824,10 @@ class ChatDatabaseRepository {
     final receivePort = ReceivePort();
     Isolate? isolate;
     try {
-      isolate = await Isolate.spawn(
-        _textPartContentDigestIsolateMain,
-        (path: databasePath, sendPort: receivePort.sendPort),
-        debugName: 'text_part_content_digest',
-      );
+      isolate = await Isolate.spawn(_textPartContentDigestIsolateMain, (
+        path: databasePath,
+        sendPort: receivePort.sendPort,
+      ), debugName: 'text_part_content_digest');
       await for (final message in receivePort) {
         if (message is! Map) {
           throw StateError('digest_isolate_protocol');
@@ -1596,10 +1874,12 @@ class ChatDatabaseRepository {
       );
       try {
         final totalChars =
-            database.select(
-                  "SELECT COALESCE(SUM(LENGTH(payload)), 0) AS total "
-                  "FROM message_part_rows WHERE kind = 'text';",
-                ).single['total']
+            database
+                    .select(
+                      "SELECT COALESCE(SUM(LENGTH(payload)), 0) AS total "
+                      "FROM message_part_rows WHERE kind = 'text';",
+                    )
+                    .single['total']
                 as int;
         args.sendPort.send({
           'type': 'progress',
@@ -1692,11 +1972,33 @@ class ChatDatabaseRepository {
   }
 
   @visibleForTesting
+  Future<void> corruptPartPayloadForTest(
+    String revisionId,
+    String kind,
+    String payload,
+  ) async {
+    await _db.customStatement(
+      'UPDATE message_part_rows SET payload = ? '
+      'WHERE revision_id = ? AND kind = ?;',
+      [payload, revisionId, kind],
+    );
+  }
+
+  @visibleForTesting
   Future<void> deleteTextPartsForTest(String revisionId) async {
     await _db.customStatement(
       "DELETE FROM message_part_rows "
       "WHERE revision_id = ? AND kind = 'text';",
       [revisionId],
+    );
+  }
+
+  @visibleForTesting
+  Future<void> deletePartsByKindForTest(String revisionId, String kind) async {
+    await _db.customStatement(
+      'DELETE FROM message_part_rows '
+      'WHERE revision_id = ? AND kind = ?',
+      [revisionId, kind],
     );
   }
 
@@ -2280,11 +2582,19 @@ class ChatDatabaseRepository {
     });
   }
 
+  /// Searches conversations for [tokens].
+  ///
+  /// [conversationId] restricts the search to one conversation and
+  /// [excludeConversationId] omits one. Both are applied in SQL rather than by
+  /// the caller, because the candidate `LIMIT` is global: a conversation whose
+  /// matches rank below the cut would otherwise be filtered down to nothing.
   Future<List<ConversationSearchMatch>> searchConversationMatches({
     required List<String> tokens,
     int limit = 200,
     int candidateMultiplier = 8,
     bool includeAllRevisions = false,
+    String? conversationId,
+    String? excludeConversationId,
   }) {
     return _observer.measure(
       ChatDatabaseOperation.querySearch,
@@ -2293,6 +2603,8 @@ class ChatDatabaseRepository {
         limit: limit,
         candidateMultiplier: candidateMultiplier,
         includeAllRevisions: includeAllRevisions,
+        conversationId: conversationId,
+        excludeConversationId: excludeConversationId,
       ),
       resultCount: (rows) => rows.length,
     );
@@ -2303,6 +2615,8 @@ class ChatDatabaseRepository {
     required int limit,
     required int candidateMultiplier,
     required bool includeAllRevisions,
+    String? conversationId,
+    String? excludeConversationId,
   }) async {
     final cleanTokens = tokens
         .map((token) => token.trim().toLowerCase())
@@ -2379,6 +2693,19 @@ class ChatDatabaseRepository {
         ..add(ftsQuery);
     }
 
+    // Applied alongside the match predicate so the candidate LIMIT is spent on
+    // rows the caller can actually use.
+    final scopeArgs = <String>[];
+    var scopeSql = '';
+    if (conversationId != null && conversationId.isNotEmpty) {
+      scopeSql = 'AND c.id = ?';
+      scopeArgs.add(conversationId);
+    } else if (excludeConversationId != null &&
+        excludeConversationId.isNotEmpty) {
+      scopeSql = 'AND c.id <> ?';
+      scopeArgs.add(excludeConversationId);
+    }
+
     final candidateLimit = (limit * candidateMultiplier)
         .clamp(limit, 2000)
         .toInt();
@@ -2442,7 +2769,8 @@ class ChatDatabaseRepository {
         AND m.role IN ('user', 'assistant')
         AND (${messageAnyClauses.join(' OR ')})
         ${includeAllRevisions ? '' : 'AND EXISTS (SELECT 1 FROM visible_groups visible WHERE visible.conversation_id = m.conversation_id AND visible.group_id = COALESCE(m.group_id, m.id) AND visible.selected_version = m.version)'}
-      WHERE (${titleClauses.join(' AND ')}) OR (${existsClauses.join(' AND ')})
+      WHERE ((${titleClauses.join(' AND ')}) OR (${existsClauses.join(' AND ')}))
+        $scopeSql
       ORDER BY c.updated_at DESC, m.message_order ASC
       LIMIT ?
       ''',
@@ -2450,6 +2778,7 @@ class ChatDatabaseRepository {
             ...messageArgs.map((value) => Variable<String>(value! as String)),
             ...titleArgs.map((value) => Variable<String>(value! as String)),
             ...existsArgs.map((value) => Variable<String>(value! as String)),
+            ...scopeArgs.map(Variable<String>.new),
             Variable<int>(candidateLimit),
           ],
         )
@@ -2548,6 +2877,11 @@ class ChatDatabaseRepository {
           THEN COALESCE(m.total_tokens, 0) ELSE 0 END), 0) AS uncategorized_tokens
       FROM message_rows m
       WHERE m.timestamp >= ? AND m.timestamp < ?
+        AND (NULLIF(TRIM(m.provider_id), '') IS NOT NULL
+          OR COALESCE(m.prompt_tokens, 0) != 0
+          OR COALESCE(m.completion_tokens, 0) != 0
+          OR COALESCE(m.cached_tokens, 0) != 0
+          OR COALESCE(m.total_tokens, 0) != 0)
       GROUP BY day, provider_id ORDER BY day, provider_id;
     ''',
           variables: [
@@ -2797,35 +3131,109 @@ class ChatDatabaseRepository {
   Future<List<AssetGcCandidate>> claimAssetGc({
     required DateTime now,
     int limit = 50,
+    @visibleForTesting int maxScan = 500,
   }) async {
     if (limit <= 0) return const <AssetGcCandidate>[];
     return _db.transaction(() async {
-      final dueRows = await _db
-          .customSelect(
-            '''
-            SELECT g.asset_id FROM asset_gc_rows g
+      // Page candidates with keyset pagination, then ask SQLite once per page
+      // whether any dirty text references those paths (set-based instr). Never
+      // pull the full dirty payload corpus into Dart.
+      final ids = <String>[];
+      final protectedIds = <String>[];
+      var scanned = 0;
+      const pageSize = 50;
+      int? cursorNotBefore;
+      String? cursorAssetId;
+
+      while (ids.length < limit && scanned < maxScan) {
+        final List<QueryRow> dueRows;
+        if (cursorNotBefore == null) {
+          dueRows = await _db
+              .customSelect(
+                '''
+            SELECT g.asset_id, a.path, g.not_before FROM asset_gc_rows g
+            JOIN asset_rows a ON a.id = g.asset_id
             WHERE g.not_before <= ?
               AND NOT EXISTS (
                 SELECT 1 FROM message_asset_rows r
                 WHERE r.asset_id = g.asset_id
               )
-              AND NOT EXISTS (
-                SELECT 1 FROM asset_reference_dirty_rows d
-                JOIN message_part_rows p ON p.revision_id = d.revision_id
-                JOIN asset_rows a ON a.id = g.asset_id
-                WHERE p.kind = 'text' AND instr(p.payload, a.path) > 0
-              )
-            ORDER BY g.not_before, g.asset_id LIMIT ?;
+            ORDER BY g.not_before, g.asset_id
+            LIMIT ?;
           ''',
-            variables: [
-              Variable<int>(now.microsecondsSinceEpoch),
-              Variable<int>(limit),
-            ],
-          )
-          .get();
-      final ids = dueRows
-          .map((row) => row.read<String>('asset_id'))
-          .toList(growable: false);
+                variables: [
+                  Variable<int>(now.microsecondsSinceEpoch),
+                  Variable<int>(pageSize),
+                ],
+              )
+              .get();
+        } else {
+          dueRows = await _db
+              .customSelect(
+                '''
+            SELECT g.asset_id, a.path, g.not_before FROM asset_gc_rows g
+            JOIN asset_rows a ON a.id = g.asset_id
+            WHERE g.not_before <= ?
+              AND NOT EXISTS (
+                SELECT 1 FROM message_asset_rows r
+                WHERE r.asset_id = g.asset_id
+              )
+              AND (
+                g.not_before > ?
+                OR (g.not_before = ? AND g.asset_id > ?)
+              )
+            ORDER BY g.not_before, g.asset_id
+            LIMIT ?;
+          ''',
+                variables: [
+                  Variable<int>(now.microsecondsSinceEpoch),
+                  Variable<int>(cursorNotBefore),
+                  Variable<int>(cursorNotBefore),
+                  Variable<String>(cursorAssetId!),
+                  Variable<int>(pageSize),
+                ],
+              )
+              .get();
+        }
+        if (dueRows.isEmpty) break;
+
+        final page = <({String id, String path, int notBefore})>[];
+        for (final row in dueRows) {
+          if (scanned >= maxScan) break;
+          scanned += 1;
+          final assetId = row.read<String>('asset_id');
+          final path = row.read<String>('path');
+          final notBefore = row.read<int>('not_before');
+          cursorNotBefore = notBefore;
+          cursorAssetId = assetId;
+          page.add((id: assetId, path: path, notBefore: notBefore));
+        }
+        if (page.isEmpty) break;
+
+        final protected = await _dirtyPartProtectedAssetIds(page);
+        for (final item in page) {
+          if (ids.length >= limit) break;
+          if (protected.contains(item.id)) {
+            protectedIds.add(item.id);
+            continue;
+          }
+          ids.add(item.id);
+        }
+        if (dueRows.length < pageSize) break;
+      }
+
+      if (protectedIds.isNotEmpty) {
+        final deferUntil = now
+            .add(const Duration(hours: 6))
+            .microsecondsSinceEpoch;
+        final placeholders = List.filled(protectedIds.length, '?').join(',');
+        await _db.customStatement(
+          'UPDATE asset_gc_rows SET not_before = ? '
+          'WHERE asset_id IN ($placeholders);',
+          [deferUntil, ...protectedIds],
+        );
+      }
+
       if (ids.isEmpty) return const <AssetGcCandidate>[];
       for (final id in ids) {
         await _db.customStatement(
@@ -2856,7 +3264,60 @@ class ChatDatabaseRepository {
     });
   }
 
+  /// Set-based dirty-part protection for a candidate page.
+  ///
+  /// A never-registered malformed attachment whose raw payload no longer
+  /// contains its path (for example, a non-string `uri`) cannot be protected
+  /// here and may be collected. We accept that residual loss window because a
+  /// global malformed-part interlock would let one corrupt row disable all
+  /// asset GC indefinitely and cause unbounded disk growth.
+  Future<Set<String>> _dirtyPartProtectedAssetIds(
+    List<({String id, String path, int notBefore})> page,
+  ) async {
+    if (page.isEmpty) return const <String>{};
+    final tuples = List.filled(page.length, '(?, ?, ?, ?, ?)').join(', ');
+    final variables = <Variable<Object>>[];
+    for (final item in page) {
+      final pathForm = item.path.isEmpty ? ' ' : item.path;
+      final altForm = _alternateAssetPathForm(pathForm);
+      final jsonPathForm = _jsonEscapedPathForm(pathForm);
+      final jsonAltForm = _jsonEscapedPathForm(altForm);
+      variables
+        ..add(Variable<String>(item.id))
+        ..add(Variable<String>(pathForm))
+        ..add(Variable<String>(altForm))
+        ..add(Variable<String>(jsonPathForm))
+        ..add(Variable<String>(jsonAltForm));
+    }
+    final rows = await _db.customSelect('''
+          WITH candidates(
+            asset_id, path_form, alt_form, json_path_form, json_alt_form
+          ) AS (
+            VALUES $tuples
+          )
+          SELECT DISTINCT c.asset_id AS asset_id
+          FROM candidates c
+          WHERE EXISTS (
+            SELECT 1
+            FROM asset_reference_dirty_rows d
+            JOIN message_part_rows p ON p.revision_id = d.revision_id
+            WHERE p.kind IN ('text', 'image', 'file')
+              AND (
+                instr(p.payload, c.path_form) > 0
+                OR instr(p.payload, c.alt_form) > 0
+                OR instr(p.payload, c.json_path_form) > 0
+                OR instr(p.payload, c.json_alt_form) > 0
+              )
+          );
+        ''', variables: variables).get();
+    return {for (final row in rows) row.read<String>('asset_id')};
+  }
+
   Future<bool> isAssetGcClaimStillValid(AssetGcCandidate candidate) async {
+    final pathForm = candidate.path.isEmpty ? ' ' : candidate.path;
+    final altForm = _alternateAssetPathForm(pathForm);
+    final jsonPathForm = _jsonEscapedPathForm(pathForm);
+    final jsonAltForm = _jsonEscapedPathForm(altForm);
     final row = await _db
         .customSelect(
           '''
@@ -2869,14 +3330,21 @@ class ChatDatabaseRepository {
             AND NOT EXISTS (
               SELECT 1 FROM asset_reference_dirty_rows d
               JOIN message_part_rows p ON p.revision_id = d.revision_id
-              JOIN asset_rows a ON a.id = g.asset_id
-              WHERE p.kind = 'text' AND instr(p.payload, a.path) > 0
+              WHERE p.kind IN ('text', 'image', 'file')
+                AND (
+                  instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
+                  OR instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
+                )
             )
           LIMIT 1;
         ''',
           variables: [
             Variable<String>(candidate.assetId),
             Variable<int>(candidate.generation),
+            Variable<String>(pathForm),
+            Variable<String>(altForm),
+            Variable<String>(jsonPathForm),
+            Variable<String>(jsonAltForm),
           ],
         )
         .getSingleOrNull();
@@ -2886,8 +3354,15 @@ class ChatDatabaseRepository {
   Future<bool> completeAssetGc({
     required String assetId,
     required int expectedGeneration,
+    required String path,
     DateTime? completedAt,
   }) async {
+    // Dirty-part protection must match either stored form. Never pass '' —
+    // instr(x, '') is always true and would stall GC forever.
+    final pathForm = path.isEmpty ? ' ' : path;
+    final altForm = _alternateAssetPathForm(pathForm);
+    final jsonPathForm = _jsonEscapedPathForm(pathForm);
+    final jsonAltForm = _jsonEscapedPathForm(altForm);
     return _db.transaction(() async {
       final claim = await _db
           .customSelect(
@@ -2901,14 +3376,21 @@ class ChatDatabaseRepository {
               AND NOT EXISTS (
                 SELECT 1 FROM asset_reference_dirty_rows d
                 JOIN message_part_rows p ON p.revision_id = d.revision_id
-                JOIN asset_rows a ON a.id = g.asset_id
-                WHERE p.kind = 'text' AND instr(p.payload, a.path) > 0
+                WHERE p.kind IN ('text', 'image', 'file')
+                  AND (
+                    instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
+                    OR instr(p.payload, ?) > 0 OR instr(p.payload, ?) > 0
+                  )
               )
             LIMIT 1;
           ''',
             variables: [
               Variable<String>(assetId),
               Variable<int>(expectedGeneration),
+              Variable<String>(pathForm),
+              Variable<String>(altForm),
+              Variable<String>(jsonPathForm),
+              Variable<String>(jsonAltForm),
             ],
           )
           .getSingleOrNull();
@@ -3116,10 +3598,181 @@ class ChatDatabaseRepository {
 
   Future<void> putConversation(Conversation conversation) async {
     await _db.transaction(() async {
+      // Existing rows keep the database-owned hash written by prompt freeze;
+      // cached Conversation instances may still hold an older value.
+      final updated =
+          await (_db.update(
+            _db.conversationRows,
+          )..where((row) => row.id.equals(conversation.id))).write(
+            _conversationCompanion(
+              conversation,
+              injectedMemoryHash: const Value.absent(),
+            ),
+          );
+      if (updated == 0) {
+        await _db
+            .into(_db.conversationRows)
+            .insert(_conversationCompanion(conversation));
+      }
+      await _replaceMcpServers(conversation.id, conversation.mcpServerIds);
+    });
+  }
+
+  Future<Conversation?> duplicateConversation(String sourceId) {
+    return _db.transaction(() async {
+      final sourceRow = await (_db.select(
+        _db.conversationRows,
+      )..where((row) => row.id.equals(sourceId))).getSingleOrNull();
+      if (sourceRow == null) return null;
+
+      final sourceMessages =
+          await (_db.select(_db.messageRows)
+                ..where((row) => row.conversationId.equals(sourceId))
+                ..orderBy([(row) => OrderingTerm.asc(row.messageOrder)]))
+              .get();
+      const uuid = Uuid();
+      final targetId = uuid.v4();
+      final messageIdMap = {
+        for (final message in sourceMessages) message.id: uuid.v4(),
+      };
+      final groupIdMap = <String, String>{};
+      for (final message in sourceMessages) {
+        final groupId = message.groupId ?? message.id;
+        groupIdMap.putIfAbsent(
+          groupId,
+          () => messageIdMap[groupId] ?? uuid.v4(),
+        );
+      }
+
+      final source = await _conversationFromRow(
+        sourceRow,
+        includeMessageIds: false,
+      );
+      final duplicatedAt = DateTime.now();
+      final duplicate = source.copyWith(
+        id: targetId,
+        createdAt: duplicatedAt,
+        updatedAt: duplicatedAt,
+        messageIds: [
+          for (final message in sourceMessages) messageIdMap[message.id]!,
+        ],
+        versionSelections: {
+          for (final entry in source.versionSelections.entries)
+            groupIdMap[entry.key] ?? entry.key: entry.value,
+        },
+        clearInjectedMemoryHash: true,
+        lastMemoryExtractedOrder: sourceMessages.isEmpty
+            ? -1
+            : sourceMessages.last.messageOrder,
+      );
       await _db
           .into(_db.conversationRows)
-          .insertOnConflictUpdate(_conversationCompanion(conversation));
-      await _replaceMcpServers(conversation.id, conversation.mcpServerIds);
+          .insert(_conversationCompanion(duplicate));
+      await _replaceMcpServers(targetId, duplicate.mcpServerIds);
+
+      for (final message in sourceMessages) {
+        final targetMessageId = messageIdMap[message.id]!;
+        await _db
+            .into(_db.messageRows)
+            .insert(
+              MessageRowsCompanion.insert(
+                id: targetMessageId,
+                conversationId: targetId,
+                role: message.role,
+                timestamp: message.timestamp,
+                modelId: Value(message.modelId),
+                providerId: Value(message.providerId),
+                totalTokens: Value(message.totalTokens),
+                isStreaming: const Value(false),
+                reasoningStartAt: Value(message.reasoningStartAt),
+                reasoningFinishedAt: Value(message.reasoningFinishedAt),
+                translation: Value(message.translation),
+                reasoningSegmentsJson: Value(message.reasoningSegmentsJson),
+                groupId: Value(
+                  message.groupId == null ? null : groupIdMap[message.groupId],
+                ),
+                version: Value(message.version),
+                promptTokens: Value(message.promptTokens),
+                completionTokens: Value(message.completionTokens),
+                cachedTokens: Value(message.cachedTokens),
+                durationMs: Value(message.durationMs),
+                messageOrder: message.messageOrder,
+              ),
+            );
+        await _db.customStatement(
+          'INSERT INTO message_part_rows '
+          '(conversation_id, revision_id, ordinal, kind, payload, '
+          'created_at, updated_at) '
+          'SELECT ?, ?, ordinal, kind, payload, created_at, updated_at '
+          'FROM message_part_rows WHERE revision_id = ?;',
+          [targetId, targetMessageId, message.id],
+        );
+        await _db.customStatement(
+          'INSERT INTO provider_artifact_rows '
+          '(conversation_id, revision_id, kind, payload, created_at, '
+          'updated_at) '
+          'SELECT ?, ?, kind, payload, created_at, updated_at '
+          'FROM provider_artifact_rows WHERE revision_id = ?;',
+          [targetId, targetMessageId, message.id],
+        );
+        await _db.customStatement(
+          'INSERT INTO message_asset_rows '
+          '(conversation_id, revision_id, asset_id, kind) '
+          'SELECT ?, ?, asset_id, kind FROM message_asset_rows '
+          'WHERE revision_id = ?;',
+          [targetId, targetMessageId, message.id],
+        );
+      }
+      await _db.customStatement(
+        'INSERT OR IGNORE INTO asset_reference_dirty_rows(revision_id) '
+        'SELECT revision_id FROM message_asset_rows WHERE conversation_id = ? '
+        'UNION '
+        'SELECT revision_id FROM message_part_rows '
+        "WHERE conversation_id = ? AND kind IN ('image', 'file');",
+        [targetId, targetId],
+      );
+      return duplicate;
+    });
+  }
+
+  Future<bool> moveConversationToAssistant({
+    required String conversationId,
+    required String assistantId,
+    required DateTime updatedAt,
+  }) {
+    return _db.transaction(() async {
+      final activeRun =
+          await (_db.select(_db.generationRunRows)
+                ..where(
+                  (row) =>
+                      row.conversationId.equals(conversationId) &
+                      row.state.isIn(const [
+                        'preparing',
+                        'requesting',
+                        'streaming',
+                        'waiting_tool',
+                      ]),
+                )
+                ..limit(1))
+              .getSingleOrNull();
+      if (activeRun != null) return false;
+      await (_db.delete(_db.messagePromptRows)..where(
+            (row) =>
+                row.conversationId.equals(conversationId) &
+                row.carriesMemorySnapshot.equals(true),
+          ))
+          .go();
+      final updated =
+          await (_db.update(
+            _db.conversationRows,
+          )..where((row) => row.id.equals(conversationId))).write(
+            ConversationRowsCompanion(
+              assistantId: Value(assistantId),
+              updatedAt: Value(updatedAt),
+              injectedMemoryHash: const Value(null),
+            ),
+          );
+      return updated != 0;
     });
   }
 
@@ -3391,8 +4044,7 @@ class ChatDatabaseRepository {
     List<Map<String, dynamic>>? toolEvents,
     bool preserveUnchangedToolParts = false,
   }) async {
-    if (message.content.contains('[image:') ||
-        message.content.contains('[file:')) {
+    if (_messageHasAttachmentParts(message)) {
       await markMessageAssetReferencesDirty(message.id);
     }
     final preservedToolEvents = toolEvents ?? await getToolEvents(message.id);
@@ -3416,7 +4068,11 @@ class ChatDatabaseRepository {
     if (effectiveReasoningText != null && effectiveReasoningText.isNotEmpty) {
       message = message.copyWith(reasoningText: effectiveReasoningText);
     }
-    if (preserveUnchangedToolParts && preservedToolEvents.isNotEmpty) {
+    // Attachment-bearing messages own interleaved body ordinals; the
+    // text/reasoning fast path cannot preserve them safely.
+    if (preserveUnchangedToolParts &&
+        preservedToolEvents.isNotEmpty &&
+        !_messageHasAttachmentParts(message)) {
       final keptToolParts = await _unchangedToolPartCount(
         message,
         preservedToolEvents,
@@ -3463,19 +4119,22 @@ class ChatDatabaseRepository {
             ),
           );
     }
-    await _db
-        .into(_db.messagePartRows)
-        .insert(
-          MessagePartRowsCompanion.insert(
-            conversationId: message.conversationId,
-            revisionId: message.id,
-            ordinal: ordinal,
-            kind: 'text',
-            payload: message.content,
-            createdAt: message.timestamp,
-            updatedAt: updatedAt,
-          ),
-        );
+    final bodyParts = _bodyPartsForPersistence(message);
+    for (final part in bodyParts) {
+      await _db
+          .into(_db.messagePartRows)
+          .insert(
+            MessagePartRowsCompanion.insert(
+              conversationId: message.conversationId,
+              revisionId: message.id,
+              ordinal: ordinal++,
+              kind: part.kind,
+              payload: part.encodePayload(),
+              createdAt: message.timestamp,
+              updatedAt: updatedAt,
+            ),
+          );
+    }
   }
 
   /// Returns the number of persisted tool_call parts when they already match
@@ -3493,6 +4152,9 @@ class ChatDatabaseRepository {
               ..orderBy([(row) => OrderingTerm.asc(row.ordinal)]))
             .get();
     if (existing.isEmpty) return null;
+    if (existing.any((part) => part.kind == 'image' || part.kind == 'file')) {
+      return null;
+    }
     final reasoning = message.reasoningText;
     final hasReasoning = reasoning != null && reasoning.isNotEmpty;
     final hasPersistedReasoning = existing.any(
@@ -3549,34 +4211,43 @@ class ChatDatabaseRepository {
           );
     }
     ordinal += toolPartCount;
-    await _db
-        .into(_db.messagePartRows)
-        .insert(
-          MessagePartRowsCompanion.insert(
-            conversationId: message.conversationId,
-            revisionId: message.id,
-            ordinal: ordinal,
-            kind: 'text',
-            payload: message.content,
-            createdAt: message.timestamp,
-            updatedAt: updatedAt,
-          ),
-        );
+    final bodyParts = _bodyPartsForPersistence(message);
+    for (final part in bodyParts) {
+      await _db
+          .into(_db.messagePartRows)
+          .insert(
+            MessagePartRowsCompanion.insert(
+              conversationId: message.conversationId,
+              revisionId: message.id,
+              ordinal: ordinal++,
+              kind: part.kind,
+              payload: part.encodePayload(),
+              createdAt: message.timestamp,
+              updatedAt: updatedAt,
+            ),
+          );
+    }
   }
 
   Future<AppendedMessageVersion?> appendMessageVersion({
     required String messageId,
-    required String content,
+    String content = '',
+    List<MessagePart>? parts,
   }) {
     return _observer.measure(
       ChatDatabaseOperation.commandAppendVersion,
-      () => _appendMessageVersion(messageId: messageId, content: content),
+      () => _appendMessageVersion(
+        messageId: messageId,
+        content: content,
+        parts: parts,
+      ),
     );
   }
 
   Future<AppendedMessageVersion?> _appendMessageVersion({
     required String messageId,
     required String content,
+    List<MessagePart>? parts,
   }) async {
     return _db.transaction(() async {
       final originalRow = await (_db.select(
@@ -3605,9 +4276,22 @@ class ChatDatabaseRepository {
                 ))
               .getSingle();
       final nextVersion = (maxVersionRow.read(maxVersion) ?? -1) + 1;
+      // Content-only append must load original parts first and keep non-text
+      // attachments (ImagePart/FilePart/etc.) on the new revision, preserving
+      // ordinal ([Image, Text] stays [Image, Text(new)], not [Text(new), Image]).
+      final List<MessagePart> resolvedParts;
+      if (parts != null) {
+        resolvedParts = parts;
+      } else {
+        final original = await _messageFromRowWithParts(originalRow);
+        resolvedParts = ChatMessage.partsWithReplacedText(
+          original.parts,
+          content,
+        );
+      }
       final message = ChatMessage(
         role: originalRow.role,
-        content: content,
+        parts: resolvedParts,
         conversationId: originalRow.conversationId,
         modelId: originalRow.modelId,
         providerId: originalRow.providerId,
@@ -3841,11 +4525,19 @@ class ChatDatabaseRepository {
             .get();
         var imported = 0;
         var deduplicated = 0;
+        var skipped = 0;
         final remapped = <String, String>{};
+        final importedIds = <String>[];
 
         for (final sourceRow in sourceRows) {
           final sourceId = sourceRow.read<String>('id');
-          await _requireContiguousMessageOrder('merge_source', sourceId);
+          try {
+            await _requireValidMessageOrder('merge_source', sourceId);
+          } on StateError catch (error) {
+            if (error.message != 'conversation_message_order') rethrow;
+            skipped += 1;
+            continue;
+          }
           final sourceFingerprint = await _conversationFingerprint(
             'merge_source',
             sourceId,
@@ -3909,6 +4601,7 @@ class ChatDatabaseRepository {
             messageIdMap: messageIdMap,
           );
           imported += 1;
+          importedIds.add(targetId);
         }
 
         final foreignKeyFailures = await _db
@@ -3920,7 +4613,9 @@ class ChatDatabaseRepository {
         return BackupMergeReport(
           importedConversations: imported,
           deduplicatedConversations: deduplicated,
+          skippedConversations: skipped,
           remappedConversationIds: Map.unmodifiable(remapped),
+          importedConversationIds: List.unmodifiable(importedIds),
         );
       });
     } finally {
@@ -3928,6 +4623,135 @@ class ChatDatabaseRepository {
         await _db.customStatement('DETACH DATABASE merge_source;');
       }
     }
+  }
+
+  /// Chats-only restore/merge: mark local attachment parts unavailable unless
+  /// remote/data. Does not reuse path/hash coincidence from asset_rows.
+  Future<int> recomputeAttachmentAvailabilityForConversations({
+    required Iterable<String> conversationIds,
+    required bool filesRestored,
+  }) async {
+    final ids = conversationIds.toList(growable: false);
+    if (ids.isEmpty) return 0;
+    var updated = 0;
+    for (final conversationId in ids) {
+      final messages = await getMessagesRange(
+        conversationId,
+        start: 0,
+        limit: 100000,
+      );
+      for (final message in messages) {
+        final nextParts = <MessagePart>[];
+        var changed = false;
+        for (final part in message.parts) {
+          if (part is ImagePart) {
+            final unavailable = await _unavailableForRestoredPart(
+              uri: part.uri,
+              filesRestored: filesRestored,
+            );
+            if (unavailable != part.unavailable) changed = true;
+            nextParts.add(
+              ImagePart(
+                uri: part.uri,
+                mime: part.mime,
+                assetId: part.assetId,
+                unavailable: unavailable,
+              ),
+            );
+          } else if (part is FilePart) {
+            final unavailable = await _unavailableForRestoredPart(
+              uri: part.uri,
+              filesRestored: filesRestored,
+            );
+            if (unavailable != part.unavailable) changed = true;
+            nextParts.add(
+              FilePart(
+                uri: part.uri,
+                name: part.name,
+                mime: part.mime,
+                assetId: part.assetId,
+                unavailable: unavailable,
+              ),
+            );
+          } else {
+            nextParts.add(part);
+          }
+        }
+        if (!changed) continue;
+        await updateMessage(message.copyWith(parts: nextParts));
+        updated += 1;
+      }
+    }
+    return updated;
+  }
+
+  Future<bool> _unavailableForRestoredPart({
+    required String uri,
+    required bool filesRestored,
+  }) async {
+    if (isRemoteOrDataUri(uri)) return false;
+    if (filesRestored) {
+      return !SandboxPathResolver.localFileExists(uri);
+    }
+    // Chats-only: never trust candidate asset_rows path / content_hash
+    // coincidence on the target machine (same path may hold different bytes).
+    // Reuse would require hashing the live target file and comparing bytes.
+    return true;
+  }
+
+  /// Open [databaseFile] with raw sqlite3 and mark local attachments
+  /// unavailable when [filesRestored] is false (overwrite chats-only candidate
+  /// processing before publish). Avoids opening a Drift isolate inside
+  /// restore staging.
+  ///
+  /// Minimal policy: every non-remote/data local attachment becomes
+  /// unavailable. We deliberately do **not** reuse candidate `asset_rows`
+  /// content_hash + path existence — that would treat the candidate's own
+  /// absolute path (or a colliding target file with different bytes) as proof.
+  static Future<int> recomputeAttachmentAvailabilityOnDatabaseFile({
+    required File databaseFile,
+    required bool filesRestored,
+  }) async {
+    if (filesRestored) return 0;
+    if (!await databaseFile.exists()) {
+      throw FileSystemException(
+        'Candidate database does not exist',
+        databaseFile.path,
+      );
+    }
+    return Future<int>.sync(() {
+      final db = sqlite.sqlite3.open(databaseFile.absolute.path);
+      try {
+        final rows = db.select(
+          "SELECT revision_id, ordinal, kind, payload "
+          "FROM message_part_rows WHERE kind IN ('image', 'file');",
+        );
+        var updated = 0;
+        final stmt = db.prepare(
+          'UPDATE message_part_rows SET payload = ? '
+          'WHERE revision_id = ? AND ordinal = ?;',
+        );
+        try {
+          for (final row in rows) {
+            final payload = row['payload'] as String;
+            final decoded = jsonDecode(payload);
+            if (decoded is! Map) continue;
+            final map = Map<String, dynamic>.from(decoded);
+            final uri = (map['uri'] ?? '').toString();
+            if (uri.isEmpty || isRemoteOrDataUri(uri)) continue;
+            if (map['unavailable'] == true) continue;
+            map['unavailable'] = true;
+            stmt.execute([jsonEncode(map), row['revision_id'], row['ordinal']]);
+            updated += 1;
+          }
+        } finally {
+          stmt.close();
+        }
+        return updated;
+      } finally {
+        db.close();
+      }
+    });
   }
 
   Future<String?> _conversationFingerprint(String schema, String id) async {
@@ -3978,11 +4802,22 @@ class ChatDatabaseRepository {
         )
         .get();
     final partPayloads = <String, Map<String, List<String>>>{};
+    // Image/file identity payloads in ordinal order (unavailable stripped).
+    final attachmentPayloads = <String, List<String>>{};
     for (final part in partRows) {
+      final revisionId = part.read<String>('revision_id');
+      final kind = part.read<String>('kind');
+      final payload = part.read<String>('payload');
+      if (kind == 'image' || kind == 'file') {
+        attachmentPayloads
+            .putIfAbsent(revisionId, () => [])
+            .add(_fingerprintAttachmentPayload(kind, payload));
+        continue;
+      }
       partPayloads
-          .putIfAbsent(part.read<String>('revision_id'), () => {})
-          .putIfAbsent(part.read<String>('kind'), () => [])
-          .add(part.read<String>('payload'));
+          .putIfAbsent(revisionId, () => {})
+          .putIfAbsent(kind, () => [])
+          .add(payload);
     }
     final signatureRows = await _db
         .customSelect(
@@ -4021,6 +4856,7 @@ class ChatDatabaseRepository {
         payloads?['text'],
         payloads?['reasoning'],
         payloads?['tool_call'],
+        attachmentPayloads[messageId],
         signatures[messageId],
       ]);
     }
@@ -4060,6 +4896,26 @@ class ChatDatabaseRepository {
     return normalized;
   }
 
+  /// Attachment identity for merge fingerprints. Drops environment-state
+  /// `unavailable` so the same attachment available on one device and missing
+  /// on another still dedupes; keeps uri/name/mime/assetId and ordinal order.
+  String _fingerprintAttachmentPayload(String kind, String payload) {
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is! Map) return jsonEncode({'kind': kind, 'raw': payload});
+      final map = Map<String, Object?>.from(decoded);
+      return jsonEncode({
+        'kind': kind,
+        'uri': map['uri'],
+        if (map['name'] != null) 'name': map['name'],
+        if (map['mime'] != null) 'mime': map['mime'],
+        if (map['assetId'] != null) 'assetId': map['assetId'],
+      });
+    } catch (_) {
+      return jsonEncode({'kind': kind, 'raw': payload});
+    }
+  }
+
   Object? _fingerprintTimestamp(Object? value) {
     if (value is int) return value ~/ Duration.microsecondsPerSecond;
     if (value is num) {
@@ -4079,7 +4935,10 @@ class ChatDatabaseRepository {
     return rows.map((row) => row.read<String>('id')).toList(growable: false);
   }
 
-  Future<void> _requireContiguousMessageOrder(
+  /// Message deletion intentionally preserves `message_order` gaps, so sparse
+  /// orders are valid; only negative or duplicate values that bypassed the
+  /// database constraints are rejected here.
+  Future<void> _requireValidMessageOrder(
     String schema,
     String conversationId,
   ) async {
@@ -4090,10 +4949,13 @@ class ChatDatabaseRepository {
           variables: [Variable<String>(conversationId)],
         )
         .get();
-    for (var index = 0; index < rows.length; index++) {
-      if (rows[index].read<int>('message_order') != index) {
+    int? previous;
+    for (final row in rows) {
+      final order = row.read<int>('message_order');
+      if (order < 0 || (previous != null && order <= previous)) {
         throw StateError('conversation_message_order');
       }
+      previous = order;
     }
   }
 
@@ -4163,12 +5025,15 @@ class ChatDatabaseRepository {
       'INSERT INTO main.conversation_rows '
       '(id, title, created_at, updated_at, is_pinned, assistant_id, '
       'truncate_index, version_selections_json, summary, '
-      'last_summarized_message_count, chat_suggestions_json) '
+      'last_summarized_message_count, chat_suggestions_json, '
+      'injected_memory_hash, last_memory_extracted_order) '
       'SELECT ?, title, created_at, updated_at, is_pinned, assistant_id, '
       'truncate_index, ?, summary, '
-      'last_summarized_message_count, chat_suggestions_json '
+      'last_summarized_message_count, chat_suggestions_json, '
+      'NULL, COALESCE((SELECT MAX(message_order) '
+      'FROM merge_source.message_rows WHERE conversation_id = ?), -1) '
       'FROM merge_source.conversation_rows WHERE id = ?;',
-      [targetId, jsonEncode(targetSelections), sourceId],
+      [targetId, jsonEncode(targetSelections), sourceId, sourceId],
     );
     await _db.customStatement(
       'INSERT INTO main.conversation_mcp_server_rows '
@@ -4199,6 +5064,8 @@ class ChatDatabaseRepository {
         'reasoning_finished_at, translation, reasoning_segments_json, '
         '?, version, '
         'prompt_tokens, completion_tokens, cached_tokens, duration_ms, '
+        // message_order is part of the conversation fingerprint. Preserve it
+        // verbatim so sparse snapshots remain idempotent across repeated merges.
         'message_order FROM merge_source.message_rows WHERE id = ?;',
         [entry.value, targetId, targetGroupId, entry.key],
       );
@@ -4226,8 +5093,7 @@ class ChatDatabaseRepository {
     await _db.customStatement(
       'INSERT OR IGNORE INTO asset_reference_dirty_rows(revision_id) '
       'SELECT DISTINCT revision_id FROM main.message_part_rows '
-      'WHERE conversation_id = ? AND kind = \'text\' '
-      "AND (payload LIKE '%[image:%' OR payload LIKE '%[file:%');",
+      "WHERE conversation_id = ? AND kind IN ('image', 'file');",
       [targetId],
     );
   }
@@ -4295,9 +5161,7 @@ class ChatDatabaseRepository {
     // bulk mark stays as cheap insurance for the asset backfill invariant.
     await _markMessageAssetReferencesDirtyBatch([
       for (final entry in messages)
-        if (entry.message.content.contains('[image:') ||
-            entry.message.content.contains('[file:'))
-          entry.message.id,
+        if (_messageHasAttachmentParts(entry.message)) entry.message.id,
     ]);
   }
 
@@ -4309,8 +5173,9 @@ class ChatDatabaseRepository {
   }
 
   Future<void> _updateMessageRow(ChatMessage message) async {
-    await (_db.update(_db.messageRows)..where((t) => t.id.equals(message.id)))
-        .write(_messageUpdate(message));
+    await (_db.update(
+      _db.messageRows,
+    )..where((t) => t.id.equals(message.id))).write(_messageUpdate(message));
   }
 
   /// Partial-column UPDATE: only the non-null fields are written, so
@@ -4411,6 +5276,22 @@ class ChatDatabaseRepository {
     int? checkpointSeq,
   }) async {
     await _db.transaction(() async {
+      // Guard against a late flush resurrecting an already-finalized message.
+      // A streaming snapshot (is_streaming = true) that arrives after the
+      // terminal write has committed (row is_streaming = 0) must not overwrite
+      // the terminal content or flip is_streaming back on (which would also
+      // unindex it from search). Final writes carry is_streaming = false and
+      // are unaffected.
+      if (message.isStreaming) {
+        final existing =
+            await (_db.select(_db.messageRows)
+                  ..where((row) => row.id.equals(message.id))
+                  ..limit(1))
+                .getSingleOrNull();
+        if (existing != null && !existing.isStreaming) {
+          return;
+        }
+      }
       // Keep message_rows (incl. is_streaming) ahead of parts rewrite so the
       // FTS finalize trigger indexes the pre-rewrite text part correctly.
       await _updateMessageRow(message);
@@ -5109,10 +5990,15 @@ class ChatDatabaseRepository {
       summary: row.summary,
       lastSummarizedMessageCount: row.lastSummarizedMessageCount,
       chatSuggestions: _decodeStringList(row.chatSuggestionsJson),
+      injectedMemoryHash: row.injectedMemoryHash,
+      lastMemoryExtractedOrder: row.lastMemoryExtractedOrder,
     );
   }
 
-  ConversationRowsCompanion _conversationCompanion(Conversation conversation) {
+  ConversationRowsCompanion _conversationCompanion(
+    Conversation conversation, {
+    Value<String?>? injectedMemoryHash,
+  }) {
     return ConversationRowsCompanion.insert(
       id: conversation.id,
       title: conversation.title,
@@ -5127,6 +6013,9 @@ class ChatDatabaseRepository {
         conversation.lastSummarizedMessageCount,
       ),
       chatSuggestionsJson: Value(jsonEncode(conversation.chatSuggestions)),
+      injectedMemoryHash:
+          injectedMemoryHash ?? Value(conversation.injectedMemoryHash),
+      lastMemoryExtractedOrder: Value(conversation.lastMemoryExtractedOrder),
     );
   }
 
@@ -5154,32 +6043,38 @@ class ChatDatabaseRepository {
     ];
   }
 
-  /// Body text and reasoning come only from [authoritativeParts]. Missing or
-  /// empty parts yield empty content.
+  /// Parts come only from [authoritativeParts] in ordinal order. Missing or
+  /// empty parts yield empty content via the derived [ChatMessage.content].
   ChatMessage _messageFromRow(
     MessageRow row, {
     List<MessagePartRow>? authoritativeParts,
   }) {
-    final parts = authoritativeParts ?? const <MessagePartRow>[];
-    final text = parts
-        .where((part) => part.kind == 'text')
-        .map((part) => part.payload)
-        .join();
-    final reasoningParts = parts
-        .where((part) => part.kind == 'reasoning')
-        .map((part) => part.payload)
-        .toList(growable: false);
+    final partRows = authoritativeParts ?? const <MessagePartRow>[];
+    final parts = <MessagePart>[
+      for (final part in partRows)
+        _hydratePart(
+          revisionId: part.revisionId,
+          ordinal: part.ordinal,
+          kind: part.kind,
+          payload: part.payload,
+        ),
+    ];
+    final reasoningParts = parts.whereType<ReasoningPart>().toList(
+      growable: false,
+    );
     return ChatMessage(
       id: row.id,
       role: row.role,
-      content: text,
+      parts: parts,
       timestamp: row.timestamp,
       modelId: row.modelId,
       providerId: row.providerId,
       totalTokens: row.totalTokens,
       conversationId: row.conversationId,
       isStreaming: row.isStreaming,
-      reasoningText: reasoningParts.isEmpty ? null : reasoningParts.join(),
+      reasoningText: reasoningParts.isEmpty
+          ? null
+          : reasoningParts.map((part) => part.text).join(),
       reasoningStartAt: row.reasoningStartAt,
       reasoningFinishedAt: row.reasoningFinishedAt,
       translation: row.translation,
@@ -5191,6 +6086,56 @@ class ChatDatabaseRepository {
       cachedTokens: row.cachedTokens,
       durationMs: row.durationMs,
     );
+  }
+
+  bool _messageHasAttachmentParts(ChatMessage message) {
+    return message.parts.any(
+      (part) =>
+          part is ImagePart ||
+          part is FilePart ||
+          (part is MalformedPart && part.isAttachmentKind),
+    );
+  }
+
+  /// Body parts persisted after reasoning/tool_call rows. Reasoning and
+  /// tool_call continue to be sourced from [ChatMessage.reasoningText] /
+  /// tool-event arguments so streaming overlays stay equivalent.
+  List<MessagePart> _bodyPartsForPersistence(ChatMessage message) {
+    final body = <MessagePart>[
+      for (final part in message.parts)
+        if (part is TextPart ||
+            part is ImagePart ||
+            part is FilePart ||
+            part is MalformedPart ||
+            part is UnknownPart)
+          part,
+    ];
+    if (body.isEmpty) {
+      return <MessagePart>[TextPart(message.content)];
+    }
+    return body;
+  }
+
+  MessagePart _hydratePart({
+    required String revisionId,
+    required int ordinal,
+    required String kind,
+    required String payload,
+  }) {
+    try {
+      return MessagePart.fromRow(kind, payload);
+    } on FormatException catch (error) {
+      final parseError = messagePartParseErrorCategory(error);
+      debugPrint(
+        'Malformed message part: revisionId=$revisionId ordinal=$ordinal '
+        'kind=$kind parseError=$parseError',
+      );
+      return MalformedPart(
+        rawKind: kind,
+        rawPayload: payload,
+        parseError: parseError,
+      );
+    }
   }
 
   DateTime _dateTimeFromSqlite(Object? value) {
@@ -5266,6 +6211,541 @@ class ChatDatabaseRepository {
     } catch (_) {
       return <String>[];
     }
+  }
+
+  // —— Memory system V1 read path (§13.3) ——
+
+  /// Visible memories for [assistantId]: `status='active'` (unless
+  /// [includeArchived]) and `(scope='global' OR (scope='assistant' AND
+  /// assistant_id = :aid))`. When [assistantId] is null, only global rows
+  /// are visible. Ordered for in-block injection (§7.2):
+  /// `scope_rank ASC, entry_created_at ASC, id ASC` (global before assistant).
+  Future<List<MemoryEntry>> queryVisibleMemories({
+    required String? assistantId,
+    MemoryType? type,
+    bool includeArchived = false,
+    int? limit,
+  }) async {
+    final clauses = <String>[_memoryVisibilitySql(assistantId)];
+    final variables = <Variable<Object>>[
+      ..._memoryVisibilityVariables(assistantId),
+    ];
+    if (!includeArchived) {
+      clauses.add("status = 'active'");
+    }
+    if (type != null) {
+      clauses.add('type = ?');
+      variables.add(Variable<String>(MemoryEntry.typeToString(type)));
+    }
+    final limitSql = limit == null ? '' : ' LIMIT ?';
+    if (limit != null) {
+      variables.add(Variable<int>(limit));
+    }
+    final rows = await _db
+        .customSelect(
+          'SELECT payload FROM memory_entry_rows '
+          'WHERE ${clauses.join(' AND ')} '
+          'ORDER BY CASE WHEN scope = \'global\' THEN 0 ELSE 1 END ASC, '
+          'entry_created_at ASC, id ASC'
+          '$limitSql;',
+          variables: variables,
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    return _memoryEntriesFromPayloadRows(
+      rows,
+      assistantId: assistantId,
+      dropInvisibleRelated: true,
+    );
+  }
+
+  /// Counts active visible memories by [MemoryType] for [assistantId].
+  Future<Map<MemoryType, int>> countVisibleMemoriesByType({
+    required String? assistantId,
+  }) async {
+    final rows = await _db
+        .customSelect(
+          'SELECT type, COUNT(*) AS count FROM memory_entry_rows '
+          "WHERE status = 'active' AND ${_memoryVisibilitySql(assistantId)} "
+          'GROUP BY type;',
+          variables: _memoryVisibilityVariables(assistantId),
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    final result = <MemoryType, int>{
+      for (final type in MemoryType.values) type: 0,
+    };
+    for (final row in rows) {
+      final type = MemoryEntry.typeFromString(row.read<String>('type'));
+      result[type] = row.read<int>('count');
+    }
+    return result;
+  }
+
+  /// Search memories by pre-normalized, LIKE-escaped [tokens].
+  ///
+  /// Callers must lowercase/normalize tokens and escape `%`, `_`, and `\`
+  /// (e.g. via [MemoryTokenizer.escapeLike]) before passing them here.
+  ///
+  /// - [matchAll] `true` (§5.9): every token must match (`AND`), ordered by
+  ///   `entry_updated_at DESC, id ASC`.
+  /// - [matchAll] `false` (§12.6): `hits` = count of matching tokens (`OR`),
+  ///   filter `hits >= 1`, ordered by
+  ///   `hits DESC, entry_updated_at DESC, id ASC`.
+  Future<List<MemoryEntry>> searchMemories({
+    required String? assistantId,
+    required List<String> tokens,
+    MemoryType? type,
+    bool matchAll = true,
+    int limit = 10,
+  }) async {
+    if (tokens.isEmpty || limit <= 0) {
+      return const <MemoryEntry>[];
+    }
+    if (!matchAll) {
+      return _searchMemoriesMatchAny(
+        assistantId: assistantId,
+        tokens: tokens,
+        type: type,
+        limit: limit,
+      );
+    }
+
+    final clauses = <String>[
+      "status = 'active'",
+      _memoryVisibilitySql(assistantId),
+    ];
+    final variables = <Variable<Object>>[
+      ..._memoryVisibilityVariables(assistantId),
+    ];
+    if (type != null) {
+      clauses.add('type = ?');
+      variables.add(Variable<String>(MemoryEntry.typeToString(type)));
+    }
+    for (final token in tokens) {
+      clauses.add("content_normalized LIKE ? ESCAPE '\\'");
+      variables.add(Variable<String>('%$token%'));
+    }
+    variables.add(Variable<int>(limit));
+    final rows = await _db
+        .customSelect(
+          'SELECT payload FROM memory_entry_rows '
+          'WHERE ${clauses.join(' AND ')} '
+          'ORDER BY entry_updated_at DESC, id ASC '
+          'LIMIT ?;',
+          variables: variables,
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    return _memoryEntriesFromPayloadRows(
+      rows,
+      assistantId: assistantId,
+      dropInvisibleRelated: true,
+    );
+  }
+
+  Future<List<MemoryEntry>> _searchMemoriesMatchAny({
+    required String? assistantId,
+    required List<String> tokens,
+    required MemoryType? type,
+    required int limit,
+  }) async {
+    final hitParts = <String>[
+      for (final _ in tokens)
+        "CASE WHEN content_normalized LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END",
+    ];
+    final hitsExpr = hitParts.join(' + ');
+
+    // Variable order must match `?` appearance: SELECT hits, then WHERE.
+    final clauses = <String>[
+      "status = 'active'",
+      _memoryVisibilitySql(assistantId),
+    ];
+    final variables = <Variable<Object>>[
+      for (final token in tokens) Variable<String>('%$token%'),
+      ..._memoryVisibilityVariables(assistantId),
+    ];
+    if (type != null) {
+      clauses.add('type = ?');
+      variables.add(Variable<String>(MemoryEntry.typeToString(type)));
+    }
+    clauses.add('($hitsExpr) >= 1');
+    for (final token in tokens) {
+      variables.add(Variable<String>('%$token%'));
+    }
+    variables.add(Variable<int>(limit));
+
+    final rows = await _db
+        .customSelect(
+          'SELECT payload, ($hitsExpr) AS hits FROM memory_entry_rows '
+          'WHERE ${clauses.join(' AND ')} '
+          'ORDER BY hits DESC, entry_updated_at DESC, id ASC '
+          'LIMIT ?;',
+          variables: variables,
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    return _memoryEntriesFromPayloadRows(
+      rows,
+      assistantId: assistantId,
+      dropInvisibleRelated: true,
+    );
+  }
+
+  Future<List<MemoryEntry>> memoriesByIds(List<String> ids) async {
+    if (ids.isEmpty) return const <MemoryEntry>[];
+    final unique = ids.toSet().toList(growable: false);
+    final placeholders = List.filled(unique.length, '?').join(',');
+    final rows = await _db
+        .customSelect(
+          'SELECT payload FROM memory_entry_rows '
+          'WHERE id IN ($placeholders) '
+          'ORDER BY id ASC;',
+          variables: [for (final id in unique) Variable<String>(id)],
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    return _memoryEntriesFromPayloadRows(
+      rows,
+      assistantId: null,
+      dropInvisibleRelated: false,
+    );
+  }
+
+  Future<MemoryEntry?> findExactMemory({
+    required String? assistantId,
+    required MemoryType type,
+    required String contentNormalized,
+  }) async {
+    final rows = await _db
+        .customSelect(
+          'SELECT payload FROM memory_entry_rows '
+          "WHERE status = 'active' "
+          'AND ${_memoryVisibilitySql(assistantId)} '
+          'AND type = ? '
+          'AND content_normalized = ? '
+          'LIMIT 1;',
+          variables: [
+            ..._memoryVisibilityVariables(assistantId),
+            Variable<String>(MemoryEntry.typeToString(type)),
+            Variable<String>(contentNormalized),
+          ],
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    if (rows.isEmpty) return null;
+    final entries = await _memoryEntriesFromPayloadRows(
+      rows,
+      assistantId: assistantId,
+      dropInvisibleRelated: true,
+    );
+    return entries.single;
+  }
+
+  Future<int> countOrphanAssistantMemories() async {
+    final row = await _db
+        .customSelect(
+          'SELECT COUNT(*) AS count FROM memory_entry_rows m '
+          "WHERE m.scope = 'assistant' "
+          'AND NOT EXISTS ('
+          'SELECT 1 FROM assistant_rows a WHERE a.id = m.assistant_id'
+          ');',
+          readsFrom: {_db.memoryEntryRows, _db.assistantRows},
+        )
+        .getSingle();
+    return row.read<int>('count');
+  }
+
+  /// All memory entries across every assistant (global management UI §14.4).
+  Future<List<MemoryEntry>> queryAllMemories({
+    bool includeArchived = false,
+    MemoryType? type,
+  }) async {
+    final clauses = <String>[];
+    final variables = <Variable<Object>>[];
+    if (!includeArchived) {
+      clauses.add("status = 'active'");
+    }
+    if (type != null) {
+      clauses.add('type = ?');
+      variables.add(Variable<String>(MemoryEntry.typeToString(type)));
+    }
+    final where = clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')} ';
+    final rows = await _db
+        .customSelect(
+          'SELECT payload FROM memory_entry_rows '
+          '$where'
+          'ORDER BY entry_updated_at DESC, id ASC;',
+          variables: variables,
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    return _memoryEntriesFromPayloadRows(
+      rows,
+      assistantId: null,
+      dropInvisibleRelated: false,
+    );
+  }
+
+  /// Search across every assistant (§14.4 / §5.9 AND semantics).
+  Future<List<MemoryEntry>> searchAllMemories({
+    required List<String> tokens,
+    MemoryType? type,
+    bool includeArchived = false,
+    int limit = 200,
+  }) async {
+    if (tokens.isEmpty || limit <= 0) {
+      return const <MemoryEntry>[];
+    }
+    final clauses = <String>[];
+    final variables = <Variable<Object>>[];
+    if (!includeArchived) {
+      clauses.add("status = 'active'");
+    }
+    if (type != null) {
+      clauses.add('type = ?');
+      variables.add(Variable<String>(MemoryEntry.typeToString(type)));
+    }
+    for (final token in tokens) {
+      clauses.add("content_normalized LIKE ? ESCAPE '\\'");
+      variables.add(Variable<String>('%$token%'));
+    }
+    variables.add(Variable<int>(limit));
+    final rows = await _db
+        .customSelect(
+          'SELECT payload FROM memory_entry_rows '
+          'WHERE ${clauses.join(' AND ')} '
+          'ORDER BY entry_updated_at DESC, id ASC '
+          'LIMIT ?;',
+          variables: variables,
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    return _memoryEntriesFromPayloadRows(
+      rows,
+      assistantId: null,
+      dropInvisibleRelated: false,
+    );
+  }
+
+  Future<List<UserProfileField>> readProfileFields() async {
+    final rows = await _db
+        .customSelect(
+          'SELECT payload FROM user_profile_field_rows '
+          'ORDER BY sort_order ASC, id ASC;',
+          readsFrom: {_db.userProfileFieldRows},
+        )
+        .get();
+    return [
+      for (final row in rows)
+        UserProfileField.fromPayload(
+          (jsonDecode(row.read<String>('payload')) as Map)
+              .cast<String, dynamic>(),
+        ),
+    ];
+  }
+
+  Future<MessagePromptRow?> getMessagePrompt(String revisionId) {
+    return (_db.select(
+      _db.messagePromptRows,
+    )..where((t) => t.revisionId.equals(revisionId))).getSingleOrNull();
+  }
+
+  Future<Map<String, MessagePromptRow>> getMessagePrompts(
+    Iterable<String> revisionIds,
+  ) async {
+    final ids = revisionIds.toSet();
+    if (ids.isEmpty) return const {};
+    final rows = await (_db.select(
+      _db.messagePromptRows,
+    )..where((row) => row.revisionId.isIn(ids))).get();
+    return {for (final row in rows) row.revisionId: row};
+  }
+
+  Future<void> putMessagePrompt({
+    required String revisionId,
+    required String conversationId,
+    required String payload,
+    required bool carriesMemorySnapshot,
+  }) async {
+    final now = DateTime.now().toUtc();
+    await _db
+        .into(_db.messagePromptRows)
+        .insertOnConflictUpdate(
+          MessagePromptRowsCompanion.insert(
+            revisionId: revisionId,
+            conversationId: conversationId,
+            payload: payload,
+            carriesMemorySnapshot: Value(carriesMemorySnapshot),
+            createdAt: now,
+          ),
+        );
+  }
+
+  /// Freezes a message's final prompt string and, when a snapshot was
+  /// injected, advances the conversation's injected-memory hash in the same
+  /// transaction.
+  ///
+  /// The two writes must not be split: a crash between them leaves a hash that
+  /// claims a snapshot was delivered while no message carries one, costing an
+  /// extra full re-injection once self-healing notices (§8.3).
+  Future<void> freezeMessagePrompt({
+    required String revisionId,
+    required String conversationId,
+    required String payload,
+    required bool carriesMemorySnapshot,
+    String? injectedMemoryHash,
+  }) {
+    return _db.transaction(() async {
+      await putMessagePrompt(
+        revisionId: revisionId,
+        conversationId: conversationId,
+        payload: payload,
+        carriesMemorySnapshot: carriesMemorySnapshot,
+      );
+      if (carriesMemorySnapshot) {
+        await setConversationInjectedMemoryHash(
+          conversationId,
+          injectedMemoryHash,
+        );
+      }
+    });
+  }
+
+  Future<bool> anyPromptCarriesMemorySnapshot(List<String> revisionIds) async {
+    if (revisionIds.isEmpty) return false;
+    final unique = revisionIds.toSet().toList(growable: false);
+    final placeholders = List.filled(unique.length, '?').join(',');
+    final row = await _db
+        .customSelect(
+          'SELECT 1 AS hit FROM message_prompt_rows '
+          'WHERE carries_memory_snapshot = 1 '
+          'AND revision_id IN ($placeholders) '
+          'LIMIT 1;',
+          variables: [for (final id in unique) Variable<String>(id)],
+          readsFrom: {_db.messagePromptRows},
+        )
+        .getSingleOrNull();
+    return row != null;
+  }
+
+  /// The last memory snapshot hash delivered to [conversationId].
+  ///
+  /// Read this rather than a cached [Conversation]: the field is written by
+  /// [freezeMessagePrompt] and never loaded back into the in-memory model, so a
+  /// cached copy reports the value from whenever it was constructed.
+  Future<String?> getConversationInjectedMemoryHash(
+    String conversationId,
+  ) async {
+    final row = await _db
+        .customSelect(
+          'SELECT injected_memory_hash FROM conversation_rows '
+          'WHERE id = ? LIMIT 1;',
+          variables: [Variable<String>(conversationId)],
+          readsFrom: {_db.conversationRows},
+        )
+        .getSingleOrNull();
+    return row?.read<String?>('injected_memory_hash');
+  }
+
+  Future<void> setConversationInjectedMemoryHash(
+    String conversationId,
+    String? hash,
+  ) async {
+    await (_db.update(_db.conversationRows)
+          ..where((t) => t.id.equals(conversationId)))
+        .write(ConversationRowsCompanion(injectedMemoryHash: Value(hash)));
+  }
+
+  Future<void> setConversationLastMemoryExtractedOrder(
+    String conversationId,
+    int order,
+  ) async {
+    await (_db.update(
+      _db.conversationRows,
+    )..where((t) => t.id.equals(conversationId))).write(
+      ConversationRowsCompanion(lastMemoryExtractedOrder: Value(order)),
+    );
+  }
+
+  String _memoryVisibilitySql(String? assistantId) {
+    if (assistantId == null) {
+      return "scope = 'global'";
+    }
+    return "(scope = 'global' OR (scope = 'assistant' AND assistant_id = ?))";
+  }
+
+  List<Variable<Object>> _memoryVisibilityVariables(String? assistantId) {
+    if (assistantId == null) return const <Variable<Object>>[];
+    return <Variable<Object>>[Variable<String>(assistantId)];
+  }
+
+  Future<List<MemoryEntry>> _memoryEntriesFromPayloadRows(
+    List<QueryRow> rows, {
+    required String? assistantId,
+    required bool dropInvisibleRelated,
+  }) async {
+    if (rows.isEmpty) return const <MemoryEntry>[];
+    final entries = <MemoryEntry>[
+      for (final row in rows)
+        MemoryEntry.fromPayload(
+          (jsonDecode(row.read<String>('payload')) as Map)
+              .cast<String, dynamic>(),
+        ),
+    ];
+    final related = <String>{for (final entry in entries) ...entry.relatedIds};
+    if (related.isEmpty) return entries;
+
+    final keep = dropInvisibleRelated
+        ? await _filterRelatedIdsVisible(related, assistantId)
+        : await _filterRelatedIdsExisting(related);
+    return [
+      for (final entry in entries)
+        () {
+          final filtered = entry.relatedIds
+              .where(keep.contains)
+              .toList(growable: false);
+          if (filtered.length == entry.relatedIds.length) return entry;
+          return entry.copyWith(relatedIds: filtered);
+        }(),
+    ];
+  }
+
+  Future<Set<String>> _filterRelatedIdsExisting(Set<String> ids) async {
+    if (ids.isEmpty) return const <String>{};
+    final list = ids.toList(growable: false);
+    final placeholders = List.filled(list.length, '?').join(',');
+    final rows = await _db
+        .customSelect(
+          'SELECT id FROM memory_entry_rows WHERE id IN ($placeholders);',
+          variables: [for (final id in list) Variable<String>(id)],
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    return {for (final row in rows) row.read<String>('id')};
+  }
+
+  Future<Set<String>> _filterRelatedIdsVisible(
+    Set<String> ids,
+    String? assistantId,
+  ) async {
+    if (ids.isEmpty) return const <String>{};
+    final list = ids.toList(growable: false);
+    final placeholders = List.filled(list.length, '?').join(',');
+    final rows = await _db
+        .customSelect(
+          'SELECT id FROM memory_entry_rows '
+          "WHERE status = 'active' "
+          'AND ${_memoryVisibilitySql(assistantId)} '
+          'AND id IN ($placeholders);',
+          variables: [
+            ..._memoryVisibilityVariables(assistantId),
+            for (final id in list) Variable<String>(id),
+          ],
+          readsFrom: {_db.memoryEntryRows},
+        )
+        .get();
+    return {for (final row in rows) row.read<String>('id')};
   }
 }
 
@@ -5379,6 +6859,20 @@ final class AssetGcCandidate {
   final String? thumbnailPath;
   final int byteSize;
   final int generation;
+}
+
+String _alternateAssetPathForm(String path) {
+  if (KelivoFileUri.isKelivoFileUri(path)) {
+    final resolved = SandboxPathResolver.fix(path);
+    return resolved.isEmpty ? path : resolved;
+  }
+  final canonical = SandboxPathResolver.canonicalize(path);
+  return canonical.isEmpty ? path : canonical;
+}
+
+String _jsonEscapedPathForm(String path) {
+  final encoded = jsonEncode(path);
+  return encoded.substring(1, encoded.length - 1);
 }
 
 final class MessageAssetRegistration {

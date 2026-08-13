@@ -32,7 +32,10 @@ import 'core/providers/instruction_injection_provider.dart';
 import 'core/providers/instruction_injection_group_provider.dart';
 import 'core/providers/world_book_provider.dart';
 import 'core/providers/memory_provider.dart';
+import 'core/providers/memory_provider_v2.dart';
 import 'core/providers/backup_provider.dart';
+import 'core/services/memory/memory_pipeline.dart';
+import 'core/services/memory/memory_repository.dart';
 import 'core/providers/s3_backup_provider.dart';
 import 'core/providers/backup_reminder_provider.dart';
 import 'core/providers/hotkey_provider.dart';
@@ -102,6 +105,7 @@ Future<void> main() async {
         runApp(
           _RestoreFailureApp(
             diagnosticCode: restoreFailureDiagnosticCode(error),
+            appDataDirectory: appDataDirectory,
           ),
         );
         return;
@@ -199,6 +203,7 @@ Future<void> main() async {
           runApp(
             _RestoreFailureApp(
               diagnosticCode: restoreFailureDiagnosticCode(error),
+              appDataDirectory: appDataDirectory,
             ),
           );
           return;
@@ -317,9 +322,13 @@ Future<void> _initRestoreFailureWindow() async {
 }
 
 class _RestoreFailureApp extends StatelessWidget {
-  const _RestoreFailureApp({required this.diagnosticCode});
+  const _RestoreFailureApp({
+    required this.diagnosticCode,
+    this.appDataDirectory,
+  });
 
   final String diagnosticCode;
+  final Directory? appDataDirectory;
 
   @override
   Widget build(BuildContext context) {
@@ -336,6 +345,7 @@ class _RestoreFailureApp extends StatelessWidget {
           : RestoreFailureScreen(
               diagnosticCode: diagnosticCode,
               restart: PlatformUtils.restartApp,
+              appDataDirectory: appDataDirectory,
             ),
     );
   }
@@ -563,9 +573,8 @@ class MyApp extends StatelessWidget {
           create: (_) => TtsProvider(preferences: businessPreferences),
         ),
         ChangeNotifierProvider(
-          create: (ctx) => AsrProvider(
-            settingsProvider: ctx.read<SettingsProvider>(),
-          ),
+          create: (ctx) =>
+              AsrProvider(settingsProvider: ctx.read<SettingsProvider>()),
         ),
         ChangeNotifierProvider(create: (_) => UpdateProvider()),
         ChangeNotifierProvider(
@@ -585,6 +594,25 @@ class MyApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => MemoryProvider(preferences: businessPreferences),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => MemoryProviderV2(
+            repository: MemoryRepository(businessPreferences),
+            chatRepository: databaseLease.chatRepository,
+          ),
+        ),
+        Provider<MemoryPipelineService>(
+          create: (ctx) {
+            final memoryV2 = ctx.read<MemoryProviderV2>();
+            return MemoryPipelineService(
+              chatService: ctx.read<ChatService>(),
+              repository: memoryV2.repository,
+              chatRepository: memoryV2.chatRepository,
+              settings: () => ctx.read<SettingsProvider>(),
+              assistants: () => ctx.read<AssistantProvider>(),
+              memoryV2: () => ctx.read<MemoryProviderV2>(),
+            );
+          },
         ),
         ChangeNotifierProvider(
           create: (_) =>
@@ -655,9 +683,11 @@ class MyApp extends StatelessWidget {
           // One-time app update check after first build
           if (settings.showAppUpdates && !_didCheckUpdates) {
             _didCheckUpdates = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
               try {
-                context.read<UpdateProvider>().checkForUpdates();
+                await settings.loaded;
+                if (!context.mounted || !settings.showAppUpdates) return;
+                await context.read<UpdateProvider>().checkForUpdates();
               } catch (_) {}
             });
           }
@@ -733,7 +763,7 @@ class MyApp extends StatelessWidget {
               final custom = settings.selectedCustomTheme;
               final palette =
                   settings.themePaletteId == ThemePalettes.customPaletteId &&
-                          custom != null
+                      custom != null
                   ? buildCustomThemePalette(custom)
                   : ThemePalettes.byId(settings.themePaletteId);
 

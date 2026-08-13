@@ -78,6 +78,7 @@ class _HiveToSqliteMigrationPageState extends State<HiveToSqliteMigrationPage> {
   Future<void> _pickBackupAndStart() async {
     if (_busy) return;
     setState(() => _busy = true);
+    var backupPhaseComplete = false;
     try {
       File? backupFile;
       if (_usesMobileBackupFlow) {
@@ -90,8 +91,18 @@ class _HiveToSqliteMigrationPageState extends State<HiveToSqliteMigrationPage> {
       }
       if (!mounted) return;
       setState(() => _backupFile = backupFile);
+      // migrate() bumps the attempt counter itself; anything before this is a
+      // backup-phase failure that must still count toward unlocking skip.
+      backupPhaseComplete = true;
       await widget.service.migrate(backupPath: backupFile?.path);
     } catch (error, stackTrace) {
+      if (!backupPhaseComplete) {
+        try {
+          await widget.service.recordFailedAttempt();
+        } catch (_) {
+          // Counter persistence is best-effort; never mask the real failure.
+        }
+      }
       await _refreshSkipAvailability();
       if (mounted && _status.stage != HiveToSqliteMigrationStage.failed) {
         setState(() {
@@ -563,6 +574,8 @@ class _CompleteStep extends StatelessWidget {
         _StatsCard(
           conversations: status.conversations,
           messages: status.messages,
+          converted: status.converted,
+          malformed: status.malformed,
         ),
         const SizedBox(height: 12),
         if (status.backupPath != null)
@@ -1033,7 +1046,6 @@ class _StatusDot extends StatelessWidget {
 
   final _TaskState state;
 
-
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -1328,27 +1340,67 @@ class _BackupFileCard extends StatelessWidget {
 }
 
 class _StatsCard extends StatelessWidget {
-  const _StatsCard({required this.conversations, required this.messages});
+  const _StatsCard({
+    required this.conversations,
+    required this.messages,
+    this.converted = 0,
+    this.malformed = 0,
+  });
 
   final int conversations;
   final int messages;
+  final int converted;
+  final int malformed;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
+    // Match checklist/card hairlines — full-opacity outlineVariant reads too
+    // heavy against surfaceContainerLow cards.
+    final dividerColor = cs.outlineVariant.withValues(alpha: 0.28);
+    Widget verticalDivider() =>
+        Container(width: 1, height: 42, color: dividerColor);
+
     return _Card(
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: _Stat(
-              label: l10n.migrationConversationCount,
-              value: conversations,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: _Stat(
+                  label: l10n.migrationConversationCount,
+                  value: conversations,
+                ),
+              ),
+              verticalDivider(),
+              Expanded(
+                child: _Stat(
+                  label: l10n.migrationMessageCount,
+                  value: messages,
+                ),
+              ),
+            ],
           ),
-          Container(width: 1, height: 42, color: cs.outlineVariant),
-          Expanded(
-            child: _Stat(label: l10n.migrationMessageCount, value: messages),
+          const SizedBox(height: 12),
+          Container(height: 1, color: dividerColor),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _Stat(
+                  label: l10n.migrationConvertedCount,
+                  value: converted,
+                ),
+              ),
+              verticalDivider(),
+              Expanded(
+                child: _Stat(
+                  label: l10n.migrationMalformedCount,
+                  value: malformed,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1439,7 +1491,10 @@ class _LogCard extends StatelessWidget {
             constraints: const BoxConstraints(maxHeight: 120),
             child: SingleChildScrollView(
               child: Text(
-                lines.take(24).join('\n'),
+                // The error and stack trace are appended at the end of the
+                // log; the head is progress noise, so show the tail.
+                (lines.length <= 24 ? lines : lines.sublist(lines.length - 24))
+                    .join('\n'),
                 style: TextStyle(
                   fontSize: 11,
                   height: 1.45,

@@ -130,6 +130,22 @@ class ChatActions {
     required bool isTemporaryConversation,
   }) => deleteTrailingEnabled && isTemporaryConversation;
 
+  /// Whether regenerate should append a new assistant reply instead of adding
+  /// a version to an existing reply group.
+  ///
+  /// [targetGroupId] is null when the assistant is treated as a new reply, or
+  /// when the anchor is a user message with no following assistant group
+  /// (e.g. every generated version was deleted).
+  @visibleForTesting
+  static bool shouldBeginNewAssistantReply({
+    required String role,
+    required String? targetGroupId,
+    required bool assistantAsNewReply,
+  }) {
+    if (assistantAsNewReply && role == 'assistant') return true;
+    return targetGroupId == null && role == 'user';
+  }
+
   ChatActions({
     required this.chatService,
     required this.chatController,
@@ -229,8 +245,8 @@ class ChatActions {
   void Function(String messageId, String content, {bool immediate})?
   onScheduleImageSanitize;
 
-  /// Called when streaming finishes.
-  VoidCallback? onStreamFinished;
+  /// Called when streaming finishes for [conversationId].
+  void Function(String conversationId)? onStreamFinished;
 
   /// Called when a successful assistant reply is finalized.
   void Function(ChatMessage message)? onAssistantMessageFinished;
@@ -426,6 +442,15 @@ class ChatActions {
     );
   }
 
+  /// Elapsed milliseconds since [start], or null when unknown or when a
+  /// device clock rollback made the difference negative (the message_rows
+  /// CHECK constraint rejects negative durations).
+  int? _elapsedMsFrom(DateTime? start) {
+    if (start == null) return null;
+    final elapsed = DateTime.now().difference(start).inMilliseconds;
+    return elapsed < 0 ? null : elapsed;
+  }
+
   ChatMessage _streamingMessageSnapshot(stream_ctrl.StreamingState state) {
     final messageId = state.messageId;
     final index = _messages.indexWhere((message) => message.id == messageId);
@@ -438,9 +463,8 @@ class ChatActions {
       promptTokens: state.usage?.promptTokens,
       completionTokens: state.usage?.completionTokens,
       cachedTokens: state.usage?.cachedTokens,
-      durationMs: state.streamStartedAt == null
-          ? base.durationMs
-          : DateTime.now().difference(state.streamStartedAt!).inMilliseconds,
+      // copyWith keeps base.durationMs when this resolves to null.
+      durationMs: _elapsedMsFrom(state.streamStartedAt),
     );
   }
 
@@ -454,12 +478,25 @@ class ChatActions {
 
   _StreamingCheckpoint _createStreamingCheckpoint(ChatMessage message) {
     final cursor = _generationCheckpointCursors[message.id];
-    final checkpointSeq = cursor?.nextSeq;
-    if (cursor != null) cursor.nextSeq += 1;
+    // While the run is still `preparing` the checkpoint CAS (which only
+    // matches requesting/streaming/waiting_tool) would raise a conflict and,
+    // through the writer, kill the just-started generation. Persist a plain
+    // message snapshot without a run id/seq until the run reaches
+    // `requesting`, mirroring _finalizeStreamingCheckpoint's preparing case.
+    if (cursor == null || cursor.state == GenerationRunState.preparing) {
+      return _StreamingCheckpoint(
+        message: message,
+        toolEvents: _copyToolEvents(message.id),
+        generationRunId: null,
+        checkpointSeq: null,
+      );
+    }
+    final checkpointSeq = cursor.nextSeq;
+    cursor.nextSeq += 1;
     return _StreamingCheckpoint(
       message: message,
       toolEvents: _copyToolEvents(message.id),
-      generationRunId: cursor?.runId,
+      generationRunId: cursor.runId,
       checkpointSeq: checkpointSeq,
     );
   }
@@ -922,7 +959,7 @@ class ChatActions {
     final existingContextMessages = await chatController
         .messagesForGenerationContext(
           conversation,
-          maxMessages: _contextReadLimit(assistant, conversation),
+          maxMessages: await _contextReadLimit(assistant, conversation),
         );
     if (_hasUnsupportedAudioAttachments(
       messages: existingContextMessages,
@@ -1046,11 +1083,33 @@ class ChatActions {
     }
   }
 
-  int _contextReadLimit(Assistant? assistant, Conversation conversation) {
-    return contextReadLimit(
+  Future<int> _contextReadLimit(
+    Assistant? assistant,
+    Conversation conversation,
+  ) {
+    return resolveContextReadLimit(
       assistant: assistant,
-      persistedMessageCount: chatService.getMessageCount(conversation.id),
+      resolvePersistedCount: () =>
+          chatService.resolveMessageCount(conversation.id),
     );
+  }
+
+  /// Resolves the generation context window size.
+  ///
+  /// When the assistant limits context, [resolvePersistedCount] is not called.
+  /// Otherwise the real persisted count is awaited so unknown (-1) never
+  /// silently clamps to [Assistant.maxContextMessageSize].
+  @visibleForTesting
+  static Future<int> resolveContextReadLimit({
+    required Assistant? assistant,
+    required Future<int> Function() resolvePersistedCount,
+  }) async {
+    if ((assistant?.limitContextMessages ?? false) &&
+        (assistant?.contextMessageSize ?? 0) > 0) {
+      return contextReadLimit(assistant: assistant, persistedMessageCount: 0);
+    }
+    final count = await resolvePersistedCount();
+    return contextReadLimit(assistant: assistant, persistedMessageCount: count);
   }
 
   @visibleForTesting
@@ -1058,6 +1117,11 @@ class ChatActions {
     required Assistant? assistant,
     required int persistedMessageCount,
   }) {
+    assert(
+      persistedMessageCount >= 0,
+      'contextReadLimit requires a known message count; got '
+      '$persistedMessageCount',
+    );
     if ((assistant?.limitContextMessages ?? false) &&
         (assistant?.contextMessageSize ?? 0) > 0) {
       return assistant!.contextMessageSize.clamp(
@@ -1114,6 +1178,7 @@ class ChatActions {
   }) async {
     // Avoid using BuildContext across async gaps (this class holds a BuildContext).
     final settings = contextProvider.read<SettingsProvider>();
+    final truncateFuture = settings.regenerateDeleteTrailingMessages;
     final assistantProvider = contextProvider.read<AssistantProvider>();
     // Capture approval service reference before async gap
     ToolApprovalService? regenApprovalService;
@@ -1140,7 +1205,7 @@ class ChatActions {
         ? await chatController.messagesForCompleteHistoryContext(conversation)
         : await chatController.messagesForGenerationContext(
             conversation,
-            maxMessages: _contextReadLimit(assistant, conversation),
+            maxMessages: await _contextReadLimit(assistant, conversation),
             throughRevisionId: message.id,
             includeFollowingAssistant: true,
           );
@@ -1191,7 +1256,7 @@ class ChatActions {
     }
 
     if (shouldPhysicallyRemoveRegenerationTail(
-      deleteTrailingEnabled: settings.regenerateDeleteTrailingMessages,
+      deleteTrailingEnabled: truncateFuture,
       isTemporaryConversation: isTemporaryConversation,
     )) {
       final removeIds = await messageGenerationService.removeTrailingMessages(
@@ -1209,16 +1274,20 @@ class ChatActions {
     }
 
     late final ({ChatMessage assistantMessage, String? runId}) begin;
-    if (assistantAsNewReply && message.role == 'assistant') {
+    final targetGroupId = versioning.targetGroupId;
+    if (shouldBeginNewAssistantReply(
+      role: message.role,
+      targetGroupId: targetGroupId,
+      assistantAsNewReply: assistantAsNewReply,
+    )) {
       begin = await messageGenerationService.beginAssistantGeneration(
         conversationId: conversation.id,
         modelId: modelId,
         providerKey: providerKey,
         anchorGroupId: message.groupId ?? message.id,
-        truncateFuture: settings.regenerateDeleteTrailingMessages,
+        truncateFuture: truncateFuture,
       );
     } else {
-      final targetGroupId = versioning.targetGroupId;
       if (targetGroupId == null) {
         return ChatActionResult.error('invalid_versioning');
       }
@@ -1235,7 +1304,7 @@ class ChatActions {
         providerKey: providerKey,
         groupId: targetGroupId,
         version: nextVersion,
-        truncateFuture: settings.regenerateDeleteTrailingMessages,
+        truncateFuture: truncateFuture,
       );
     }
     final assistantMessage = begin.assistantMessage;
@@ -1260,7 +1329,10 @@ class ChatActions {
     // Keep the loaded window around the persisted generation message instead
     // of replacing a distant reading position with the conversation tail
     // (which can exclude this streaming revision in a long conversation).
-    if (await chatController.openAroundPersistedMessage(assistantMessage)) {
+    if (await chatController.openAroundPersistedMessage(
+      assistantMessage,
+      truncateFollowingSlots: !isTemporaryConversation && truncateFuture,
+    )) {
       viewModel.restoreMessageUiState();
     }
     onMessagesChanged?.call();
@@ -1373,7 +1445,7 @@ class ChatActions {
     }
     final completeMessages = await chatController.messagesForGenerationContext(
       conversation,
-      maxMessages: _contextReadLimit(assistant, conversation),
+      maxMessages: await _contextReadLimit(assistant, conversation),
       throughRevisionId: message.id,
     );
     final contextIndex = completeMessages.indexWhere(
@@ -1939,9 +2011,7 @@ class ChatActions {
         promptTokens: state.usage?.promptTokens,
         completionTokens: state.usage?.completionTokens,
         cachedTokens: state.usage?.cachedTokens,
-        durationMs: state.streamStartedAt != null
-            ? DateTime.now().difference(state.streamStartedAt!).inMilliseconds
-            : null,
+        durationMs: _elapsedMsFrom(state.streamStartedAt),
         updateMessageInList: (id, content, tokens) {
           onContentUpdated?.call(id, content, tokens);
         },
@@ -2037,7 +2107,7 @@ class ChatActions {
 
     // Notify for background notification if needed
     if (!state.finishHandled) {
-      onStreamFinished?.call();
+      onStreamFinished?.call(conversationId);
     }
 
     // This finish handler runs inside the sequential drain, so awaiting the
@@ -2080,9 +2150,7 @@ class ChatActions {
     final processedContent = _transformAssistantContent(state);
 
     // Compute final duration
-    final finalDurationMs = state.streamStartedAt != null
-        ? DateTime.now().difference(state.streamStartedAt!).inMilliseconds
-        : null;
+    final finalDurationMs = _elapsedMsFrom(state.streamStartedAt);
     final finalPromptTokens = state.usage?.promptTokens;
     final finalCompletionTokens = state.usage?.completionTokens;
     final finalCachedTokens = state.usage?.cachedTokens;
@@ -2142,6 +2210,10 @@ class ChatActions {
       }
       streamController.removeStreamingNotifier(messageId);
       _setConversationLoading(conversationId, false);
+      // Terminal widgets are usually taller than the streaming ones; pin
+      // once more after isGenerating becomes false so layout-phase follow
+      // does not miss that height change.
+      onStreamFinished?.call(conversationId);
     }
   }
 
@@ -2192,7 +2264,7 @@ class ChatActions {
       // handler itself and prevent the UI error callback below from firing.
       _conversationStreams.remove(conversationId);
       onStreamError?.call(errorText);
-      onStreamFinished?.call();
+      onStreamFinished?.call(conversationId);
       await _finishIosBackgroundGeneration(success: false, detail: errorText);
     }
   }
@@ -2225,7 +2297,7 @@ class ChatActions {
     }
     // Idempotent: ensure notifier is removed even if _finishStreaming was skipped
     streamController.removeStreamingNotifier(messageId);
-    onStreamFinished?.call();
+    onStreamFinished?.call(conversationId);
     // The source stream is already done and this handler runs inside the
     // sequential drain; awaiting the barrier cancel here would wait on this
     // very drain and never complete, so only drop the map entry.

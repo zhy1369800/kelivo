@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:Kelivo/core/models/assistant.dart';
 import 'package:Kelivo/core/models/chat_message.dart';
@@ -39,10 +41,23 @@ void main() {
           id: 'assistant-1',
           name: 'Limited',
           contextMessageSize: 64,
+          limitContextMessages: true,
         ),
         persistedMessageCount: 1507,
       ),
       64,
+    );
+    // Default assistants leave context unlimited (D-30 / 5d42eebc).
+    expect(
+      ChatActions.contextReadLimit(
+        assistant: const Assistant(
+          id: 'assistant-1',
+          name: 'Default unlimited',
+          contextMessageSize: 64,
+        ),
+        persistedMessageCount: 1507,
+      ),
+      1507,
     );
     expect(
       ChatActions.contextReadLimit(
@@ -55,6 +70,130 @@ void main() {
       ),
       Assistant.maxContextMessageSize,
     );
+  });
+
+  test('unknown sentinel must not be passed into contextReadLimit', () {
+    expect(
+      () => ChatActions.contextReadLimit(
+        assistant: const Assistant(
+          id: 'assistant-1',
+          name: 'Unlimited',
+          limitContextMessages: false,
+        ),
+        persistedMessageCount: -1,
+      ),
+      throwsA(isA<AssertionError>()),
+    );
+  });
+
+  test(
+    'resolveContextReadLimit awaits real count for unlimited assistants',
+    () async {
+      var resolveCalls = 0;
+      final limit = await ChatActions.resolveContextReadLimit(
+        assistant: const Assistant(
+          id: 'assistant-1',
+          name: 'Unlimited',
+          limitContextMessages: false,
+        ),
+        resolvePersistedCount: () async {
+          resolveCalls += 1;
+          return 1507;
+        },
+      );
+      expect(limit, 1507);
+      expect(resolveCalls, 1);
+      expect(limit, isNot(Assistant.maxContextMessageSize));
+    },
+  );
+
+  test(
+    'resolveContextReadLimit skips count lookup when context is limited',
+    () async {
+      var resolveCalls = 0;
+      final limit = await ChatActions.resolveContextReadLimit(
+        assistant: const Assistant(
+          id: 'assistant-1',
+          name: 'Limited',
+          contextMessageSize: 64,
+          limitContextMessages: true,
+        ),
+        resolvePersistedCount: () async {
+          resolveCalls += 1;
+          return 1507;
+        },
+      );
+      expect(limit, 64);
+      expect(resolveCalls, 0);
+    },
+  );
+
+  test('send/regenerate/continue paths await context limit resolution', () {
+    final source = File(
+      'lib/features/home/controllers/chat_actions.dart',
+    ).readAsStringSync();
+    expect(
+      'maxMessages: await _contextReadLimit(assistant, conversation),'
+          .allMatches(source)
+          .length,
+      3,
+      reason: 'send, regenerate, and continue must each await resolved counts',
+    );
+    expect(source.contains('maxMessages: _contextReadLimit('), isFalse);
+  });
+
+  group('ChatActions.shouldBeginNewAssistantReply', () {
+    test('删掉底部全部回复后从用户消息重试会新建回复而不是报 invalid_versioning', () {
+      expect(
+        ChatActions.shouldBeginNewAssistantReply(
+          role: 'user',
+          targetGroupId: null,
+          assistantAsNewReply: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('assistant 当作新回复时走新建回复路径', () {
+      expect(
+        ChatActions.shouldBeginNewAssistantReply(
+          role: 'assistant',
+          targetGroupId: null,
+          assistantAsNewReply: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('已有回复组时走版本追加而不是新建回复', () {
+      expect(
+        ChatActions.shouldBeginNewAssistantReply(
+          role: 'user',
+          targetGroupId: 'a1',
+          assistantAsNewReply: false,
+        ),
+        isFalse,
+      );
+      expect(
+        ChatActions.shouldBeginNewAssistantReply(
+          role: 'assistant',
+          targetGroupId: 'a1',
+          assistantAsNewReply: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('assistant 却算不出回复组仍视为非法 versioning', () {
+      expect(
+        ChatActions.shouldBeginNewAssistantReply(
+          role: 'assistant',
+          targetGroupId: null,
+          assistantAsNewReply: false,
+        ),
+        isFalse,
+      );
+    });
   });
 
   test('only temporary regeneration physically removes trailing messages', () {
@@ -173,6 +312,27 @@ void main() {
         'a2-v0',
         'a2-v1',
       ]);
+    });
+
+    test('删掉底部回复后 targetGroupId 为空仍能把占位接到用户消息后面', () {
+      final messages = <ChatMessage>[
+        _message(id: 'u1', role: 'user', groupId: 'u1', version: 0),
+      ];
+      final placeholder = _message(
+        id: 'a1',
+        role: 'assistant',
+        groupId: 'a1',
+        version: 0,
+      ).copyWith(content: '', isStreaming: true);
+
+      final result = ChatActions.buildRegenerationMessages(
+        messages: messages,
+        lastKeep: 0,
+        targetGroupId: null,
+        assistantPlaceholder: placeholder,
+      );
+
+      expect(result.map((message) => message.id).toList(), ['u1', 'a1']);
     });
   });
 
