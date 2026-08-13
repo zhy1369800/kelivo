@@ -425,7 +425,7 @@ class LocalToolsService {
         'function': {
           'name': LocalToolNames.mapKit,
           'description':
-              'MapKit tool for place/POI search, road route planning with turn-by-turn steps, ETA estimation, and opening Apple Maps for navigation. Uses Apple MapKit natively on device ¡ª no internet API key required.',
+              'MapKit tool for place/POI search, road route planning with turn-by-turn steps, ETA estimation, and opening Apple Maps for navigation. Uses Apple MapKit natively on device â€” no internet API key required.',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -437,7 +437,7 @@ class LocalToolsService {
               },
               'query': {
                 'type': 'string',
-                'description': 'Search keyword for search_places (e.g. "coffee shop", "¹Ê¹¬").',
+                'description': 'Search keyword for search_places (e.g. "coffee shop", "æ•…å®«").',
               },
               'latitude': {
                 'type': 'number',
@@ -1122,9 +1122,9 @@ class LocalToolsService {
     if (name == LocalToolNames.textToSpeech) {
       return _handleTextToSpeechTool(args, onSpeakText);
     }
-     if (name == LocalToolNames.calculate) {
-       return _handleCalculateTool(args);
-     }
+    if (name == LocalToolNames.calculate) {
+      return _handleCalculateTool(args);
+    }
      if (name == LocalToolNames.screenTime &&
          DeviceLocalTools.screenTimeSupported) {
        return _invokeDeviceTool('getScreenTime', args);
@@ -1139,7 +1139,7 @@ class LocalToolsService {
      }
     return null;
   }
- 
+
   static const MethodChannel _deviceToolsChannel = DeviceLocalTools._channel;
  
    static String _deviceTimezoneHint() {
