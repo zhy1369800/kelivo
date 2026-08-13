@@ -91,13 +91,6 @@ Uri? _tryNormalizeExternalUri(String raw) {
   if (content == null || content.isEmpty) return ('', const []);
 
   final images = <String>[];
-  final imgRe = RegExp(r'\[image:(.+?)\]');
-
-  final cleanText = content.replaceAllMapped(imgRe, (m) {
-    final path = m.group(1)!;
-    // Filter invalid values
-    if (path.isNotEmpty && path != 'generated') {
-      images.add(path);
   final buffer = StringBuffer();
   var i = 0;
   while (i < content.length) {
