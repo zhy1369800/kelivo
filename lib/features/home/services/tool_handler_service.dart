@@ -2477,7 +2477,8 @@ class ToolHandlerService {
     required Map<String, dynamic> args,
   }) async {
     final action = (args['action'] ?? 'analyze_all').toString().trim().toLowerCase();
-    final imagePath = (args['image_path'] ?? '').toString().trim();
+    final rawImagePath = (args['image_path'] ?? '').toString().trim();
+    final imagePath = SandboxPathResolver.fix(rawImagePath);
 
     if (imagePath.isEmpty) {
       return _toolError(
