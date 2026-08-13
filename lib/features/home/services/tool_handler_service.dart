@@ -28,6 +28,7 @@ import '../../../core/services/native_calendar_event_service.dart';
 import '../../../core/services/native_reminder_task_service.dart';
 import '../../../core/services/native_alarm_timer_service.dart';
 import '../../../core/services/native_apple_vision_service.dart';
+import '../../../utils/sandbox_path_resolver.dart';
 import '../../../core/services/native_speech_recognizer_service.dart';
 import '../../../core/services/native_speech_synthesizer_service.dart';
 import 'ask_user_interaction_service.dart';
