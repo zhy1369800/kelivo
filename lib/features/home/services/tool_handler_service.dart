@@ -855,7 +855,7 @@ class ToolHandlerService {
               tool: name,
             );
           }
-          return await _handleShortcutAutomationTool(args: args, l10n: l10n);
+          return await _handleShortcutAutomationTool(args: args);
         }
 
         // Approval gate for MCP tools
@@ -2709,23 +2709,15 @@ class ToolHandlerService {
 
   static Future<String> _handleShortcutAutomationTool({
     required Map<String, dynamic> args,
-    AppLocalizations? l10n,
   }) async {
     final action = (args['action'] ?? '').toString().trim();
     final shortcut = args['shortcut']?.toString();
     final taskId = args['taskId']?.toString();
 
-    final title = l10n?.shortcutAutomationNotificationTitle;
-    final body = (action == 'list')
-        ? l10n?.shortcutAutomationListBody
-        : l10n?.shortcutAutomationExecBody(shortcut ?? '');
-
     final result = await NativeShortcutAutomationService.executeTask(
       action: action,
       shortcut: shortcut,
       taskId: taskId,
-      notificationTitle: title,
-      notificationBody: body,
     );
 
     return jsonEncode(result);
