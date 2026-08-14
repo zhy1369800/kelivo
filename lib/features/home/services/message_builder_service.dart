@@ -777,6 +777,16 @@ class MessageBuilderService {
       final cleanedUser = replacedUserText.trim();
 
       final filePrompts = StringBuffer();
+      if (parsedUser.imagePaths.isNotEmpty) {
+        for (final rawPath in parsedUser.imagePaths) {
+          final realPath = SandboxPathResolver.fix(rawPath);
+          if (realPath.trim().isNotEmpty) {
+            filePrompts.writeln('## user attached an image file at absolute path: $realPath');
+            filePrompts.writeln();
+          }
+        }
+      }
+
       for (final d in parsedUser.documents) {
         final effectiveMime = _effectiveAttachmentMime(d);
         if (isVideoMime(effectiveMime) || isAudioMime(effectiveMime)) {
