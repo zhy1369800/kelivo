@@ -5565,6 +5565,25 @@ class AppLocalizationsEn extends AppLocalizations {
       'Create calendar events on this device with your confirmation, requires the calendar permission.';
 
   @override
+  String get assistantEditLocalToolShortcutAutomationTitle =>
+      'Shortcuts Automation';
+
+  @override
+  String get assistantEditLocalToolShortcutAutomationSubtitle =>
+      'Trigger iOS Shortcuts automations via local notifications and receive JSON result files.';
+
+  @override
+  String get shortcutAutomationNotificationTitle => 'Automation Task';
+
+  @override
+  String get shortcutAutomationListBody => 'List all shortcuts';
+
+  @override
+  String shortcutAutomationExecBody(String shortcut) {
+    return 'Execute shortcut: $shortcut';
+  }
+
+  @override
   String get assistantEditMemorySwitchDescription =>
       'Allow the assistant to create and use memories across chats.';
 

@@ -75,6 +75,9 @@ class _LocalToolsTab extends StatelessWidget {
     final speechSynthesizerEnabled = assistant.localToolIds.contains(
       LocalToolNames.speechSynthesizer,
     );
+    final shortcutAutomationEnabled = assistant.localToolIds.contains(
+      LocalToolNames.shortcutAutomation,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -331,6 +334,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: speechSynthesizerEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.speechSynthesizer, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.Zap,
+              title: l10n.assistantEditLocalToolShortcutAutomationTitle,
+              subtitle: l10n.assistantEditLocalToolShortcutAutomationSubtitle,
+              enabled: shortcutAutomationEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.shortcutAutomation, value),
             ),
           ],
         ),

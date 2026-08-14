@@ -31,6 +31,7 @@ import '../../../core/services/native_apple_vision_service.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../../../core/services/native_speech_recognizer_service.dart';
 import '../../../core/services/native_speech_synthesizer_service.dart';
+import '../../../core/services/native_shortcut_automation_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
@@ -834,6 +835,27 @@ class ToolHandlerService {
             );
           }
           return await _handleSpeechSynthesizerTool(args: args);
+        }
+
+        // Handle shortcut_automation_tool
+        if (name == LocalToolNames.shortcutAutomation) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.shortcutAutomation)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The shortcut_automation_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final approval = await checkSystemPermission(name, defaultRequiresApproval: false);
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message: approval.denyReason ?? 'User denied ShortcutAutomation operation.',
+              tool: name,
+            );
+          }
+          return await _handleShortcutAutomationTool(args: args, l10n: l10n);
         }
 
         // Approval gate for MCP tools
@@ -2683,5 +2705,29 @@ class ToolHandlerService {
         tool: LocalToolNames.speechSynthesizer,
       );
     }
+  }
+
+  static Future<String> _handleShortcutAutomationTool({
+    required Map<String, dynamic> args,
+    AppLocalizations? l10n,
+  }) async {
+    final action = (args['action'] ?? '').toString().trim();
+    final shortcut = args['shortcut']?.toString();
+    final taskId = args['taskId']?.toString();
+
+    final title = l10n?.shortcutAutomationNotificationTitle;
+    final body = (action == 'list')
+        ? l10n?.shortcutAutomationListBody
+        : l10n?.shortcutAutomationExecBody(shortcut ?? '');
+
+    final result = await NativeShortcutAutomationService.executeTask(
+      action: action,
+      shortcut: shortcut,
+      taskId: taskId,
+      notificationTitle: title,
+      notificationBody: body,
+    );
+
+    return jsonEncode(result);
   }
 }

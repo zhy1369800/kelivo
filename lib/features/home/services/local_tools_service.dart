@@ -33,6 +33,7 @@ class LocalToolNames {
   static const String appleVision = 'apple_vision_tool';
   static const String speechRecognizer = 'speech_recognizer_tool';
   static const String speechSynthesizer = 'speech_synthesizer_tool';
+  static const String shortcutAutomation = 'shortcut_automation_tool';
 }
 
 /// Platform availability of the device-backed local tools (implemented over
@@ -1024,6 +1025,38 @@ class LocalToolsService {
               'output_path': {
                 'type': 'string',
                 'description': 'Custom output audio file path for synthesize_to_file. Optional.',
+              },
+            },
+            'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.shortcutAutomation)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.shortcutAutomation,
+          'description':
+              'iOS Shortcut Automation tool for querying available shortcuts or executing a specific shortcut via local notification triggers and JSON file exchange.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': ['list', 'exec'],
+                'description':
+                    'Operation to perform: "list" (query available shortcuts info) or "exec" (execute a specified shortcut). Required.',
+              },
+              'shortcut': {
+                'type': 'string',
+                'description':
+                    'The name of the shortcut to execute. Required when action is "exec".',
+              },
+              'taskId': {
+                'type': 'string',
+                'description':
+                    'Optional task UUID. If omitted, the tool automatically generates a unique UUID.',
               },
             },
             'required': ['action'],

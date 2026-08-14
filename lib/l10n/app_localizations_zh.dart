@@ -5346,6 +5346,24 @@ class AppLocalizationsZh extends AppLocalizations {
       '在你确认后于本设备创建日历日程，需要授予日历权限。';
 
   @override
+  String get assistantEditLocalToolShortcutAutomationTitle => '快捷指令自动化';
+
+  @override
+  String get assistantEditLocalToolShortcutAutomationSubtitle =>
+      '通过本地通知触发 iOS 快捷指令自动化，并接收 JSON 执行结果文件。';
+
+  @override
+  String get shortcutAutomationNotificationTitle => '自动化任务';
+
+  @override
+  String get shortcutAutomationListBody => '列出全部快捷指令';
+
+  @override
+  String shortcutAutomationExecBody(String shortcut) {
+    return '执行快捷指令：$shortcut';
+  }
+
+  @override
   String get assistantEditMemorySwitchDescription => '允许助手主动存储并在对话间引用用户相关信息';
 
   @override
@@ -12374,6 +12392,24 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   @override
   String get assistantEditLocalToolCalendarCreateSubtitle =>
       '在你确认后于本设备创建日历日程，需要授予日历权限。';
+
+  @override
+  String get assistantEditLocalToolShortcutAutomationTitle => '快捷指令自动化';
+
+  @override
+  String get assistantEditLocalToolShortcutAutomationSubtitle =>
+      '通过本地通知触发 iOS 快捷指令自动化，并接收 JSON 执行结果文件。';
+
+  @override
+  String get shortcutAutomationNotificationTitle => '自动化任务';
+
+  @override
+  String get shortcutAutomationListBody => '列出全部快捷指令';
+
+  @override
+  String shortcutAutomationExecBody(String shortcut) {
+    return '执行快捷指令：$shortcut';
+  }
 
   @override
   String get assistantEditMemorySwitchDescription => '允许助手主动存储并在对话间引用用户相关信息';
@@ -19478,6 +19514,24 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get assistantEditLocalToolCalendarCreateSubtitle =>
       '在你確認後於本裝置建立日曆行程，需要授予日曆權限。';
+
+  @override
+  String get assistantEditLocalToolShortcutAutomationTitle => '快捷指令自動化';
+
+  @override
+  String get assistantEditLocalToolShortcutAutomationSubtitle =>
+      '透過本地通知觸發 iOS 快捷指令自動化，並接收 JSON 執行結果檔案。';
+
+  @override
+  String get shortcutAutomationNotificationTitle => '自動化任務';
+
+  @override
+  String get shortcutAutomationListBody => '列出全部快捷指令';
+
+  @override
+  String shortcutAutomationExecBody(String shortcut) {
+    return '執行快捷指令：$shortcut';
+  }
 
   @override
   String get assistantEditMemorySwitchDescription => '允許助理主動儲存並在對話間引用使用者相關資訊';

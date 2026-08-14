@@ -10267,6 +10267,21 @@ abstract class AppLocalizations {
   /// **'Create calendar events on this device with your confirmation, requires the calendar permission.'**
   String get assistantEditLocalToolCalendarCreateSubtitle;
 
+  /// No description provided for @assistantEditLocalToolShortcutAutomationTitle.
+  String get assistantEditLocalToolShortcutAutomationTitle;
+
+  /// No description provided for @assistantEditLocalToolShortcutAutomationSubtitle.
+  String get assistantEditLocalToolShortcutAutomationSubtitle;
+
+  /// No description provided for @shortcutAutomationNotificationTitle.
+  String get shortcutAutomationNotificationTitle;
+
+  /// No description provided for @shortcutAutomationListBody.
+  String get shortcutAutomationListBody;
+
+  /// No description provided for @shortcutAutomationExecBody.
+  String shortcutAutomationExecBody(String shortcut);
+
   /// No description provided for @assistantEditMemorySwitchDescription.
   ///
   /// In en, this message translates to:
