@@ -2712,11 +2712,13 @@ class ToolHandlerService {
   }) async {
     final action = (args['action'] ?? '').toString().trim();
     final shortcut = args['shortcut']?.toString();
+    final params = args['params']?.toString();
     final taskId = args['taskId']?.toString();
 
     final result = await NativeShortcutAutomationService.executeTask(
       action: action,
       shortcut: shortcut,
+      params: params,
       taskId: taskId,
     );
 

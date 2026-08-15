@@ -1058,6 +1058,11 @@ class LocalToolsService {
                 'description':
                     'Optional task UUID. If omitted, the tool automatically generates a unique UUID.',
               },
+              'params': {
+                'type': 'string',
+                'description':
+                    'Optional input parameters or text to pass to the shortcut when executing. Can be a plain string (e.g. "Hello") or a JSON string for multiple key-value parameters (e.g. "{\\"name\\": \\"Alice\\", \\"message\\": \\"Hi\\"}").',
+              },
             },
             'required': ['action'],
           },

@@ -17,7 +17,7 @@ class NativeShortcutAutomationService {
   NativeShortcutAutomationService._();
 
   static const String _tasksSubdir = 'tasks';
-  static const Duration _defaultTimeout = Duration(seconds: 30);
+  static const Duration _defaultTimeout = Duration(seconds: 10);
   static const Duration _pollInterval = Duration(milliseconds: 500);
 
   /// Ensure `Documents/tasks/` directory exists with a placeholder file.
@@ -42,10 +42,11 @@ class NativeShortcutAutomationService {
   /// - [action]: `"list"` or `"exec"`
   /// - [shortcut]: Shortcut name to execute (required when [action] is `"exec"`)
   /// - [taskId]: Task ID (UUID). If omitted or empty, generated automatically.
-  /// - [timeout]: Maximum wait duration (defaults to 30 seconds).
+  /// - [timeout]: Maximum wait duration (defaults to 10 seconds).
   static Future<Map<String, dynamic>> executeTask({
     required String action,
     String? shortcut,
+    String? params,
     String? taskId,
     String? notificationTitle,
     String? notificationBody,
@@ -70,6 +71,14 @@ class NativeShortcutAutomationService {
         ? taskId.trim()
         : const Uuid().v4();
     final effectiveShortcut = (shortcut ?? '').trim();
+    final rawParamsStr = (params ?? '').trim();
+
+    dynamic parsedParams = rawParamsStr;
+    if (rawParamsStr.startsWith('{') || rawParamsStr.startsWith('[')) {
+      try {
+        parsedParams = jsonDecode(rawParamsStr);
+      } catch (_) {}
+    }
 
     try {
       final tasksDir = await _getTasksDirectory();
@@ -79,6 +88,7 @@ class NativeShortcutAutomationService {
         'taskId': effectiveTaskId,
         'action': normalizedAction,
         'shortcut': effectiveShortcut,
+        'params': parsedParams,
         'status': 'pending',
         'result': '',
       };
