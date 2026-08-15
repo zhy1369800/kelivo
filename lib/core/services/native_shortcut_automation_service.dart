@@ -165,7 +165,7 @@ class NativeShortcutAutomationService {
         if (content.trim().isEmpty) return;
 
         final map = jsonDecode(content) as Map<String, dynamic>;
-        final status = (map['status'] ?? '').toString().trim();
+        final status = (map['status'] ?? '').toString().trim().toLowerCase();
         if (status == 'completed') {
           cleanup();
           completer.complete({
@@ -175,6 +175,20 @@ class NativeShortcutAutomationService {
             'shortcut': map['shortcut'],
             'status': status,
             'result': map['result'] ?? '',
+          });
+        } else if (status == 'failed' || status == 'error') {
+          cleanup();
+          completer.complete({
+            'success': false,
+            'error': 'shortcut_execution_failed',
+            'taskId': map['taskId'],
+            'action': map['action'],
+            'shortcut': map['shortcut'],
+            'status': status,
+            'result': map['result'] ?? '',
+            'message': (map['result'] != null && map['result'].toString().isNotEmpty)
+                ? map['result'].toString()
+                : 'Shortcut execution failed.',
           });
         }
       } catch (_) {}
