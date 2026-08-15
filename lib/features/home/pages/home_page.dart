@@ -1333,6 +1333,7 @@ class _HomePageState extends State<HomePage>
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      constraints: const BoxConstraints(maxWidth: double.infinity),
       backgroundColor: Colors.transparent,
       builder: (ctx) => VoiceChatOverlay(
         controller: controller,

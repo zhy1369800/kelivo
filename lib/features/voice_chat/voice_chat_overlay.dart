@@ -75,8 +75,9 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
       child: Material(
         color: Colors.transparent,
         child: Container(
+          width: double.infinity,
           decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.88),
+            color: Colors.black.withOpacity(0.92),
             borderRadius: const BorderRadius.vertical(
               top: Radius.circular(28),
             ),
