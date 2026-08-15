@@ -3179,6 +3179,7 @@ class _OverflowAction {
 // New compact button for the integrated input bar
 class _CompactIconButton extends StatelessWidget {
   const _CompactIconButton({
+    super.key,
     required this.icon,
     this.onTap,
     this.onLongPress,
@@ -3257,6 +3258,7 @@ class _CompactIconButton extends StatelessWidget {
 // New compact send button for the integrated input bar
 class _CompactSendButton extends StatelessWidget {
   const _CompactSendButton({
+    super.key,
     required this.enabled,
     required this.onSend,
     required this.color,

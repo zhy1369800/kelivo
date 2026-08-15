@@ -6,6 +6,7 @@ import '../../core/models/chat_input_data.dart';
 import '../../core/providers/asr_provider.dart';
 import '../../core/providers/tts_provider.dart';
 import '../../core/services/asr/asr_service_options.dart';
+import '../../core/services/tts/tts_playback_models.dart';
 
 enum VoiceChatState { idle, listening, processing, aiSpeaking }
 

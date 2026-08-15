@@ -1138,7 +1138,6 @@ class ToolHandlerService {
 
     return null;
   }
-}
 
   /// Handle MCP servers management tool (mcp_servers_tool)
   Future<String> _handleMcpServersTool({
