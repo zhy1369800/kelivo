@@ -1,17 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' as ui;
-
-import 'package:flutter/foundation.dart';
 
 import '../../../utils/app_directories.dart';
-import 'log_redactor.dart';
+import 'context_log_models.dart';
 
-class FlutterLogger {
-  FlutterLogger._();
+class ContextLogger {
+  ContextLogger._();
 
-  static const String _activeFileName = 'flutter_logs.txt';
-  static const String _rotatedFilePrefix = 'flutter_logs_';
+  static const String activeFileName = 'context_logs.txt';
+  static const String rotatedFilePrefix = 'context_logs_';
 
   static bool _enabled = false;
   static bool get enabled => _enabled;
@@ -19,8 +17,10 @@ class FlutterLogger {
 
   static Future<void> setEnabled(bool v) async {
     if (_enabled == v) return;
-    _enabled = v;
     if (!v) {
+      // Drain writes queued while still enabled before flipping the flag;
+      // the write callback no-ops once `_enabled` is false.
+      await _writeQueue;
       try {
         await _sink?.flush();
       } catch (_) {}
@@ -32,40 +32,7 @@ class FlutterLogger {
     } else {
       _writeErrorReported = false;
     }
-  }
-
-  static bool _installed = false;
-  static FlutterExceptionHandler? _originalFlutterOnError;
-  static bool Function(Object, StackTrace)? _originalPlatformOnError;
-
-  static void installGlobalHandlers() {
-    if (_installed) return;
-    _installed = true;
-
-    _originalFlutterOnError = FlutterError.onError;
-    FlutterError.onError = (FlutterErrorDetails details) {
-      try {
-        log(details.toString().trimRight(), tag: 'FlutterError');
-      } catch (_) {}
-
-      final original = _originalFlutterOnError;
-      if (original != null) {
-        original(details);
-      } else {
-        FlutterError.dumpErrorToConsole(details);
-      }
-    };
-
-    _originalPlatformOnError = ui.PlatformDispatcher.instance.onError;
-    ui.PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
-      try {
-        log('$error\n$stack', tag: 'Uncaught');
-      } catch (_) {}
-
-      final original = _originalPlatformOnError;
-      if (original != null) return original(error, stack);
-      return false;
-    };
+    _enabled = v;
   }
 
   static IOSink? _sink;
@@ -76,9 +43,6 @@ class FlutterLogger {
   static DateTime _dayOf(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
   static String _formatDate(DateTime dt) =>
       '${dt.year}-${_two(dt.month)}-${_two(dt.day)}';
-  static String _formatTs(DateTime dt) {
-    return '${_formatDate(dt)} ${_two(dt.hour)}:${_two(dt.minute)}:${_two(dt.second)}.${dt.millisecond.toString().padLeft(3, '0')}';
-  }
 
   static Future<IOSink> _ensureSink() async {
     final now = DateTime.now();
@@ -100,23 +64,23 @@ class FlutterLogger {
       await logsDir.create(recursive: true);
     }
 
-    final active = File('${logsDir.path}/$_activeFileName');
+    final active = File('${logsDir.path}/$activeFileName');
     if (await active.exists()) {
       try {
         final stat = await active.stat();
         final fileDay = _dayOf(stat.modified.toLocal());
         if (fileDay != today) {
           final suffix = _formatDate(fileDay);
-          var rotated = File('${logsDir.path}/$_rotatedFilePrefix$suffix.txt');
+          var rotated = File('${logsDir.path}/$rotatedFilePrefix$suffix.txt');
           if (await rotated.exists()) {
             int i = 1;
             while (await File(
-              '${logsDir.path}/$_rotatedFilePrefix${suffix}_$i.txt',
+              '${logsDir.path}/$rotatedFilePrefix${suffix}_$i.txt',
             ).exists()) {
               i++;
             }
             rotated = File(
-              '${logsDir.path}/$_rotatedFilePrefix${suffix}_$i.txt',
+              '${logsDir.path}/$rotatedFilePrefix${suffix}_$i.txt',
             );
           }
           await active.rename(rotated.path);
@@ -128,24 +92,40 @@ class FlutterLogger {
     return _sink!;
   }
 
-  static void log(String message, {String? tag}) {
-    if (!_enabled) return;
-    message = LogRedactor.redactText(message);
-    final now = DateTime.now();
-    final prefix = '[${_formatTs(now)}]${tag == null ? '' : ' [$tag]'} ';
-    final normalized = message.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-    final lines = normalized.split('\n');
-    final buffer = StringBuffer();
-    for (final line in lines) {
-      buffer.writeln('$prefix$line');
-    }
-    final text = buffer.toString();
+  static ContextLogSnapshot buildSnapshot({
+    required List<Map<String, dynamic>> apiMessages,
+    required String conversationId,
+    required String assistantName,
+    required String provider,
+    required String model,
+    DateTime? timestamp,
+  }) {
+    final messages = <ContextLogMessage>[
+      for (final message in apiMessages)
+        ContextLogMessage(
+          role: (message['role'] ?? '').toString(),
+          segments: segmentsFromTaggedMessage(message),
+        ),
+    ];
+    return ContextLogSnapshot(
+      timestamp: timestamp ?? DateTime.now(),
+      conversationId: conversationId,
+      assistantName: assistantName,
+      provider: provider,
+      model: model,
+      messages: messages,
+      totalTokens: messages.fold(0, (sum, m) => sum + m.tokens),
+    );
+  }
 
+  static void logSnapshot(ContextLogSnapshot snapshot) {
+    if (!_enabled) return;
+    final line = '${jsonEncode(snapshot.toJson())}\n';
     _writeQueue = _writeQueue.then((_) async {
       if (!_enabled) return;
       try {
         final sink = await _ensureSink();
-        sink.write(text);
+        sink.write(line);
         await sink.flush();
       } catch (_) {
         try {
@@ -160,7 +140,7 @@ class FlutterLogger {
           _writeErrorReported = true;
           try {
             stderr.writeln(
-              '[FlutterLogger] write failed; further write errors will be suppressed.',
+              '[ContextLogger] write failed; further write errors will be suppressed.',
             );
           } catch (_) {}
         }
@@ -168,7 +148,22 @@ class FlutterLogger {
     });
   }
 
-  static void logPrint(String line) {
-    log(line, tag: 'print');
+  static void logPrepared({
+    required List<Map<String, dynamic>> apiMessages,
+    required String conversationId,
+    required String assistantName,
+    required String provider,
+    required String model,
+  }) {
+    if (!_enabled) return;
+    logSnapshot(
+      buildSnapshot(
+        apiMessages: apiMessages,
+        conversationId: conversationId,
+        assistantName: assistantName,
+        provider: provider,
+        model: model,
+      ),
+    );
   }
 }
