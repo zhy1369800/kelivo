@@ -1190,6 +1190,7 @@
   "chatInputBarMcpServersTooltip": "MCP Servers",
   "chatInputBarMoreTooltip": "Add",
   "chatInputBarVoiceInputTooltip": "Voice input",
+  "voiceChatButtonTooltip": "Voice chat",
   "chatInputBarVoiceCancelTooltip": "Discard recording",
   "chatInputBarVoiceStopTooltip": "Stop and transcribe to input",
   "chatInputBarVoiceSendTooltip": "Transcribe and send",

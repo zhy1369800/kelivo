@@ -62,6 +62,10 @@ import '../controllers/home_view_model.dart';
 import '../controllers/scroll_controller.dart' as scroll_ctrl;
 import 'home_mobile_layout.dart';
 import 'home_desktop_layout.dart';
+import '../../voice_chat/voice_chat_controller.dart';
+import '../../voice_chat/voice_chat_overlay.dart';
+import '../../../core/providers/asr_provider.dart';
+import '../../../core/providers/tts_provider.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 class HomePage extends StatefulWidget {
@@ -432,6 +436,7 @@ class _HomePageState extends State<HomePage>
   bool _scrollNavHovering = false;
   double _lastViewInsetBottom = 0;
   StreamSubscription<String>? _processTextSub;
+  VoiceChatController? _voiceChatController;
 
   // ============================================================================
   // Page Controller (manages all business logic and state)
@@ -1290,7 +1295,61 @@ class _HomePageState extends State<HomePage>
       onClearContext: _controller.clearContext,
       onCompressContext: _handleDesktopCompressContext,
       backgroundImageActive: _assistantBackgroundActive(context),
+      onVoiceChatTap: _openVoiceChat,
     );
+  }
+
+  void _openVoiceChat() {
+    final asr = context.read<AsrProvider>();
+    final tts = context.read<TtsProvider>();
+    final settings = context.read<SettingsProvider>();
+
+    final controller = VoiceChatController(
+      asrProvider: asr,
+      ttsProvider: tts,
+      preferredAsrService: settings.selectedAsrService,
+      sendMessage: (data) async {
+        await _controller.sendMessage(data);
+      },
+    );
+    _voiceChatController = controller;
+
+    void onControllerChange() {
+      if (!_controller.isCurrentConversationLoading &&
+          controller.state == VoiceChatState.processing) {
+        final msgs = _controller.messages;
+        final assistantMsgs = msgs.where((m) => m.role == 'assistant');
+        if (assistantMsgs.isNotEmpty) {
+          final replyText = assistantMsgs.last.content;
+          if (replyText.isNotEmpty) {
+            controller.onAiReplyComplete(replyText);
+          }
+        }
+      }
+    }
+
+    _controller.addListener(onControllerChange);
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => VoiceChatOverlay(
+        controller: controller,
+        onClose: () {
+          Navigator.of(ctx).pop();
+        },
+      ),
+    ).then((_) {
+      _controller.removeListener(onControllerChange);
+      controller.stop();
+      controller.dispose();
+      if (_voiceChatController == controller) {
+        _voiceChatController = null;
+      }
+    });
+
+    controller.start();
   }
 
   Widget _buildScrollButtons() {

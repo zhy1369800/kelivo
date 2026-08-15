@@ -67,6 +67,7 @@ class ChatInputSection extends StatelessWidget {
     this.conversationId,
     this.sendButtonTooltip,
     this.backgroundImageActive = false,
+    this.onVoiceChatTap,
   });
 
   final GlobalKey inputBarKey;
@@ -109,6 +110,7 @@ class ChatInputSection extends StatelessWidget {
   final String? conversationId;
   final String? sendButtonTooltip;
   final bool backgroundImageActive;
+  final VoidCallback? onVoiceChatTap;
 
   @override
   Widget build(BuildContext context) {
@@ -213,6 +215,7 @@ class ChatInputSection extends StatelessWidget {
       backgroundImageActive: backgroundImageActive,
       inputBackgroundOpacityLight: settings.chatInputBackgroundOpacityLight,
       inputBackgroundOpacityDark: settings.chatInputBackgroundOpacityDark,
+      onVoiceChatTap: onVoiceChatTap,
     );
   }
 

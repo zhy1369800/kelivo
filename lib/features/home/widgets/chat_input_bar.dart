@@ -141,6 +141,7 @@ class ChatInputBar extends StatefulWidget {
         SettingsProvider.defaultChatInputBackgroundOpacityLight,
     this.inputBackgroundOpacityDark =
         SettingsProvider.defaultChatInputBackgroundOpacityDark,
+    this.onVoiceChatTap,
   });
 
   final Future<ChatInputSubmissionResult> Function(ChatInputData)? onSend;
@@ -191,6 +192,7 @@ class ChatInputBar extends StatefulWidget {
   final bool backgroundImageActive;
   final double inputBackgroundOpacityLight;
   final double inputBackgroundOpacityDark;
+  final VoidCallback? onVoiceChatTap;
 
   @override
   State<ChatInputBar> createState() => _ChatInputBarState();
@@ -2867,21 +2869,73 @@ class _ChatInputBarState extends State<ChatInputBar>
                                               ),
                                               const SizedBox(width: 8),
                                             ],
-                                            _CompactSendButton(
-                                              enabled:
+                                            AnimatedSwitcher(
+                                              duration: const Duration(
+                                                milliseconds: 200,
+                                              ),
+                                              transitionBuilder: (
+                                                child,
+                                                anim,
+                                              ) =>
+                                                  ScaleTransition(
+                                                    scale: Tween<double>(
+                                                      begin: 0.75,
+                                                      end: 1.0,
+                                                    ).animate(
+                                                      CurvedAnimation(
+                                                        parent: anim,
+                                                        curve:
+                                                            Curves.easeOutBack,
+                                                      ),
+                                                    ),
+                                                    child: FadeTransition(
+                                                      opacity: anim,
+                                                      child: child,
+                                                    ),
+                                                  ),
+                                              child:
                                                   (hasText ||
-                                                      hasImages ||
-                                                      hasDocs) &&
-                                                  !_hasUnreadyImages &&
-                                                  !widget.loading,
-                                              loading: widget.loading,
-                                              onSend: _handleSend,
-                                              onStop: widget.loading
-                                                  ? widget.onStop
-                                                  : null,
-                                              color: theme.colorScheme.primary,
-                                              icon: Lucide.ArrowUp,
-                                              tooltip: widget.sendButtonTooltip,
+                                                          hasImages ||
+                                                          hasDocs ||
+                                                          widget.loading)
+                                                      ? _CompactSendButton(
+                                                          key: const ValueKey(
+                                                            'send',
+                                                          ),
+                                                          enabled:
+                                                              (hasText ||
+                                                                  hasImages ||
+                                                                  hasDocs) &&
+                                                              !_hasUnreadyImages &&
+                                                              !widget.loading,
+                                                          loading:
+                                                              widget.loading,
+                                                          onSend: _handleSend,
+                                                          onStop: widget.loading
+                                                              ? widget.onStop
+                                                              : null,
+                                                          color: theme
+                                                              .colorScheme
+                                                              .primary,
+                                                          icon: Lucide.ArrowUp,
+                                                          tooltip: widget
+                                                              .sendButtonTooltip,
+                                                        )
+                                                      : _CompactIconButton(
+                                                          key: const ValueKey(
+                                                            'voice_chat',
+                                                          ),
+                                                          icon: Lucide.Mic,
+                                                          tooltip:
+                                                              AppLocalizations.of(
+                                                                context,
+                                                              )!.voiceChatButtonTooltip,
+                                                          onTap:
+                                                              _composerLocked
+                                                                  ? null
+                                                                  : widget
+                                                                        .onVoiceChatTap,
+                                                        ),
                                             ),
                                           ],
                                         ),

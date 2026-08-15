@@ -911,6 +911,7 @@
   "chatInputBarMcpServersTooltip": "MCP伺服器",
   "chatInputBarMoreTooltip": "更多",
   "chatInputBarVoiceInputTooltip": "語音輸入",
+  "voiceChatButtonTooltip": "語音聊天",
   "chatInputBarVoiceCancelTooltip": "取消錄音",
   "chatInputBarVoiceStopTooltip": "停止並轉為文字",
   "chatInputBarVoiceSendTooltip": "轉文字並發送",
