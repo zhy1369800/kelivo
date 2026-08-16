@@ -326,6 +326,7 @@ final class AppleVisionHandler: NSObject {
 
     // 1. Text Recognition
     group.enter()
+    let languages = (args["languages"] as? [String]) ?? ["zh-Hans", "zh-Hant", "en-US"]
     let textReq = VNRecognizeTextRequest { req, _ in
       defer { group.leave() }
       if let obs = req.results as? [VNRecognizedTextObservation] {
@@ -343,6 +344,10 @@ final class AppleVisionHandler: NSObject {
     }
     textReq.recognitionLevel = .accurate
     textReq.usesLanguageCorrection = true
+    if #available(iOS 16.0, *) {
+      textReq.automaticallyDetectsLanguage = true
+    }
+    textReq.recognitionLanguages = languages
 
     // 2. Barcode Detection
     group.enter()
