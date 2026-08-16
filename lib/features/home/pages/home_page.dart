@@ -1330,12 +1330,12 @@ class _HomePageState extends State<HomePage>
 
     _controller.addListener(onControllerChange);
 
-    showModalBottomSheet<void>(
+    showGeneralDialog<void>(
       context: context,
-      isScrollControlled: true,
-      constraints: const BoxConstraints(maxWidth: double.infinity),
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => VoiceChatOverlay(
+      barrierDismissible: false,
+      barrierColor: Colors.transparent,
+      transitionDuration: Duration.zero,
+      pageBuilder: (ctx, _, __) => VoiceChatOverlay(
         controller: controller,
         onClose: () {
           Navigator.of(ctx).pop();

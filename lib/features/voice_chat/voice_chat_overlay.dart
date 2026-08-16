@@ -1,12 +1,10 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../../core/providers/asr_provider.dart';
-import '../../core/providers/tts_provider.dart';
 import 'voice_chat_controller.dart';
 
+/// 全屏沉浸式语音聊天 Overlay —— Gemini Live 风格
 class VoiceChatOverlay extends StatefulWidget {
   const VoiceChatOverlay({
     super.key,
@@ -23,289 +21,544 @@ class VoiceChatOverlay extends StatefulWidget {
 
 class _VoiceChatOverlayState extends State<VoiceChatOverlay>
     with TickerProviderStateMixin {
-  late AnimationController _pulseController;
-  late AnimationController _entryController;
-  late Animation<double> _entryAnim;
+  // 入场动画
+  late final AnimationController _entryCtrl;
+  late final Animation<double> _entryAnim;
+
+  // 呼吸 / 波纹循环动画
+  late final AnimationController _rippleCtrl;
+
+  // 内圆脉冲
+  late final AnimationController _pulseCtrl;
+  late final Animation<double> _pulseAnim;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
 
-    _entryController = AnimationController(
+    _entryCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 480),
     );
-    _entryAnim = CurvedAnimation(
-      parent: _entryController,
-      curve: Curves.easeOutCubic,
-    );
-    _entryController.forward();
+    _entryAnim = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic);
+    _entryCtrl.forward();
+
+    _rippleCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat();
+
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
+    _pulseAnim = CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut);
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
-    _entryController.dispose();
+    _entryCtrl.dispose();
+    _rippleCtrl.dispose();
+    _pulseCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _close() async {
-    await _entryController.reverse();
+    await _entryCtrl.reverse();
     widget.onClose?.call();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _entryAnim,
-      builder: (context, child) => FadeTransition(
-        opacity: _entryAnim,
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.06),
-            end: Offset.zero,
-          ).animate(_entryAnim),
-          child: child,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.92),
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(28),
-            ),
-          ),
-          child: SafeArea(
-            top: false,
-            child: ListenableBuilder(
-              listenable: widget.controller,
-              builder: (context, _) {
-                return Column(
-                  children: [
-                    const SizedBox(height: 12),
-                    // Drag handle
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                    // State label
-                    _StateLabel(state: widget.controller.state),
-                    const SizedBox(height: 40),
-                    // Transcript / AI text
-                    _ConversationDisplay(controller: widget.controller),
-                    const SizedBox(height: 40),
-                    // Waveform
-                    _Waveform(
-                      controller: widget.controller,
-                      pulseAnim: _pulseController,
-                    ),
-                    const SizedBox(height: 48),
-                    // Close button
-                    GestureDetector(
-                      onTap: _close,
-                      child: Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withOpacity(0.12),
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.25),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.close_rounded,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                  ],
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _StateLabel extends StatelessWidget {
-  const _StateLabel({required this.state});
-  final VoiceChatState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color) = switch (state) {
-      VoiceChatState.idle => ('准备中...', Colors.white54),
-      VoiceChatState.listening => ('聆听中...', Colors.white70),
-      VoiceChatState.processing => ('AI 思考中...', const Color(0xFF8AB4F8)),
-      VoiceChatState.aiSpeaking => ('AI 回复中...', const Color(0xFF81C995)),
+  // 状态色
+  Color get _stateColor {
+    return switch (widget.controller.state) {
+      VoiceChatState.listening => const Color(0xFF60A5FA), // blue-400
+      VoiceChatState.processing => const Color(0xFFA78BFA), // violet-400
+      VoiceChatState.aiSpeaking => const Color(0xFF34D399), // emerald-400
+      VoiceChatState.idle => const Color(0xFF94A3B8), // slate-400
     };
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: Text(
-        label,
-        key: ValueKey(state),
-        style: TextStyle(
-          color: color,
-          fontSize: 15,
-          fontWeight: FontWeight.w500,
-          letterSpacing: 0.3,
+  }
+
+  String get _stateLabel {
+    return switch (widget.controller.state) {
+      VoiceChatState.idle => '准备就绪',
+      VoiceChatState.listening => '正在聆听',
+      VoiceChatState.processing => 'AI 思考中',
+      VoiceChatState.aiSpeaking => 'AI 回复中',
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _entryAnim,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 1),
+          end: Offset.zero,
+        ).animate(_entryAnim),
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: double.infinity,
+            height: double.infinity,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF0A0F1E), // 深海蓝黑
+                  Color(0xFF0D1117),
+                  Color(0xFF0A0F1E),
+                ],
+              ),
+            ),
+            child: SafeArea(
+              child: ListenableBuilder(
+                listenable: widget.controller,
+                builder: (context, _) {
+                  return Column(
+                    children: [
+                      // ── 顶部状态栏 ──
+                      _TopBar(
+                        label: _stateLabel,
+                        color: _stateColor,
+                        onClose: _close,
+                      ),
+
+                      // ── 字幕区（中间弹性区） ──
+                      Expanded(
+                        child: _SubtitleArea(controller: widget.controller),
+                      ),
+
+                      // ── 动效圆 + 波纹 ──
+                      _OrbSection(
+                        controller: widget.controller,
+                        rippleAnim: _rippleCtrl,
+                        pulseAnim: _pulseAnim,
+                        color: _stateColor,
+                      ),
+
+                      const SizedBox(height: 32),
+
+                      // ── 底部操作区 ──
+                      _BottomBar(onClose: _close),
+
+                      const SizedBox(height: 24),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-class _ConversationDisplay extends StatelessWidget {
-  const _ConversationDisplay({required this.controller});
-  final VoiceChatController controller;
+// ────────────────────────────────────────────
+// 顶部状态栏
+// ────────────────────────────────────────────
+class _TopBar extends StatelessWidget {
+  const _TopBar({
+    required this.label,
+    required this.color,
+    required this.onClose,
+  });
+
+  final String label;
+  final Color color;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Row(
         children: [
-          // User's recognized text (while listening)
-          if (controller.state == VoiceChatState.listening &&
-              controller.transcript.isNotEmpty)
-            AnimatedOpacity(
-              opacity: 1.0,
-              duration: const Duration(milliseconds: 200),
-              child: Text(
-                controller.transcript,
-                textAlign: TextAlign.center,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 16,
-                  height: 1.5,
+          // 状态指示点 + 文字
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: Row(
+              key: ValueKey(label),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _PulsingDot(color: color),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.4,
+                  ),
                 ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          // 关闭按钮 - 右上角
+          GestureDetector(
+            onTap: onClose,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.08),
+              ),
+              child: Icon(
+                Icons.close_rounded,
+                color: Colors.white.withOpacity(0.7),
+                size: 18,
               ),
             ),
-          // Last user message
-          if (controller.state != VoiceChatState.listening &&
-              controller.lastUserText.isNotEmpty)
-            Text(
-              controller.lastUserText,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white38,
-                fontSize: 13,
-                height: 1.4,
-              ),
-            ),
-          if (controller.lastAiText.isNotEmpty &&
-              controller.state == VoiceChatState.aiSpeaking) ...[
-            const SizedBox(height: 12),
-            Text(
-              controller.lastAiText,
-              textAlign: TextAlign.center,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                height: 1.55,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ],
+          ),
         ],
       ),
     );
   }
 }
 
-class _Waveform extends StatelessWidget {
-  const _Waveform({required this.controller, required this.pulseAnim});
-  final VoiceChatController controller;
-  final Animation<double> pulseAnim;
+// ────────────────────────────────────────────
+// 闪烁小圆点
+// ────────────────────────────────────────────
+class _PulsingDot extends StatefulWidget {
+  const _PulsingDot({required this.color});
+  final Color color;
+
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+  late final Animation<double> _a;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _a = CurvedAnimation(parent: _c, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: pulseAnim,
-      builder: (context, _) {
-        final level = controller.soundLevel;
-        final isListening = controller.state == VoiceChatState.listening;
-        final isAi = controller.state == VoiceChatState.aiSpeaking;
+      animation: _a,
+      builder: (_, __) => Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: widget.color.withOpacity(0.5 + _a.value * 0.5),
+          boxShadow: [
+            BoxShadow(
+              color: widget.color.withOpacity(0.4 * _a.value),
+              blurRadius: 6,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-        final baseRadius = 48.0;
-        final pulse = isListening
-            ? baseRadius + level * 32 + pulseAnim.value * 8
-            : isAi
-                ? baseRadius + pulseAnim.value * 14
-                : baseRadius;
+// ────────────────────────────────────────────
+// 字幕区
+// ────────────────────────────────────────────
+class _SubtitleArea extends StatelessWidget {
+  const _SubtitleArea({required this.controller});
+  final VoiceChatController controller;
 
-        final color = isAi
-            ? const Color(0xFF81C995)
-            : isListening
-                ? const Color(0xFF8AB4F8)
-                : Colors.white30;
+  @override
+  Widget build(BuildContext context) {
+    final isListening = controller.state == VoiceChatState.listening;
+    final isAi = controller.state == VoiceChatState.aiSpeaking;
 
-        return SizedBox(
-          width: 140,
-          height: 140,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // Outer glow ring
-              Container(
-                width: pulse * 2,
-                height: pulse * 2,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color.withOpacity(0.12),
-                ),
-              ),
-              // Middle ring
-              Container(
-                width: (baseRadius + 16) * 2,
-                height: (baseRadius + 16) * 2,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color.withOpacity(0.18),
-                ),
-              ),
-              // Core circle
-              Container(
-                width: baseRadius * 2,
-                height: baseRadius * 2,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color.withOpacity(0.85),
-                ),
-                child: Icon(
-                  isAi ? Icons.volume_up_rounded : Icons.mic_rounded,
-                  color: Colors.white,
-                  size: 32,
-                ),
-              ),
-            ],
+    final showTranscript = isListening && controller.transcript.isNotEmpty;
+    final showUserLast =
+        !isListening && controller.lastUserText.isNotEmpty;
+    final showAiText =
+        (isAi || controller.state == VoiceChatState.processing) &&
+            controller.lastAiText.isNotEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 36),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // 用户说话实时识别
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 250),
+            crossFadeState: showTranscript
+                ? CrossFadeState.showFirst
+                : CrossFadeState.showSecond,
+            firstChild: _buildUserText(controller.transcript, live: true),
+            secondChild: showUserLast
+                ? _buildUserText(controller.lastUserText, live: false)
+                : const SizedBox.shrink(),
           ),
-        );
-      },
+
+          if (showAiText) ...[
+            const SizedBox(height: 20),
+            _buildAiText(controller.lastAiText),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUserText(String text, {required bool live}) {
+    return AnimatedDefaultTextStyle(
+      duration: const Duration(milliseconds: 200),
+      style: TextStyle(
+        color: live ? Colors.white : Colors.white.withOpacity(0.35),
+        fontSize: live ? 22 : 15,
+        fontWeight: live ? FontWeight.w500 : FontWeight.w400,
+        height: 1.55,
+        letterSpacing: live ? 0.2 : 0.1,
+      ),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        maxLines: 4,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
+  Widget _buildAiText(String text) {
+    return Text(
+      text,
+      textAlign: TextAlign.center,
+      maxLines: 5,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        color: Color(0xFFE2E8F0),
+        fontSize: 18,
+        fontWeight: FontWeight.w400,
+        height: 1.65,
+        letterSpacing: 0.15,
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────
+// 中央动效 Orb + 波纹
+// ────────────────────────────────────────────
+class _OrbSection extends StatelessWidget {
+  const _OrbSection({
+    required this.controller,
+    required this.rippleAnim,
+    required this.pulseAnim,
+    required this.color,
+  });
+
+  final VoiceChatController controller;
+  final Animation<double> rippleAnim;
+  final Animation<double> pulseAnim;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 200,
+      height: 200,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([rippleAnim, pulseAnim]),
+        builder: (_, __) {
+          final state = controller.state;
+          final soundLevel = controller.soundLevel.clamp(0.0, 1.0);
+          final isActive =
+              state == VoiceChatState.listening || state == VoiceChatState.aiSpeaking;
+
+          // 波纹半径随声音动态变化
+          final baseR = 52.0;
+          final dynamicR = isActive ? baseR + soundLevel * 24 + pulseAnim.value * 10 : baseR;
+          final ripplePhase = rippleAnim.value; // 0..1
+
+          return CustomPaint(
+            painter: _OrbPainter(
+              color: color,
+              baseRadius: dynamicR,
+              ripplePhase: ripplePhase,
+              isActive: isActive,
+              state: state,
+              soundLevel: soundLevel,
+              pulseValue: pulseAnim.value,
+            ),
+            child: Center(
+              child: _OrbIcon(state: state, color: color),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _OrbIcon extends StatelessWidget {
+  const _OrbIcon({required this.state, required this.color});
+  final VoiceChatState state;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = switch (state) {
+      VoiceChatState.listening => Icons.mic_rounded,
+      VoiceChatState.processing => Icons.auto_awesome_rounded,
+      VoiceChatState.aiSpeaking => Icons.volume_up_rounded,
+      VoiceChatState.idle => Icons.mic_none_rounded,
+    };
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 250),
+      child: Icon(icon, key: ValueKey(state), color: Colors.white, size: 34),
+    );
+  }
+}
+
+class _OrbPainter extends CustomPainter {
+  const _OrbPainter({
+    required this.color,
+    required this.baseRadius,
+    required this.ripplePhase,
+    required this.isActive,
+    required this.state,
+    required this.soundLevel,
+    required this.pulseValue,
+  });
+
+  final Color color;
+  final double baseRadius;
+  final double ripplePhase;
+  final bool isActive;
+  final VoiceChatState state;
+  final double soundLevel;
+  final double pulseValue;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+
+    // ── 多层波纹圆环 ──
+    if (isActive) {
+      for (int i = 0; i < 3; i++) {
+        final phase = (ripplePhase + i / 3) % 1.0;
+        final ringRadius = baseRadius + phase * 50;
+        final opacity = (1.0 - phase) * 0.22;
+        final paint = Paint()
+          ..color = color.withOpacity(opacity)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5;
+        canvas.drawCircle(center, ringRadius, paint);
+      }
+    }
+
+    // ── 外光晕 ──
+    final glowR = baseRadius + 18;
+    final glowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withOpacity(isActive ? 0.22 + pulseValue * 0.1 : 0.08),
+          color.withOpacity(0),
+        ],
+      ).createShader(Rect.fromCircle(center: center, radius: glowR * 1.6));
+    canvas.drawCircle(center, glowR * 1.6, glowPaint);
+
+    // ── 中间过渡环 ──
+    final midPaint = Paint()
+      ..color = color.withOpacity(isActive ? 0.15 : 0.06)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(center, baseRadius + 10, midPaint);
+
+    // ── 核心圆 ──
+    final corePaint = Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.3, -0.3),
+        colors: [
+          Color.lerp(Colors.white, color, 0.4)!,
+          color,
+          Color.lerp(color, Colors.black, 0.25)!,
+        ],
+        stops: const [0.0, 0.55, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: baseRadius));
+    canvas.drawCircle(center, baseRadius, corePaint);
+
+    // ── 高光 ──
+    final hlPaint = Paint()
+      ..color = Colors.white.withOpacity(0.18)
+      ..style = PaintingStyle.fill;
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: center.translate(-baseRadius * 0.25, -baseRadius * 0.3),
+        width: baseRadius * 0.7,
+        height: baseRadius * 0.4,
+      ),
+      hlPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_OrbPainter old) =>
+      old.ripplePhase != ripplePhase ||
+      old.baseRadius != baseRadius ||
+      old.pulseValue != pulseValue ||
+      old.isActive != isActive ||
+      old.color != color;
+}
+
+// ────────────────────────────────────────────
+// 底部操作栏
+// ────────────────────────────────────────────
+class _BottomBar extends StatelessWidget {
+  const _BottomBar({required this.onClose});
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 40),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // 结束通话按钮 —— 红色圆形
+          GestureDetector(
+            onTap: onClose,
+            child: Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFFF87171).withOpacity(0.15),
+                border: Border.all(
+                  color: const Color(0xFFF87171).withOpacity(0.5),
+                  width: 1.5,
+                ),
+              ),
+              child: const Icon(
+                Icons.call_end_rounded,
+                color: Color(0xFFF87171),
+                size: 28,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
