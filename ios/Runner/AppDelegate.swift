@@ -169,10 +169,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    let id = notification.request.identifier
-    if id.hasPrefix("alarm_") || id.hasPrefix("timer_") {
-      completionHandler([.sound])
-    } else if #available(iOS 14.0, *) {
+    if #available(iOS 14.0, *) {
       completionHandler([.banner, .list, .sound, .badge])
     } else {
       completionHandler([.alert, .sound, .badge])

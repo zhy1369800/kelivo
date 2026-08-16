@@ -200,12 +200,31 @@ final class AlarmTimerHandler: NSObject {
             let uuid = UUID()
             alarmId = "alarm_\(uuid.uuidString)"
             _ = try await manager.schedule(id: uuid, configuration: config)
-            alarmKitSuccess = true
+            let formattedTime: String
+            if isISO, let date = isoDate {
+              let cal = Calendar.current
+              let h = cal.component(.hour, from: date)
+              let m = cal.component(.minute, from: date)
+              formattedTime = String(format: "%02d:%02d", h, m)
+            } else {
+              formattedTime = String(format: "%02d:%02d", hour, minute)
+            }
+            DispatchQueue.main.async {
+              result([
+                "success": true,
+                "id": alarmId,
+                "label": label,
+                "time": formattedTime,
+                "repeat": repeatMode,
+                "message": "Alarm set via AlarmKit."
+              ])
+            }
+            return
           } catch {
-            // AlarmKit failed
+            // AlarmKit failed, fallback to UserNotifications below
           }
 
-          self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, alarmKitSuccess: alarmKitSuccess, result: result)
+          self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, alarmKitSuccess: false, result: result)
         }
         return
       }
@@ -252,27 +271,7 @@ final class AlarmTimerHandler: NSObject {
     center.add(request) { error in
       DispatchQueue.main.async {
         if let error = error {
-          if alarmKitSuccess {
-            let formattedTime: String
-            if isISO, let date = isoDate {
-              let cal = Calendar.current
-              let h = cal.component(.hour, from: date)
-              let m = cal.component(.minute, from: date)
-              formattedTime = String(format: "%02d:%02d", h, m)
-            } else {
-              formattedTime = String(format: "%02d:%02d", hour, minute)
-            }
-            result([
-              "success": true,
-              "id": id,
-              "label": label,
-              "time": formattedTime,
-              "repeat": repeatMode,
-              "message": "Alarm set via AlarmKit."
-            ])
-          } else {
-            result(FlutterError(code: "add_failed", message: error.localizedDescription, details: nil))
-          }
+          result(FlutterError(code: "add_failed", message: error.localizedDescription, details: nil))
         } else {
           let formattedTime: String
           if isISO, let date = isoDate {
@@ -328,7 +327,6 @@ final class AlarmTimerHandler: NSObject {
       #if canImport(AlarmKit)
       if #available(iOS 26.0, *) {
         Task {
-          var alarmKitSuccess = false
           do {
             let manager = AlarmManager.shared
             let stopBtn = AlarmButton(text: "Done", textColor: .green, systemImageName: "checkmark")
@@ -340,12 +338,21 @@ final class AlarmTimerHandler: NSObject {
             let uuid = UUID()
             timerId = "timer_\(uuid.uuidString)"
             _ = try await manager.schedule(id: uuid, configuration: config)
-            alarmKitSuccess = true
+            DispatchQueue.main.async {
+              result([
+                "success": true,
+                "id": timerId,
+                "label": label,
+                "duration_seconds": Int(seconds),
+                "message": "Timer started via AlarmKit."
+              ])
+            }
+            return
           } catch {
             // Fallback to UNTimeIntervalNotificationTrigger
           }
 
-          self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, alarmKitSuccess: alarmKitSuccess, result: result)
+          self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, alarmKitSuccess: false, result: result)
         }
         return
       }
