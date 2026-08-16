@@ -35,34 +35,32 @@ final class AlarmTimerHandler: NSObject {
   // MARK: - Permission
 
   private func ensurePermission(completion: @escaping (Bool) -> Void) {
-    #if canImport(AlarmKit)
-    if #available(iOS 26.0, *) {
-      Task {
-        let manager = AlarmManager.shared
-        switch manager.authorizationState {
-        case .authorized:
-          completion(true)
-        case .notDetermined:
-          do {
-            let state = try await manager.requestAuthorization()
-            if state == .authorized {
-              completion(true)
-            } else {
-              self.fallbackEnsureUNPermission(completion: completion)
+    fallbackEnsureUNPermission { unGranted in
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) {
+        Task {
+          let manager = AlarmManager.shared
+          switch manager.authorizationState {
+          case .authorized:
+            completion(true)
+          case .notDetermined:
+            do {
+              let state = try await manager.requestAuthorization()
+              completion(state == .authorized || unGranted)
+            } catch {
+              completion(unGranted)
             }
-          } catch {
-            self.fallbackEnsureUNPermission(completion: completion)
+          case .denied:
+            completion(unGranted)
+          @unknown default:
+            completion(unGranted)
           }
-        case .denied:
-          self.fallbackEnsureUNPermission(completion: completion)
-        @unknown default:
-          self.fallbackEnsureUNPermission(completion: completion)
         }
+        return
       }
-      return
+      #endif
+      completion(unGranted)
     }
-    #endif
-    fallbackEnsureUNPermission(completion: completion)
   }
 
   private func fallbackEnsureUNPermission(completion: @escaping (Bool) -> Void) {
