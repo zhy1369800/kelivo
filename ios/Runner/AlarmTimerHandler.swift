@@ -206,10 +206,10 @@ final class AlarmTimerHandler: NSObject {
           }
 
           // Always add UserNotifications request as well for double reliability
-          self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, result: result)
-        }
+      self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, result: result)
+    }
         return
-      }
+  }
       #endif
 
       self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, result: result)
@@ -323,10 +323,10 @@ final class AlarmTimerHandler: NSObject {
             // Fallback to UNTimeIntervalNotificationTrigger
           }
 
-          self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, result: result)
-        }
+      self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, result: result)
+    }
         return
-      }
+  }
       #endif
 
       self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, result: result)
@@ -398,10 +398,15 @@ final class AlarmTimerHandler: NSObject {
             let manager = AlarmManager.shared
             for await alarms in manager.alarmUpdates {
               for alarm in alarms {
-                let uuidStr = "alarm_\(alarm.id.uuidString)"
-                if !items.contains(where: { ($0["id"] as? String) == uuidStr }) {
+                let rawUuid = alarm.id.uuidString
+                if let index = items.firstIndex(where: {
+                  let existingId = ($0["id"] as? String) ?? ""
+                  return existingId.contains(rawUuid)
+                }) {
+                  items[index]["state"] = "\(alarm.state)"
+                } else {
                   var item: [String: Any] = [
-                    "id": uuidStr,
+                    "id": "alarm_\(rawUuid)",
                     "type": alarm.countdownDuration != nil ? "timer" : "alarm",
                     "state": "\(alarm.state)"
                   ]
@@ -473,11 +478,11 @@ final class AlarmTimerHandler: NSObject {
       return
     }
 
-    center.removePendingNotificationRequests(withIdentifiers: [rawId])
+    let cleanUuidStr = rawId.replacingOccurrences(of: "alarm_", with: "").replacingOccurrences(of: "timer_", with: "")
+    center.removePendingNotificationRequests(withIdentifiers: [rawId, "timer_\(cleanUuidStr)", "alarm_\(cleanUuidStr)"])
 
     #if canImport(AlarmKit)
     if #available(iOS 26.0, *) {
-      let cleanUuidStr = rawId.replacingOccurrences(of: "alarm_", with: "").replacingOccurrences(of: "timer_", with: "")
       if let uuid = UUID(uuidString: cleanUuidStr) {
         try? AlarmManager.shared.cancel(id: uuid)
       }
