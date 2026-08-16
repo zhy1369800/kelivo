@@ -78,31 +78,31 @@ final class AlarmTimerHandler: NSObject {
   }
 
   private func requestPermission(result: @escaping FlutterResult) {
-    #if canImport(AlarmKit)
-    if #available(iOS 26.0, *) {
-      Task {
-        do {
-          let state = try await AlarmManager.shared.requestAuthorization()
-          let granted = (state == .authorized)
-          DispatchQueue.main.async {
-            result(["authorized": granted])
-          }
-        } catch {
-          DispatchQueue.main.async {
-            result(FlutterError(code: "permission_error", message: error.localizedDescription, details: nil))
+    center.requestAuthorization(options: [.alert, .sound, .badge]) { unGranted, unError in
+      #if canImport(AlarmKit)
+      if #available(iOS 26.0, *) {
+        Task {
+          do {
+            let state = try await AlarmManager.shared.requestAuthorization()
+            let granted = (state == .authorized) || unGranted
+            DispatchQueue.main.async {
+              result(["authorized": granted])
+            }
+          } catch {
+            DispatchQueue.main.async {
+              result(["authorized": unGranted])
+            }
           }
         }
+        return
       }
-      return
-    }
-    #endif
+      #endif
 
-    center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
       DispatchQueue.main.async {
-        if let error = error {
+        if let error = unError {
           result(FlutterError(code: "permission_error", message: error.localizedDescription, details: nil))
         } else {
-          result(["authorized": granted])
+          result(["authorized": unGranted])
         }
       }
     }
@@ -129,7 +129,7 @@ final class AlarmTimerHandler: NSObject {
       hour = h
       minute = m
     } else {
-      let isoFormatter = ISO8601DateFormatter()
+      let isoFormatter = makeISO8601Formatter()
       if let parsed = isoFormatter.date(from: timeStr) {
         isISO = true
         isoDate = parsed
@@ -397,11 +397,18 @@ final class AlarmTimerHandler: NSObject {
     }
   }
 
+  private func makeISO8601Formatter() -> ISO8601DateFormatter {
+    let formatter = ISO8601DateFormatter()
+    formatter.timeZone = TimeZone.current
+    formatter.formatOptions = [.withInternetDateTime, .withTimeZone]
+    return formatter
+  }
+
   // MARK: - List Pending
 
   private func listPending(result: @escaping FlutterResult) {
     center.getPendingNotificationRequests { requests in
-      let isoFormatter = ISO8601DateFormatter()
+      let isoFormatter = self.makeISO8601Formatter()
       var items = [[String: Any]]()
 
       for req in requests {
