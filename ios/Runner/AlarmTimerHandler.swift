@@ -174,6 +174,7 @@ final class AlarmTimerHandler: NSObject {
       #if canImport(AlarmKit)
       if #available(iOS 26.0, *) {
         Task {
+          var alarmKitSuccess = false
           do {
             let manager = AlarmManager.shared
             let stopBtn = AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.circle")
@@ -201,18 +202,18 @@ final class AlarmTimerHandler: NSObject {
             let uuid = UUID()
             alarmId = "alarm_\(uuid.uuidString)"
             _ = try await manager.schedule(id: uuid, configuration: config)
+            alarmKitSuccess = true
           } catch {
-            // AlarmKit failed, proceed with UserNotifications fallback below
+            // AlarmKit failed
           }
 
-          // Always add UserNotifications request as well for double reliability
-      self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, result: result)
-    }
+          self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, alarmKitSuccess: alarmKitSuccess, result: result)
+        }
         return
-  }
+      }
       #endif
 
-      self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, result: result)
+      self.scheduleUNAlarm(id: alarmId, label: label, repeatMode: repeatMode, hour: hour, minute: minute, targetDate: targetDate, isISO: isISO, isoDate: isoDate, alarmKitSuccess: false, result: result)
     }
   }
 
@@ -225,6 +226,7 @@ final class AlarmTimerHandler: NSObject {
     targetDate: Date,
     isISO: Bool,
     isoDate: Date?,
+    alarmKitSuccess: Bool,
     result: @escaping FlutterResult
   ) {
     let content = UNMutableNotificationContent()
@@ -252,7 +254,27 @@ final class AlarmTimerHandler: NSObject {
     center.add(request) { error in
       DispatchQueue.main.async {
         if let error = error {
-          result(FlutterError(code: "add_failed", message: error.localizedDescription, details: nil))
+          if alarmKitSuccess {
+            let formattedTime: String
+            if isISO, let date = isoDate {
+              let cal = Calendar.current
+              let h = cal.component(.hour, from: date)
+              let m = cal.component(.minute, from: date)
+              formattedTime = String(format: "%02d:%02d", h, m)
+            } else {
+              formattedTime = String(format: "%02d:%02d", hour, minute)
+            }
+            result([
+              "success": true,
+              "id": id,
+              "label": label,
+              "time": formattedTime,
+              "repeat": repeatMode,
+              "message": "Alarm set via AlarmKit."
+            ])
+          } else {
+            result(FlutterError(code: "add_failed", message: error.localizedDescription, details: nil))
+          }
         } else {
           let formattedTime: String
           if isISO, let date = isoDate {
@@ -308,6 +330,7 @@ final class AlarmTimerHandler: NSObject {
       #if canImport(AlarmKit)
       if #available(iOS 26.0, *) {
         Task {
+          var alarmKitSuccess = false
           do {
             let manager = AlarmManager.shared
             let stopBtn = AlarmButton(text: "Done", textColor: .green, systemImageName: "checkmark")
@@ -319,14 +342,15 @@ final class AlarmTimerHandler: NSObject {
             let uuid = UUID()
             timerId = "timer_\(uuid.uuidString)"
             _ = try await manager.schedule(id: uuid, configuration: config)
+            alarmKitSuccess = true
           } catch {
             // Fallback to UNTimeIntervalNotificationTrigger
           }
 
-      self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, result: result)
-    }
+          self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, alarmKitSuccess: alarmKitSuccess, result: result)
+        }
         return
-  }
+      }
       #endif
 
       self.scheduleUNTimer(id: timerId, label: label, seconds: seconds, result: result)
@@ -410,11 +434,21 @@ final class AlarmTimerHandler: NSObject {
                     "type": alarm.countdownDuration != nil ? "timer" : "alarm",
                     "state": "\(alarm.state)"
                   ]
+
+                  if let cd = alarm.countdownDuration {
+                    let sec = Int(cd.preAlert)
+                    item["duration_seconds"] = sec
+                    item["label"] = sec >= 60 ? "\(sec / 60)分钟倒计时" : "\(sec)秒倒计时"
+                  } else {
+                    item["label"] = "闹钟"
+                  }
+
                   if let sched = alarm.schedule {
                     if case .fixed(let date) = sched {
                       item["next_trigger_date"] = isoFormatter.string(from: date)
                     }
                   }
+
                   items.append(item)
                 }
               }
