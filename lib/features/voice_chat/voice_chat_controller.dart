@@ -76,6 +76,15 @@ class VoiceChatController extends ChangeNotifier {
     _startTts(text);
   }
 
+  /// 点击打断：停止 TTS 并立刻重新开始聆听
+  Future<void> interruptTts() async {
+    if (_disposed || _state != VoiceChatState.aiSpeaking) return;
+    _removeTtsListener();
+    _stopBargeInListener();
+    ttsProvider.stop();
+    await _startListening();
+  }
+
   Future<void> _startListening() async {
     if (_disposed) return;
     _transcript = '';

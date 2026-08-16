@@ -21,16 +21,14 @@ class VoiceChatOverlay extends StatefulWidget {
 
 class _VoiceChatOverlayState extends State<VoiceChatOverlay>
     with TickerProviderStateMixin {
-  // 入场动画
   late final AnimationController _entryCtrl;
   late final Animation<double> _entryAnim;
-
-  // 呼吸 / 波纹循环动画
   late final AnimationController _rippleCtrl;
-
-  // 内圆脉冲
   late final AnimationController _pulseCtrl;
   late final Animation<double> _pulseAnim;
+
+  // 滚动控制器（AI 文本区）
+  final ScrollController _scrollCtrl = ScrollController();
 
   @override
   void initState() {
@@ -40,7 +38,8 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
       vsync: this,
       duration: const Duration(milliseconds: 480),
     );
-    _entryAnim = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic);
+    _entryAnim =
+        CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic);
     _entryCtrl.forward();
 
     _rippleCtrl = AnimationController(
@@ -52,14 +51,36 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     )..repeat(reverse: true);
-    _pulseAnim = CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut);
+    _pulseAnim =
+        CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut);
+
+    // 当 AI 文字更新时，自动滚回顶部（最新回复从顶开始读）
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  void _onControllerChanged() {
+    if (!mounted) return;
+    // 每次 AI 开始说话都把滚动位置重置到顶部
+    if (widget.controller.state == VoiceChatState.aiSpeaking) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollCtrl.hasClients) {
+          _scrollCtrl.animateTo(
+            0,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
     _entryCtrl.dispose();
     _rippleCtrl.dispose();
     _pulseCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
   }
 
@@ -68,13 +89,12 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
     widget.onClose?.call();
   }
 
-  // 状态色
   Color get _stateColor {
     return switch (widget.controller.state) {
-      VoiceChatState.listening => const Color(0xFF60A5FA), // blue-400
-      VoiceChatState.processing => const Color(0xFFA78BFA), // violet-400
-      VoiceChatState.aiSpeaking => const Color(0xFF34D399), // emerald-400
-      VoiceChatState.idle => const Color(0xFF94A3B8), // slate-400
+      VoiceChatState.listening => const Color(0xFF60A5FA),
+      VoiceChatState.processing => const Color(0xFFA78BFA),
+      VoiceChatState.aiSpeaking => const Color(0xFF34D399),
+      VoiceChatState.idle => const Color(0xFF94A3B8),
     };
   }
 
@@ -106,7 +126,7 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color(0xFF0A0F1E), // 深海蓝黑
+                  Color(0xFF0A0F1E),
                   Color(0xFF0D1117),
                   Color(0xFF0A0F1E),
                 ],
@@ -124,13 +144,19 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
                         color: _stateColor,
                         onClose: _close,
                       ),
+                      const SizedBox(height: 12),
 
-                      // ── 字幕区（中间弹性区） ──
+                      // ── 字幕区（可滚动，Expanded 占据剩余空间） ──
                       Expanded(
-                        child: _SubtitleArea(controller: widget.controller),
+                        child: _SubtitleArea(
+                          controller: widget.controller,
+                          scrollCtrl: _scrollCtrl,
+                        ),
                       ),
 
-                      // ── 动效圆 + 波纹 ──
+                      const SizedBox(height: 24),
+
+                      // ── 动效 Orb（点击打断） ──
                       _OrbSection(
                         controller: widget.controller,
                         rippleAnim: _rippleCtrl,
@@ -138,7 +164,7 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
                         color: _stateColor,
                       ),
 
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 28),
 
                       // ── 底部操作区 ──
                       _BottomBar(onClose: _close),
@@ -176,7 +202,6 @@ class _TopBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Row(
         children: [
-          // 状态指示点 + 文字
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             child: Row(
@@ -198,7 +223,6 @@ class _TopBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          // 关闭按钮 - 右上角
           GestureDetector(
             onTap: onClose,
             behavior: HitTestBehavior.opaque,
@@ -278,30 +302,34 @@ class _PulsingDotState extends State<_PulsingDot>
 }
 
 // ────────────────────────────────────────────
-// 字幕区
+// 字幕区（可滚动）
 // ────────────────────────────────────────────
 class _SubtitleArea extends StatelessWidget {
-  const _SubtitleArea({required this.controller});
+  const _SubtitleArea({
+    required this.controller,
+    required this.scrollCtrl,
+  });
+
   final VoiceChatController controller;
+  final ScrollController scrollCtrl;
 
   @override
   Widget build(BuildContext context) {
     final isListening = controller.state == VoiceChatState.listening;
     final isAi = controller.state == VoiceChatState.aiSpeaking;
+    final isProcessing = controller.state == VoiceChatState.processing;
 
     final showTranscript = isListening && controller.transcript.isNotEmpty;
-    final showUserLast =
-        !isListening && controller.lastUserText.isNotEmpty;
+    final showUserLast = !isListening && controller.lastUserText.isNotEmpty;
     final showAiText =
-        (isAi || controller.state == VoiceChatState.processing) &&
-            controller.lastAiText.isNotEmpty;
+        (isAi || isProcessing) && controller.lastAiText.isNotEmpty;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 36),
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // 用户说话实时识别
+          // 用户文字区（固定，不滚动）
           AnimatedCrossFade(
             duration: const Duration(milliseconds: 250),
             crossFadeState: showTranscript
@@ -313,10 +341,15 @@ class _SubtitleArea extends StatelessWidget {
                 : const SizedBox.shrink(),
           ),
 
-          if (showAiText) ...[
-            const SizedBox(height: 20),
-            _buildAiText(controller.lastAiText),
-          ],
+          if (showAiText) const SizedBox(height: 16),
+
+          // AI 文字区：可滚动，占据剩余空间
+          if (showAiText)
+            Expanded(
+              child: _buildScrollableAiText(controller.lastAiText),
+            )
+          else
+            const Expanded(child: SizedBox.shrink()),
         ],
       ),
     );
@@ -327,7 +360,7 @@ class _SubtitleArea extends StatelessWidget {
       duration: const Duration(milliseconds: 200),
       style: TextStyle(
         color: live ? Colors.white : Colors.white.withOpacity(0.35),
-        fontSize: live ? 22 : 15,
+        fontSize: live ? 17 : 13,
         fontWeight: live ? FontWeight.w500 : FontWeight.w400,
         height: 1.55,
         letterSpacing: live ? 0.2 : 0.1,
@@ -335,33 +368,35 @@ class _SubtitleArea extends StatelessWidget {
       child: Text(
         text,
         textAlign: TextAlign.center,
-        maxLines: 4,
+        maxLines: 3,
         overflow: TextOverflow.ellipsis,
       ),
     );
   }
 
-  Widget _buildAiText(String text) {
-    return Text(
-      text,
-      textAlign: TextAlign.center,
-      maxLines: 5,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        color: Color(0xFFE2E8F0),
-        fontSize: 18,
-        fontWeight: FontWeight.w400,
-        height: 1.65,
-        letterSpacing: 0.15,
+  Widget _buildScrollableAiText(String text) {
+    return SingleChildScrollView(
+      controller: scrollCtrl,
+      physics: const BouncingScrollPhysics(),
+      child: Text(
+        text,
+        textAlign: TextAlign.left,
+        style: const TextStyle(
+          color: Color(0xFFCDD9E5),
+          fontSize: 15,
+          fontWeight: FontWeight.w400,
+          height: 1.7,
+          letterSpacing: 0.1,
+        ),
       ),
     );
   }
 }
 
 // ────────────────────────────────────────────
-// 中央动效 Orb + 波纹
+// 中央动效 Orb（点击可打断 TTS）
 // ────────────────────────────────────────────
-class _OrbSection extends StatelessWidget {
+class _OrbSection extends StatefulWidget {
   const _OrbSection({
     required this.controller,
     required this.rippleAnim,
@@ -375,58 +410,112 @@ class _OrbSection extends StatelessWidget {
   final Color color;
 
   @override
+  State<_OrbSection> createState() => _OrbSectionState();
+}
+
+class _OrbSectionState extends State<_OrbSection> {
+  bool _pressing = false;
+
+  Future<void> _onTap() async {
+    if (widget.controller.state == VoiceChatState.aiSpeaking) {
+      await widget.controller.interruptTts();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 200,
-      height: 200,
-      child: AnimatedBuilder(
-        animation: Listenable.merge([rippleAnim, pulseAnim]),
-        builder: (_, __) {
-          final state = controller.state;
-          final soundLevel = controller.soundLevel.clamp(0.0, 1.0);
-          final isActive =
-              state == VoiceChatState.listening || state == VoiceChatState.aiSpeaking;
+    final isAiSpeaking =
+        widget.controller.state == VoiceChatState.aiSpeaking;
 
-          // 波纹半径随声音动态变化
-          final baseR = 52.0;
-          final dynamicR = isActive ? baseR + soundLevel * 24 + pulseAnim.value * 10 : baseR;
-          final ripplePhase = rippleAnim.value; // 0..1
+    return Column(
+      children: [
+        // 提示文字：AI 说话中才显示点击提示
+        AnimatedOpacity(
+          opacity: isAiSpeaking ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 300),
+          child: Text(
+            '点击打断',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.4),
+              fontSize: 12,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
 
-          return CustomPaint(
-            painter: _OrbPainter(
-              color: color,
-              baseRadius: dynamicR,
-              ripplePhase: ripplePhase,
-              isActive: isActive,
-              state: state,
-              soundLevel: soundLevel,
-              pulseValue: pulseAnim.value,
+        // Orb 本体
+        GestureDetector(
+          onTap: _onTap,
+          onTapDown: (_) => setState(() => _pressing = true),
+          onTapUp: (_) => setState(() => _pressing = false),
+          onTapCancel: () => setState(() => _pressing = false),
+          child: AnimatedScale(
+            scale: _pressing ? 0.93 : 1.0,
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            child: SizedBox(
+              width: 180,
+              height: 180,
+              child: AnimatedBuilder(
+                animation:
+                    Listenable.merge([widget.rippleAnim, widget.pulseAnim]),
+                builder: (_, __) {
+                  final state = widget.controller.state;
+                  final soundLevel =
+                      widget.controller.soundLevel.clamp(0.0, 1.0);
+                  final isActive = state == VoiceChatState.listening ||
+                      state == VoiceChatState.aiSpeaking;
+
+                  const baseR = 52.0;
+                  final dynamicR = isActive
+                      ? baseR +
+                          soundLevel * 22 +
+                          widget.pulseAnim.value * 10
+                      : baseR;
+                  final ripplePhase = widget.rippleAnim.value;
+
+                  return CustomPaint(
+                    painter: _OrbPainter(
+                      color: widget.color,
+                      baseRadius: dynamicR,
+                      ripplePhase: ripplePhase,
+                      isActive: isActive,
+                      pulseValue: widget.pulseAnim.value,
+                    ),
+                    child: Center(
+                      child: _OrbIcon(
+                        state: state,
+                        isAiSpeaking: isAiSpeaking,
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-            child: Center(
-              child: _OrbIcon(state: state, color: color),
-            ),
-          );
-        },
-      ),
+          ),
+        ),
+      ],
     );
   }
 }
 
 class _OrbIcon extends StatelessWidget {
-  const _OrbIcon({required this.state, required this.color});
+  const _OrbIcon({required this.state, required this.isAiSpeaking});
   final VoiceChatState state;
-  final Color color;
+  final bool isAiSpeaking;
 
   @override
   Widget build(BuildContext context) {
     final icon = switch (state) {
       VoiceChatState.listening => Icons.mic_rounded,
       VoiceChatState.processing => Icons.auto_awesome_rounded,
-      VoiceChatState.aiSpeaking => Icons.volume_up_rounded,
+      // AI 说话时改用 stop 图标提示可打断
+      VoiceChatState.aiSpeaking => Icons.stop_rounded,
       VoiceChatState.idle => Icons.mic_none_rounded,
     };
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 250),
+      duration: const Duration(milliseconds: 200),
       child: Icon(icon, key: ValueKey(state), color: Colors.white, size: 34),
     );
   }
@@ -438,8 +527,6 @@ class _OrbPainter extends CustomPainter {
     required this.baseRadius,
     required this.ripplePhase,
     required this.isActive,
-    required this.state,
-    required this.soundLevel,
     required this.pulseValue,
   });
 
@@ -447,69 +534,76 @@ class _OrbPainter extends CustomPainter {
   final double baseRadius;
   final double ripplePhase;
   final bool isActive;
-  final VoiceChatState state;
-  final double soundLevel;
   final double pulseValue;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
 
-    // ── 多层波纹圆环 ──
+    // 多层波纹
     if (isActive) {
       for (int i = 0; i < 3; i++) {
         final phase = (ripplePhase + i / 3) % 1.0;
-        final ringRadius = baseRadius + phase * 50;
-        final opacity = (1.0 - phase) * 0.22;
-        final paint = Paint()
-          ..color = color.withOpacity(opacity)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5;
-        canvas.drawCircle(center, ringRadius, paint);
+        final ringRadius = baseRadius + phase * 44;
+        final opacity = (1.0 - phase) * 0.2;
+        canvas.drawCircle(
+          center,
+          ringRadius,
+          Paint()
+            ..color = color.withOpacity(opacity)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5,
+        );
       }
     }
 
-    // ── 外光晕 ──
-    final glowR = baseRadius + 18;
-    final glowPaint = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          color.withOpacity(isActive ? 0.22 + pulseValue * 0.1 : 0.08),
-          color.withOpacity(0),
-        ],
-      ).createShader(Rect.fromCircle(center: center, radius: glowR * 1.6));
-    canvas.drawCircle(center, glowR * 1.6, glowPaint);
+    // 外光晕
+    final glowR = baseRadius + 16;
+    canvas.drawCircle(
+      center,
+      glowR * 1.5,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            color.withOpacity(isActive ? 0.20 + pulseValue * 0.08 : 0.06),
+            color.withOpacity(0),
+          ],
+        ).createShader(
+            Rect.fromCircle(center: center, radius: glowR * 1.5)),
+    );
 
-    // ── 中间过渡环 ──
-    final midPaint = Paint()
-      ..color = color.withOpacity(isActive ? 0.15 : 0.06)
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(center, baseRadius + 10, midPaint);
+    // 中间环
+    canvas.drawCircle(
+      center,
+      baseRadius + 10,
+      Paint()..color = color.withOpacity(isActive ? 0.14 : 0.05),
+    );
 
-    // ── 核心圆 ──
-    final corePaint = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.3, -0.3),
-        colors: [
-          Color.lerp(Colors.white, color, 0.4)!,
-          color,
-          Color.lerp(color, Colors.black, 0.25)!,
-        ],
-        stops: const [0.0, 0.55, 1.0],
-      ).createShader(Rect.fromCircle(center: center, radius: baseRadius));
-    canvas.drawCircle(center, baseRadius, corePaint);
+    // 核心渐变圆
+    canvas.drawCircle(
+      center,
+      baseRadius,
+      Paint()
+        ..shader = RadialGradient(
+          center: const Alignment(-0.3, -0.3),
+          colors: [
+            Color.lerp(Colors.white, color, 0.35)!,
+            color,
+            Color.lerp(color, Colors.black, 0.22)!,
+          ],
+          stops: const [0.0, 0.55, 1.0],
+        ).createShader(
+            Rect.fromCircle(center: center, radius: baseRadius)),
+    );
 
-    // ── 高光 ──
-    final hlPaint = Paint()
-      ..color = Colors.white.withOpacity(0.18)
-      ..style = PaintingStyle.fill;
+    // 高光
     canvas.drawOval(
       Rect.fromCenter(
-        center: center.translate(-baseRadius * 0.25, -baseRadius * 0.3),
-        width: baseRadius * 0.7,
-        height: baseRadius * 0.4,
+        center: center.translate(-baseRadius * 0.25, -baseRadius * 0.28),
+        width: baseRadius * 0.65,
+        height: baseRadius * 0.38,
       ),
-      hlPaint,
+      Paint()..color = Colors.white.withOpacity(0.18),
     );
   }
 
@@ -531,33 +625,24 @@ class _BottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 40),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // 结束通话按钮 —— 红色圆形
-          GestureDetector(
-            onTap: onClose,
-            child: Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFFF87171).withOpacity(0.15),
-                border: Border.all(
-                  color: const Color(0xFFF87171).withOpacity(0.5),
-                  width: 1.5,
-                ),
-              ),
-              child: const Icon(
-                Icons.call_end_rounded,
-                color: Color(0xFFF87171),
-                size: 28,
-              ),
-            ),
+    return GestureDetector(
+      onTap: onClose,
+      child: Container(
+        width: 64,
+        height: 64,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: const Color(0xFFF87171).withOpacity(0.15),
+          border: Border.all(
+            color: const Color(0xFFF87171).withOpacity(0.5),
+            width: 1.5,
           ),
-        ],
+        ),
+        child: const Icon(
+          Icons.call_end_rounded,
+          color: Color(0xFFF87171),
+          size: 28,
+        ),
       ),
     );
   }
