@@ -455,13 +455,42 @@ final class AlarmTimerHandler: NSObject {
                     let sec = Int(cd.preAlert ?? 0)
                     item["duration_seconds"] = sec
                     item["label"] = sec >= 60 ? "\(sec / 60)分钟倒计时" : "\(sec)秒倒计时"
+                    let endDate = Date().addingTimeInterval(cd.preAlert ?? 0)
+                    item["next_trigger_date"] = isoFormatter.string(from: endDate)
                   } else {
                     item["label"] = "闹钟"
                   }
 
                   if let sched = alarm.schedule {
-                    if case .fixed(let date) = sched {
+                    switch sched {
+                    case .fixed(let date):
+                      item["repeat"] = "none"
                       item["next_trigger_date"] = isoFormatter.string(from: date)
+                    case .relative(let relative):
+                      let count = relative.repeats.count
+                      if count >= 7 {
+                        item["repeat"] = "daily"
+                      } else if count == 5 {
+                        item["repeat"] = "weekdays"
+                      } else {
+                        item["repeat"] = "weekly"
+                      }
+
+                      let h = relative.time.hour
+                      let m = relative.time.minute
+                      let now = Date()
+                      let cal = Calendar.current
+                      var comps = cal.dateComponents([.year, .month, .day], from: now)
+                      comps.hour = h
+                      comps.minute = m
+                      comps.second = 0
+                      if let scheduled = cal.date(from: comps) {
+                        let targetDate = (scheduled <= now) ? (cal.date(byAdding: .day, value: 1, to: scheduled) ?? scheduled) : scheduled
+                        item["next_trigger_date"] = isoFormatter.string(from: targetDate)
+                        item["time"] = String(format: "%02d:%02d", h, m)
+                      }
+                    @unknown default:
+                      break
                     }
                   }
 
