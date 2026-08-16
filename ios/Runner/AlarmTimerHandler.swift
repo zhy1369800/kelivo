@@ -474,11 +474,15 @@ final class AlarmTimerHandler: NSObject {
                       item["repeat"] = "none"
                       item["next_trigger_date"] = isoFormatter.string(from: date)
                     case .relative(let relative):
-                      let count = relative.repeats.count
-                      if count >= 7 {
-                        item["repeat"] = "daily"
-                      } else if count == 5 {
-                        item["repeat"] = "weekdays"
+                      if case .weekly(let days) = relative.repeats {
+                        let count = days.count
+                        if count >= 7 {
+                          item["repeat"] = "daily"
+                        } else if count == 5 {
+                          item["repeat"] = "weekdays"
+                        } else {
+                          item["repeat"] = "weekly"
+                        }
                       } else {
                         item["repeat"] = "weekly"
                       }
