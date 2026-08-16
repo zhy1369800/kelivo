@@ -359,6 +359,7 @@ final class AlarmTimerHandler: NSObject {
     id: String,
     label: String,
     seconds: Double,
+    alarmKitSuccess: Bool = false,
     result: @escaping FlutterResult
   ) {
     let content = UNMutableNotificationContent()
@@ -372,7 +373,17 @@ final class AlarmTimerHandler: NSObject {
     center.add(request) { error in
       DispatchQueue.main.async {
         if let error = error {
-          result(FlutterError(code: "add_failed", message: error.localizedDescription, details: nil))
+          if alarmKitSuccess {
+            result([
+              "success": true,
+              "id": id,
+              "label": label,
+              "duration_seconds": Int(seconds),
+              "message": "Timer started via AlarmKit."
+            ])
+          } else {
+            result(FlutterError(code: "add_failed", message: error.localizedDescription, details: nil))
+          }
         } else {
           result([
             "success": true,
@@ -434,7 +445,7 @@ final class AlarmTimerHandler: NSObject {
                   ]
 
                   if let cd = alarm.countdownDuration {
-                    let sec = Int(cd.preAlert)
+                    let sec = Int(cd.preAlert ?? 0)
                     item["duration_seconds"] = sec
                     item["label"] = sec >= 60 ? "\(sec / 60)分钟倒计时" : "\(sec)秒倒计时"
                   } else {
