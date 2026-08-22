@@ -505,6 +505,15 @@ class MessageGenerationService {
     SettingsProvider settings,
     Assistant? assistant,
   ) {
+    if (assistant?.remoteBridgeEndpointId != null) {
+      final ep = settings.getRemoteBridgeEndpoint(assistant!.remoteBridgeEndpointId!);
+      if (ep != null) {
+        return (
+          providerKey: 'cc_connect',
+          modelId: '${ep.name} (${ep.project})',
+        );
+      }
+    }
     return (
       providerKey:
           assistant?.chatModelProvider ?? settings.currentModelProvider,

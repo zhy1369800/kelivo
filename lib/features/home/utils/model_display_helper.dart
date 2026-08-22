@@ -51,6 +51,19 @@ ModelDisplayInfo getModelDisplayInfo(
   SettingsProvider settings, {
   Assistant? assistant,
 }) {
+  // If assistant is bound to a remote cc-connect desktop agent
+  if (assistant?.remoteBridgeEndpointId != null) {
+    final ep = settings.getRemoteBridgeEndpoint(assistant!.remoteBridgeEndpointId!);
+    if (ep != null) {
+      return ModelDisplayInfo(
+        providerName: 'cc-connect',
+        modelDisplay: '${ep.name} (${ep.project})',
+        providerKey: 'cc_connect',
+        modelId: ep.name,
+      );
+    }
+  }
+
   // Determine provider and model from assistant or global defaults
   final providerKey =
       assistant?.chatModelProvider ?? settings.currentModelProvider;
@@ -94,6 +107,15 @@ ModelDisplayInfo getModelDisplayInfo(
   SettingsProvider settings, {
   Assistant? assistant,
 }) {
+  if (assistant?.remoteBridgeEndpointId != null) {
+    final ep = settings.getRemoteBridgeEndpoint(assistant!.remoteBridgeEndpointId!);
+    if (ep != null) {
+      return (
+        providerKey: 'cc_connect',
+        modelId: '${ep.name} (${ep.project})',
+      );
+    }
+  }
   return (
     providerKey: assistant?.chatModelProvider ?? settings.currentModelProvider,
     modelId: assistant?.chatModelId ?? settings.currentModelId,
