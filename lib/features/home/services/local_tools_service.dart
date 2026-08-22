@@ -34,6 +34,32 @@ class LocalToolNames {
   static const String speechRecognizer = 'speech_recognizer_tool';
   static const String speechSynthesizer = 'speech_synthesizer_tool';
   static const String shortcutAutomation = 'shortcut_automation_tool';
+
+  static const List<String> all = [
+    timeInfo,
+    clipboard,
+    textToSpeech,
+    askUser,
+    calculate,
+    screenTime,
+    calendarQuery,
+    calendarCreate,
+    mcpServersTool,
+    locationInfo,
+    mapKit,
+    weatherKit,
+    bleBridge,
+    userNotification,
+    deviceInfo,
+    healthKit,
+    calendarEvent,
+    reminderTask,
+    alarmTimer,
+    appleVision,
+    speechRecognizer,
+    speechSynthesizer,
+    shortcutAutomation,
+  ];
 }
 
 /// Platform availability of the device-backed local tools (implemented over
@@ -248,8 +274,7 @@ class LocalToolsService {
           },
         },
       });
-    }
-     if (DeviceLocalTools.screenTimeSupported &&
+    if (DeviceLocalTools.screenTimeSupported &&
          assistant.localToolIds.contains(LocalToolNames.screenTime)) {
        tools.add({
          'type': 'function',
@@ -1163,65 +1188,65 @@ class LocalToolsService {
     if (name == LocalToolNames.calculate) {
       return _handleCalculateTool(args);
     }
-     if (name == LocalToolNames.screenTime &&
-         DeviceLocalTools.screenTimeSupported) {
-       return _invokeDeviceTool('getScreenTime', args);
-     }
-     if (name == LocalToolNames.calendarQuery &&
-         DeviceLocalTools.calendarSupported) {
-       return _invokeDeviceTool('queryCalendar', args);
-     }
-     if (name == LocalToolNames.calendarCreate &&
-         DeviceLocalTools.calendarSupported) {
-       return _invokeDeviceTool('createCalendarEvent', args);
-     }
+    if (name == LocalToolNames.screenTime &&
+        DeviceLocalTools.screenTimeSupported) {
+      return _invokeDeviceTool('getScreenTime', args);
+    }
+    if (name == LocalToolNames.calendarQuery &&
+        DeviceLocalTools.calendarSupported) {
+      return _invokeDeviceTool('queryCalendar', args);
+    }
+    if (name == LocalToolNames.calendarCreate &&
+        DeviceLocalTools.calendarSupported) {
+      return _invokeDeviceTool('createCalendarEvent', args);
+    }
     return null;
   }
 
   static const MethodChannel _deviceToolsChannel = DeviceLocalTools._channel;
- 
-   static String _deviceTimezoneHint() {
-     final now = DateTime.now();
-     final offset = now.timeZoneOffset;
-     final sign = offset.isNegative ? '-' : '+';
-     final abs = offset.abs();
-     final hh = abs.inHours.toString().padLeft(2, '0');
-     final mm = (abs.inMinutes % 60).toString().padLeft(2, '0');
-     return "The device timezone is '${now.timeZoneName}' (UTC offset $sign$hh:$mm); "
-         'times without an explicit offset are interpreted in this timezone.';
-   }
- 
-   /// Invokes a native device tool over the MethodChannel. The native side
-   /// returns a JSON string payload (including structured error payloads that
-   /// the model can act on, e.g. missing permissions).
-   static Future<String> _invokeDeviceTool(
-     String method,
-     Map<String, dynamic> args,
-   ) async {
-     try {
-       final result = await _deviceToolsChannel.invokeMethod<String>(
-         method,
-         jsonEncode(args),
-       );
-       if (result == null || result.isEmpty) {
-         return jsonEncode({
-           'error': 'no_result',
-           'message': 'The device tool returned no result.',
-         });
-       }
-       return result;
-     } on MissingPluginException {
-       return jsonEncode({
-         'error': 'unsupported_platform',
-         'message': 'This tool is not available on the current platform.',
-       });
-     } on PlatformException catch (e) {
-       return jsonEncode({
-         'error': e.code,
-         'message': e.message ?? 'The device tool failed.',
-       });
-     }
-   }
+
+  static String _deviceTimezoneHint() {
+    final now = DateTime.now();
+    final offset = now.timeZoneOffset;
+    final sign = offset.isNegative ? '-' : '+';
+    final abs = offset.abs();
+    final hh = abs.inHours.toString().padLeft(2, '0');
+    final mm = (abs.inMinutes % 60).toString().padLeft(2, '0');
+    return "The device timezone is '${now.timeZoneName}' (UTC offset $sign$hh:$mm); "
+        'times without an explicit offset are interpreted in this timezone.';
+  }
+
+  /// Invokes a native device tool over the MethodChannel. The native side
+  /// returns a JSON string payload (including structured error payloads that
+  /// the model can act on, e.g. missing permissions).
+  static Future<String> _invokeDeviceTool(
+    String method,
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final result = await _deviceToolsChannel.invokeMethod<String>(
+        method,
+        jsonEncode(args),
+      );
+      if (result == null || result.isEmpty) {
+        return jsonEncode({
+          'error': 'no_result',
+          'message': 'The device tool returned no result.',
+        });
+      }
+      return result;
+    } on MissingPluginException {
+      return jsonEncode({
+        'error': 'unsupported_platform',
+        'message': 'This tool is not available on the current platform.',
+      });
+    } on PlatformException catch (e) {
+      return jsonEncode({
+        'error': e.code,
+        'message': e.message ?? 'The device tool failed.',
+      });
+    }
+  }
 
   static Future<String> _handleClipboardTool(Map<String, dynamic> args) async {
     final action = (args['action'] ?? '').toString();
@@ -1305,7 +1330,8 @@ class LocalToolsService {
     if (expression.isEmpty) {
       return jsonEncode({
         'error': 'empty_expression',
-        'message': 'Expression is empty. Please provide a mathematical expression in standard notation, e.g. "(15 + 3) * 2".',
+        'message':
+            'Expression is empty. Please provide a mathematical expression in standard notation, e.g. "(15 + 3) * 2".',
       });
     }
 
@@ -1315,7 +1341,8 @@ class LocalToolsService {
       if (!result.isFinite) {
         return jsonEncode({
           'error': 'math_error',
-          'message': 'The result is not a finite number. Please check your expression (e.g. division by zero).',
+          'message':
+              'The result is not a finite number. Please check your expression (e.g. division by zero).',
         });
       }
       return jsonEncode({
@@ -1325,7 +1352,8 @@ class LocalToolsService {
     } catch (e) {
       return jsonEncode({
         'error': 'parse_error',
-        'message': 'Could not parse the expression. Use standard notation, e.g. "(15 + 3) * 2".',
+        'message':
+            'Could not parse the expression. Use standard notation, e.g. "(15 + 3) * 2".',
         'detail': e.toString(),
       });
     }

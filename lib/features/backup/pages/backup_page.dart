@@ -1282,10 +1282,10 @@ class _BackupPageState extends State<BackupPage> {
             icon: Lucide.Box,
             label: l10n.backupPageImportFromChatbox,
             onTap: () async {
-              // Pick Chatbox exported json
+              // Pick Chatbox exported json or zip
               final result = await FilePicker.platform.pickFiles(
                 type: FileType.custom,
-                allowedExtensions: ['json'],
+                allowedExtensions: ['json', 'zip'],
               );
               final path = result?.files.single.path;
               if (path == null) return;
@@ -1356,10 +1356,20 @@ class _BackupPageState extends State<BackupPage> {
 
   Future<void> _doExport(BuildContext context, BackupProvider vm) async {
     final l10n = AppLocalizations.of(context)!;
-    final file = await _runWithExportingOverlay(
-      context,
-      () => vm.exportToFile(),
-    );
+    final File file;
+    try {
+      file = await _runWithExportingOverlay(context, () => vm.exportToFile());
+    } catch (error) {
+      if (!context.mounted) return;
+      showAppSnackBar(
+        context,
+        message: l10n.backupPageExportFailedMessage(
+          backupRestoreErrorMessage(l10n, error),
+        ),
+        type: NotificationType.error,
+      );
+      return;
+    }
 
     try {
       if (!context.mounted) return;

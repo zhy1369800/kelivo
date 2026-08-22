@@ -22,6 +22,7 @@ import 'business_repository.dart';
 import 'chat_database_observer.dart';
 import 'generation_run.dart';
 import 'generation_run_commands.dart';
+import '../services/api/stream/stream_chunk_handler.dart';
 
 typedef ChatDatabaseSnapshotInfo = ({
   int schemaVersion,
@@ -2270,9 +2271,18 @@ class ChatDatabaseRepository {
           SELECT
             ranked.id,
             ranked.role,
-            (SELECT SUBSTR(p.payload, 1, ?)
-               FROM message_part_rows p
-              WHERE p.revision_id = ranked.id AND p.kind = 'text')
+            (SELECT SUBSTR(concat_text.txt, 1, ?)
+               FROM (
+                 SELECT GROUP_CONCAT(ordered.payload, '') AS txt
+                 FROM (
+                   SELECT p.payload AS payload
+                   FROM message_part_rows p
+                   WHERE p.revision_id = ranked.id
+                     AND p.kind = 'text'
+                     AND p.conversation_id = ranked.conversation_id
+                   ORDER BY p.revision_id, p.ordinal
+                 ) AS ordered
+               ) AS concat_text)
               AS content_summary,
             ranked.timestamp,
             ranked.conversation_id,
@@ -2305,6 +2315,142 @@ class ChatDatabaseRepository {
           conversationId: row.read<String>('conversation_id'),
           groupId: row.read<String>('group_id'),
           version: row.read<int>('version'),
+        ),
+    ];
+  }
+
+  /// Searches the selected visible revision of each message group.
+  ///
+  /// SQLite `LOWER` / `INSTR` only fold ASCII case. Non-ASCII case variants
+  /// (for example Greek or Cyrillic) are not matched; this path does not load
+  /// ICU.
+  Future<List<MiniMapSearchHit>> searchMiniMapMatches(
+    String conversationId,
+    String query, {
+    int snippetRadius = 40,
+    int snippetLength = 120,
+  }) {
+    return _observer.measure(
+      ChatDatabaseOperation.querySearch,
+      () => _searchMiniMapMatches(
+        conversationId,
+        query,
+        snippetRadius: snippetRadius,
+        snippetLength: snippetLength,
+      ),
+      resultCount: (rows) => rows.length,
+    );
+  }
+
+  Future<List<MiniMapSearchHit>> _searchMiniMapMatches(
+    String conversationId,
+    String query, {
+    required int snippetRadius,
+    required int snippetLength,
+  }) async {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return const <MiniMapSearchHit>[];
+    final radius = snippetRadius < 0 ? 0 : snippetRadius;
+    final length = miniMapSnippetLength(
+      needleLength: needle.length,
+      snippetRadius: snippetRadius,
+      snippetLength: snippetLength,
+    );
+    final rows = await _db
+        .customSelect(
+          '''
+          WITH group_rows AS (
+            SELECT
+              COALESCE(m.group_id, m.id) AS group_id,
+              MIN(m.message_order) AS anchor_order,
+              MAX(m.version) AS latest_version
+            FROM message_rows m
+            WHERE m.conversation_id = ?
+            GROUP BY COALESCE(m.group_id, m.id)
+          ),
+          selections AS (
+            SELECT j.key AS group_id, CAST(j.value AS INTEGER) AS version
+            FROM conversation_rows c, json_each(c.version_selections_json) j
+            WHERE c.id = ?
+          ),
+          ranked AS (
+            SELECT
+              m.id,
+              m.role,
+              COALESCE(m.group_id, m.id) AS group_id,
+              g.anchor_order,
+              ROW_NUMBER() OVER (
+                PARTITION BY g.group_id
+                ORDER BY
+                  CASE
+                    WHEN m.version = COALESCE(s.version, g.latest_version)
+                    THEN 0 ELSE 1
+                  END,
+                  m.version DESC,
+                  m.message_order DESC,
+                  m.id DESC
+              ) AS version_rank
+            FROM group_rows g
+            JOIN message_rows m
+              ON m.conversation_id = ?
+             AND COALESCE(m.group_id, m.id) = g.group_id
+            LEFT JOIN selections s ON s.group_id = g.group_id
+          ),
+          text_bodies AS (
+            SELECT revision_id, GROUP_CONCAT(payload, '') AS txt
+            FROM (
+              SELECT p.revision_id AS revision_id, p.payload AS payload
+              FROM message_part_rows p
+              WHERE p.conversation_id = ?
+                AND p.kind = 'text'
+              ORDER BY p.revision_id, p.ordinal
+            )
+            GROUP BY revision_id
+          ),
+          params AS (
+            SELECT ? AS needle, ? AS radius, ? AS snippet_len
+          )
+          SELECT
+            ranked.id AS message_id,
+            (LENGTH(t.txt) - LENGTH(REPLACE(LOWER(t.txt), p.needle, '')))
+              / LENGTH(p.needle) AS match_count,
+            SUBSTR(
+              t.txt,
+              MAX(1, INSTR(LOWER(t.txt), p.needle) - p.radius),
+              p.snippet_len
+            ) AS snippet,
+            MAX(1, INSTR(LOWER(t.txt), p.needle) - p.radius) AS snippet_start
+          FROM ranked
+          JOIN text_bodies t ON t.revision_id = ranked.id
+          CROSS JOIN params p
+          WHERE ranked.version_rank = 1
+            AND ranked.role IN ('user', 'assistant')
+            AND INSTR(LOWER(t.txt), p.needle) > 0
+          ORDER BY ranked.anchor_order, ranked.group_id;
+          ''',
+          variables: [
+            Variable<String>(conversationId),
+            Variable<String>(conversationId),
+            Variable<String>(conversationId),
+            Variable<String>(conversationId),
+            Variable<String>(needle),
+            Variable<int>(radius),
+            Variable<int>(length),
+          ],
+          readsFrom: {
+            _db.conversationRows,
+            _db.messageRows,
+            _db.messagePartRows,
+          },
+        )
+        .get();
+    return [
+      for (final row in rows)
+        MiniMapSearchHit(
+          messageId: row.read<String>('message_id'),
+          matchCount: row.read<int>('match_count'),
+          snippet: row.readNullable<String>('snippet') ?? '',
+          snippetStart: row.read<int>('snippet_start') - 1,
         ),
     ];
   }
@@ -2588,6 +2734,11 @@ class ChatDatabaseRepository {
   /// [excludeConversationId] omits one. Both are applied in SQL rather than by
   /// the caller, because the candidate `LIMIT` is global: a conversation whose
   /// matches rank below the cut would otherwise be filtered down to nothing.
+  ///
+  /// When [assistantId] is non-empty, only that assistant's conversations and
+  /// unowned (`assistant_id IS NULL`) chats are included. The predicate uses
+  /// `idx_conversations_assistant`; NULL rows stay visible so pre-ownership
+  /// history is not dropped.
   Future<List<ConversationSearchMatch>> searchConversationMatches({
     required List<String> tokens,
     int limit = 200,
@@ -2595,6 +2746,7 @@ class ChatDatabaseRepository {
     bool includeAllRevisions = false,
     String? conversationId,
     String? excludeConversationId,
+    String? assistantId,
   }) {
     return _observer.measure(
       ChatDatabaseOperation.querySearch,
@@ -2605,6 +2757,7 @@ class ChatDatabaseRepository {
         includeAllRevisions: includeAllRevisions,
         conversationId: conversationId,
         excludeConversationId: excludeConversationId,
+        assistantId: assistantId,
       ),
       resultCount: (rows) => rows.length,
     );
@@ -2617,6 +2770,7 @@ class ChatDatabaseRepository {
     required bool includeAllRevisions,
     String? conversationId,
     String? excludeConversationId,
+    String? assistantId,
   }) async {
     final cleanTokens = tokens
         .map((token) => token.trim().toLowerCase())
@@ -2704,6 +2858,10 @@ class ChatDatabaseRepository {
         excludeConversationId.isNotEmpty) {
       scopeSql = 'AND c.id <> ?';
       scopeArgs.add(excludeConversationId);
+    }
+    if (assistantId != null && assistantId.isNotEmpty) {
+      scopeSql += ' AND (c.assistant_id = ? OR c.assistant_id IS NULL)';
+      scopeArgs.add(assistantId);
     }
 
     final candidateLimit = (limit * candidateMultiplier)
@@ -3669,69 +3827,188 @@ class ChatDatabaseRepository {
           .into(_db.conversationRows)
           .insert(_conversationCompanion(duplicate));
       await _replaceMcpServers(targetId, duplicate.mcpServerIds);
-
-      for (final message in sourceMessages) {
-        final targetMessageId = messageIdMap[message.id]!;
-        await _db
-            .into(_db.messageRows)
-            .insert(
-              MessageRowsCompanion.insert(
-                id: targetMessageId,
-                conversationId: targetId,
-                role: message.role,
-                timestamp: message.timestamp,
-                modelId: Value(message.modelId),
-                providerId: Value(message.providerId),
-                totalTokens: Value(message.totalTokens),
-                isStreaming: const Value(false),
-                reasoningStartAt: Value(message.reasoningStartAt),
-                reasoningFinishedAt: Value(message.reasoningFinishedAt),
-                translation: Value(message.translation),
-                reasoningSegmentsJson: Value(message.reasoningSegmentsJson),
-                groupId: Value(
-                  message.groupId == null ? null : groupIdMap[message.groupId],
-                ),
-                version: Value(message.version),
-                promptTokens: Value(message.promptTokens),
-                completionTokens: Value(message.completionTokens),
-                cachedTokens: Value(message.cachedTokens),
-                durationMs: Value(message.durationMs),
-                messageOrder: message.messageOrder,
-              ),
-            );
-        await _db.customStatement(
-          'INSERT INTO message_part_rows '
-          '(conversation_id, revision_id, ordinal, kind, payload, '
-          'created_at, updated_at) '
-          'SELECT ?, ?, ordinal, kind, payload, created_at, updated_at '
-          'FROM message_part_rows WHERE revision_id = ?;',
-          [targetId, targetMessageId, message.id],
-        );
-        await _db.customStatement(
-          'INSERT INTO provider_artifact_rows '
-          '(conversation_id, revision_id, kind, payload, created_at, '
-          'updated_at) '
-          'SELECT ?, ?, kind, payload, created_at, updated_at '
-          'FROM provider_artifact_rows WHERE revision_id = ?;',
-          [targetId, targetMessageId, message.id],
-        );
-        await _db.customStatement(
-          'INSERT INTO message_asset_rows '
-          '(conversation_id, revision_id, asset_id, kind) '
-          'SELECT ?, ?, asset_id, kind FROM message_asset_rows '
-          'WHERE revision_id = ?;',
-          [targetId, targetMessageId, message.id],
-        );
-      }
-      await _db.customStatement(
-        'INSERT OR IGNORE INTO asset_reference_dirty_rows(revision_id) '
-        'SELECT revision_id FROM message_asset_rows WHERE conversation_id = ? '
-        'UNION '
-        'SELECT revision_id FROM message_part_rows '
-        "WHERE conversation_id = ? AND kind IN ('image', 'file');",
-        [targetId, targetId],
+      await _copyMessageRowsInto(
+        targetConversationId: targetId,
+        messages: sourceMessages,
+        messageIdMap: messageIdMap,
+        groupIdMap: groupIdMap,
       );
       return duplicate;
+    });
+  }
+
+  Future<void> _copyMessageRowsInto({
+    required String targetConversationId,
+    required List<MessageRow> messages,
+    required Map<String, String> messageIdMap,
+    required Map<String, String> groupIdMap,
+  }) async {
+    for (final message in messages) {
+      final targetMessageId = messageIdMap[message.id]!;
+      await _db
+          .into(_db.messageRows)
+          .insert(
+            MessageRowsCompanion.insert(
+              id: targetMessageId,
+              conversationId: targetConversationId,
+              role: message.role,
+              timestamp: message.timestamp,
+              modelId: Value(message.modelId),
+              providerId: Value(message.providerId),
+              totalTokens: Value(message.totalTokens),
+              isStreaming: const Value(false),
+              reasoningStartAt: Value(message.reasoningStartAt),
+              reasoningFinishedAt: Value(message.reasoningFinishedAt),
+              translation: Value(message.translation),
+              reasoningSegmentsJson: Value(message.reasoningSegmentsJson),
+              groupId: Value(
+                message.groupId == null ? null : groupIdMap[message.groupId],
+              ),
+              version: Value(message.version),
+              promptTokens: Value(message.promptTokens),
+              completionTokens: Value(message.completionTokens),
+              cachedTokens: Value(message.cachedTokens),
+              durationMs: Value(message.durationMs),
+              messageOrder: message.messageOrder,
+            ),
+          );
+      await _db.customStatement(
+        'INSERT INTO message_part_rows '
+        '(conversation_id, revision_id, ordinal, kind, payload, '
+        'created_at, updated_at) '
+        'SELECT ?, ?, ordinal, kind, payload, created_at, updated_at '
+        'FROM message_part_rows WHERE revision_id = ?;',
+        [targetConversationId, targetMessageId, message.id],
+      );
+      await _db.customStatement(
+        'INSERT INTO provider_artifact_rows '
+        '(conversation_id, revision_id, kind, payload, created_at, '
+        'updated_at) '
+        'SELECT ?, ?, kind, payload, created_at, updated_at '
+        'FROM provider_artifact_rows WHERE revision_id = ?;',
+        [targetConversationId, targetMessageId, message.id],
+      );
+      await _db.customStatement(
+        'INSERT INTO message_asset_rows '
+        '(conversation_id, revision_id, asset_id, kind) '
+        'SELECT ?, ?, asset_id, kind FROM message_asset_rows '
+        'WHERE revision_id = ?;',
+        [targetConversationId, targetMessageId, message.id],
+      );
+    }
+    await _db.customStatement(
+      'INSERT OR IGNORE INTO asset_reference_dirty_rows(revision_id) '
+      'SELECT revision_id FROM message_asset_rows WHERE conversation_id = ? '
+      'UNION '
+      'SELECT revision_id FROM message_part_rows '
+      "WHERE conversation_id = ? AND kind IN ('image', 'file');",
+      [targetConversationId, targetConversationId],
+    );
+  }
+
+  Future<Conversation?> forkConversationWithVersions({
+    required String sourceId,
+    required String targetRevisionId,
+    required String title,
+    String? assistantId,
+  }) {
+    return _db.transaction(() async {
+      final sourceRow = await (_db.select(
+        _db.conversationRows,
+      )..where((row) => row.id.equals(sourceId))).getSingleOrNull();
+      if (sourceRow == null) return null;
+
+      final sourceMessages =
+          await (_db.select(_db.messageRows)
+                ..where((row) => row.conversationId.equals(sourceId))
+                ..orderBy([(row) => OrderingTerm.asc(row.messageOrder)]))
+              .get();
+
+      final firstOrderByGroup = <String, int>{};
+      for (final row in sourceMessages) {
+        final groupId = row.groupId ?? row.id;
+        final current = firstOrderByGroup[groupId];
+        if (current == null || row.messageOrder < current) {
+          firstOrderByGroup[groupId] = row.messageOrder;
+        }
+      }
+
+      MessageRow? target;
+      for (final row in sourceMessages) {
+        if (row.id == targetRevisionId) {
+          target = row;
+          break;
+        }
+      }
+      if (target == null || target.conversationId != sourceId) {
+        return null;
+      }
+
+      final targetGroupId = target.groupId ?? target.id;
+      final anchorOrder = firstOrderByGroup[targetGroupId];
+      if (anchorOrder == null) return null;
+
+      final kept = sourceMessages
+          .where((row) {
+            final firstOrder = firstOrderByGroup[row.groupId ?? row.id];
+            return firstOrder != null && firstOrder <= anchorOrder;
+          })
+          .toList(growable: false);
+
+      const uuid = Uuid();
+      final targetId = uuid.v4();
+      final messageIdMap = {for (final message in kept) message.id: uuid.v4()};
+      final groupIdMap = <String, String>{};
+      for (final message in kept) {
+        final groupId = message.groupId ?? message.id;
+        groupIdMap.putIfAbsent(
+          groupId,
+          () => messageIdMap[groupId] ?? uuid.v4(),
+        );
+      }
+
+      final source = await _conversationFromRow(
+        sourceRow,
+        includeMessageIds: false,
+      );
+      final keptSourceGroupIds = {
+        for (final row in kept) row.groupId ?? row.id,
+      };
+      final selections = <String, int>{
+        for (final entry in source.versionSelections.entries)
+          if (keptSourceGroupIds.contains(entry.key))
+            (groupIdMap[entry.key] ?? entry.key): entry.value,
+      };
+      selections[groupIdMap[targetGroupId]!] = target.version;
+
+      final now = DateTime.now();
+      await _db
+          .into(_db.conversationRows)
+          .insert(
+            _conversationCompanion(
+              Conversation(
+                id: targetId,
+                title: title,
+                createdAt: now,
+                updatedAt: now,
+                assistantId: assistantId,
+                versionSelections: selections,
+                messageIds: [
+                  for (final message in kept) messageIdMap[message.id]!,
+                ],
+              ),
+            ),
+          );
+      await _copyMessageRowsInto(
+        targetConversationId: targetId,
+        messages: kept,
+        messageIdMap: messageIdMap,
+        groupIdMap: groupIdMap,
+      );
+      final insertedRow = await (_db.select(
+        _db.conversationRows,
+      )..where((row) => row.id.equals(targetId))).getSingle();
+      return _conversationFromRow(insertedRow);
     });
   }
 
@@ -4042,12 +4319,10 @@ class ChatDatabaseRepository {
   Future<void> _replaceMessageParts(
     ChatMessage message, {
     List<Map<String, dynamic>>? toolEvents,
-    bool preserveUnchangedToolParts = false,
   }) async {
     if (_messageHasAttachmentParts(message)) {
       await markMessageAssetReferencesDirty(message.id);
     }
-    final preservedToolEvents = toolEvents ?? await getToolEvents(message.id);
     // A mid-stream reasoning pause is not a reasoning removal: the checkpoint
     // snapshot still carries the pre-allocated reasoningStartAt timestamp, so
     // keep the persisted reasoning part until a timestamp-free message proves
@@ -4063,170 +4338,34 @@ class ChatDatabaseRepository {
                     ..orderBy([(row) => OrderingTerm.asc(row.ordinal)]))
                   .get())
               .map((part) => part.payload)
-              .join()
+              .join('\n')
         : null;
     if (effectiveReasoningText != null && effectiveReasoningText.isNotEmpty) {
       message = message.copyWith(reasoningText: effectiveReasoningText);
     }
-    // Attachment-bearing messages own interleaved body ordinals; the
-    // text/reasoning fast path cannot preserve them safely.
-    if (preserveUnchangedToolParts &&
-        preservedToolEvents.isNotEmpty &&
-        !_messageHasAttachmentParts(message)) {
-      final keptToolParts = await _unchangedToolPartCount(
-        message,
-        preservedToolEvents,
-      );
-      if (keptToolParts != null) {
-        await _replaceTextAndReasoningParts(message, keptToolParts);
-        return;
-      }
-    }
+    final parts = _partsForPersistence(message, toolEvents);
     await (_db.delete(
       _db.messagePartRows,
     )..where((row) => row.revisionId.equals(message.id))).go();
     var ordinal = 0;
     final now = DateTime.now().toUtc();
     final updatedAt = now.isBefore(message.timestamp) ? message.timestamp : now;
-    final reasoning = message.reasoningText;
-    if (reasoning != null && reasoning.isNotEmpty) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: 'reasoning',
-              payload: reasoning,
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
-    for (final event in preservedToolEvents) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: 'tool_call',
-              payload: jsonEncode(event),
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
-    final bodyParts = _bodyPartsForPersistence(message);
-    for (final part in bodyParts) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: part.kind,
-              payload: part.encodePayload(),
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
-  }
-
-  /// Returns the number of persisted tool_call parts when they already match
-  /// what a full rebuild would write for [toolEvents] (payload and ordinal),
-  /// or null when any difference forces the full delete-and-reinsert. A
-  /// reasoning presence change renumbers tool ordinals, so it also forces a
-  /// full rebuild. Each tool event produces exactly one `tool_call` part.
-  Future<int?> _unchangedToolPartCount(
-    ChatMessage message,
-    List<Map<String, dynamic>> toolEvents,
-  ) async {
-    final existing =
-        await (_db.select(_db.messagePartRows)
-              ..where((row) => row.revisionId.equals(message.id))
-              ..orderBy([(row) => OrderingTerm.asc(row.ordinal)]))
-            .get();
-    if (existing.isEmpty) return null;
-    if (existing.any((part) => part.kind == 'image' || part.kind == 'file')) {
-      return null;
-    }
-    final reasoning = message.reasoningText;
-    final hasReasoning = reasoning != null && reasoning.isNotEmpty;
-    final hasPersistedReasoning = existing.any(
-      (part) => part.kind == 'reasoning',
-    );
-    if (hasReasoning != hasPersistedReasoning) return null;
-    final expectedPayloads = [
-      for (final event in toolEvents) jsonEncode(event),
-    ];
-    final persistedToolParts = existing
-        .where((part) => part.kind == 'tool_call')
-        .toList(growable: false);
-    if (persistedToolParts.length != expectedPayloads.length) return null;
-    final firstToolOrdinal = hasReasoning ? 1 : 0;
-    for (var i = 0; i < persistedToolParts.length; i++) {
-      final part = persistedToolParts[i];
-      if (part.payload != expectedPayloads[i] ||
-          part.ordinal != firstToolOrdinal + i) {
-        return null;
+    await _db.batch((batch) {
+      for (final part in parts) {
+        batch.insert(
+          _db.messagePartRows,
+          MessagePartRowsCompanion.insert(
+            conversationId: message.conversationId,
+            revisionId: message.id,
+            ordinal: ordinal++,
+            kind: part.kind,
+            payload: part.encodePayload(),
+            createdAt: message.timestamp,
+            updatedAt: updatedAt,
+          ),
+        );
       }
-    }
-    return persistedToolParts.length;
-  }
-
-  /// Rewrites only the text/reasoning parts; the [toolPartCount] persisted
-  /// tool parts keep their rows, ordinals and timestamps.
-  Future<void> _replaceTextAndReasoningParts(
-    ChatMessage message,
-    int toolPartCount,
-  ) async {
-    await (_db.delete(_db.messagePartRows)..where(
-          (row) =>
-              row.revisionId.equals(message.id) &
-              (row.kind.equals('text') | row.kind.equals('reasoning')),
-        ))
-        .go();
-    final now = DateTime.now().toUtc();
-    final updatedAt = now.isBefore(message.timestamp) ? message.timestamp : now;
-    var ordinal = 0;
-    final reasoning = message.reasoningText;
-    if (reasoning != null && reasoning.isNotEmpty) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: 'reasoning',
-              payload: reasoning,
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
-    ordinal += toolPartCount;
-    final bodyParts = _bodyPartsForPersistence(message);
-    for (final part in bodyParts) {
-      await _db
-          .into(_db.messagePartRows)
-          .insert(
-            MessagePartRowsCompanion.insert(
-              conversationId: message.conversationId,
-              revisionId: message.id,
-              ordinal: ordinal++,
-              kind: part.kind,
-              payload: part.encodePayload(),
-              createdAt: message.timestamp,
-              updatedAt: updatedAt,
-            ),
-          );
-    }
+    });
   }
 
   Future<AppendedMessageVersion?> appendMessageVersion({
@@ -4284,7 +4423,7 @@ class ChatDatabaseRepository {
         resolvedParts = parts;
       } else {
         final original = await _messageFromRowWithParts(originalRow);
-        resolvedParts = ChatMessage.partsWithReplacedText(
+        resolvedParts = ChatMessage.partsWithRedistributedText(
           original.parts,
           content,
         );
@@ -4393,7 +4532,6 @@ class ChatDatabaseRepository {
         messages: messages,
         toolEventsByMessageId: toolEventsByMessageId,
         geminiSignaturesByMessageId: geminiSignaturesByMessageId,
-        freshParts: true,
       );
     });
   }
@@ -4458,7 +4596,6 @@ class ChatDatabaseRepository {
         messages: messages,
         toolEventsByMessageId: const {},
         geminiSignaturesByMessageId: const {},
-        freshParts: false,
       );
 
       for (final entry in messagesToAppend.entries) {
@@ -4497,7 +4634,6 @@ class ChatDatabaseRepository {
         messages: messages,
         toolEventsByMessageId: toolEventsByMessageId,
         geminiSignaturesByMessageId: geminiSignaturesByMessageId,
-        freshParts: true,
       );
       await _writeMigrationCompleteReceipt();
     });
@@ -5103,10 +5239,6 @@ class ChatDatabaseRepository {
     required List<({ChatMessage message, int messageOrder})> messages,
     required Map<String, List<Map<String, dynamic>>> toolEventsByMessageId,
     required Map<String, String> geminiSignaturesByMessageId,
-    // True when the target rows are known to have no stored parts (fresh or
-    // freshly cleared database): absent tool events then mean "no events"
-    // rather than "preserve stored ones", skipping a per-message SELECT.
-    required bool freshParts,
   }) async {
     await _db.batch((batch) {
       for (final conversation in conversations) {
@@ -5143,9 +5275,7 @@ class ChatDatabaseRepository {
       batchMessageIds.add(id);
       await _replaceMessageParts(
         entry.message,
-        toolEvents:
-            toolEventsByMessageId[id] ??
-            (freshParts ? const <Map<String, dynamic>>[] : null),
+        toolEvents: toolEventsByMessageId[id],
       );
     }
     for (final entry in toolEventsByMessageId.entries) {
@@ -5180,12 +5310,14 @@ class ChatDatabaseRepository {
 
   /// Partial-column UPDATE: only the non-null fields are written, so
   /// concurrent writers touching disjoint columns cannot clobber each other.
-  /// Message parts are rebuilt only when content or reasoning text changes;
-  /// the other columns never affect parts. Returns the post-update message,
+  /// Message parts are rebuilt when [parts], content, or reasoning text
+  /// changes; the other columns never affect parts. Returns the post-update
+  /// message,
   /// or null when no row matches [messageId].
   Future<ChatMessage?> updateMessageFields(
     String messageId, {
     String? content,
+    List<MessagePart>? parts,
     int? totalTokens,
     bool? isStreaming,
     String? reasoningText,
@@ -5234,12 +5366,23 @@ class ChatDatabaseRepository {
       )..where((t) => t.id.equals(messageId))).write(companion);
       final updated = await getMessage(messageId);
       if (updated == null) return null;
-      if (content == null && reasoningText == null) return updated;
-      // getMessage resolves content/reasoning from parts, which still hold
-      // the pre-update payloads. Overlay only the provided fields so a
-      // content-only write does not clear reasoning (and vice versa).
+      if (content == null && reasoningText == null && parts == null) {
+        return updated;
+      }
+      var nextParts = updated.parts;
+      if (parts != null) {
+        nextParts = parts;
+      } else if (content != null) {
+        nextParts = ChatMessage.partsWithRedistributedText(nextParts, content);
+      }
+      if (reasoningText != null) {
+        nextParts = ChatMessage.partsWithReplacedReasoning(
+          nextParts,
+          reasoningText,
+        );
+      }
       final corrected = updated.copyWith(
-        content: content ?? updated.content,
+        parts: nextParts,
         reasoningText: reasoningText ?? updated.reasoningText,
       );
       await _replaceMessageParts(corrected);
@@ -5295,11 +5438,7 @@ class ChatDatabaseRepository {
       // Keep message_rows (incl. is_streaming) ahead of parts rewrite so the
       // FTS finalize trigger indexes the pre-rewrite text part correctly.
       await _updateMessageRow(message);
-      await _replaceMessageParts(
-        message,
-        toolEvents: toolEvents,
-        preserveUnchangedToolParts: true,
-      );
+      await _replaceMessageParts(message, toolEvents: toolEvents);
       if (generationRunId != null && checkpointSeq != null) {
         await GenerationRunCommands(_db).checkpoint(
           id: generationRunId,
@@ -5446,11 +5585,9 @@ class ChatDatabaseRepository {
         _db.messageRows,
       )..where((row) => row.id.isIn(deletedIds))).go();
       for (final rewrite in anchorRewrites.entries) {
-        await (_db.update(
-          _db.messageRows,
-        )..where((row) => row.id.equals(rewrite.key))).write(
-          MessageRowsCompanion(messageOrder: Value(rewrite.value)),
-        );
+        await (_db.update(_db.messageRows)
+              ..where((row) => row.id.equals(rewrite.key)))
+            .write(MessageRowsCompanion(messageOrder: Value(rewrite.value)));
       }
       final currentConversation = await _conversationFromRow(
         conversationRow,
@@ -5576,7 +5713,14 @@ class ChatDatabaseRepository {
     await _db.transaction(() async {
       final message = await getMessage(messageId);
       if (message != null) {
-        await _replaceMessageParts(message, toolEvents: const []);
+        await _replaceMessageParts(
+          message.copyWith(
+            parts: [
+              for (final part in message.parts)
+                if (part is! ToolCallPart) part,
+            ],
+          ),
+        );
       }
     });
   }
@@ -6117,7 +6261,7 @@ class ChatDatabaseRepository {
       isStreaming: row.isStreaming,
       reasoningText: reasoningParts.isEmpty
           ? null
-          : reasoningParts.map((part) => part.text).join(),
+          : reasoningParts.map((part) => part.text).join('\n'),
       reasoningStartAt: row.reasoningStartAt,
       reasoningFinishedAt: row.reasoningFinishedAt,
       translation: row.translation,
@@ -6140,23 +6284,182 @@ class ChatDatabaseRepository {
     );
   }
 
-  /// Body parts persisted after reasoning/tool_call rows. Reasoning and
-  /// tool_call continue to be sourced from [ChatMessage.reasoningText] /
-  /// tool-event arguments so streaming overlays stay equivalent.
-  List<MessagePart> _bodyPartsForPersistence(ChatMessage message) {
-    final body = <MessagePart>[
-      for (final part in message.parts)
-        if (part is TextPart ||
-            part is ImagePart ||
-            part is FilePart ||
-            part is MalformedPart ||
-            part is UnknownPart)
-          part,
-    ];
-    if (body.isEmpty) {
+  /// Persist [message.parts] in arrival order.
+  ///
+  /// [toolEvents] / [ChatMessage.reasoningText] are compatibility overlays.
+  /// Empty [toolEvents] never strips [ToolCallPart]s already on the message —
+  /// those cards are the write source during a server-tool gap. Extra events
+  /// that do not match a part are inserted after the last tool slot.
+  List<MessagePart> _partsForPersistence(
+    ChatMessage message,
+    List<Map<String, dynamic>>? toolEvents,
+  ) {
+    var parts = List<MessagePart>.of(message.parts);
+    if (!parts.any((part) => part is ReasoningPart)) {
+      final reasoning = message.reasoningText;
+      if (reasoning != null && reasoning.isNotEmpty) {
+        parts = [ReasoningPart(reasoning), ...parts];
+      }
+    }
+    if (toolEvents != null) {
+      if (parts.any((part) => part is ToolCallPart)) {
+        parts = _applyToolEventsToParts(parts, toolEvents);
+      } else if (toolEvents.isNotEmpty) {
+        parts = [
+          ...parts,
+          for (final event in toolEvents) ToolCallPart(jsonEncode(event)),
+        ];
+      }
+    }
+    if (parts.isEmpty) {
       return <MessagePart>[TextPart(message.content)];
     }
-    return body;
+    return parts;
+  }
+
+  List<MessagePart> _applyToolEventsToParts(
+    List<MessagePart> parts,
+    List<Map<String, dynamic>> toolEvents,
+  ) {
+    final partCount = parts.whereType<ToolCallPart>().length;
+    if (partCount != toolEvents.length) {
+      debugPrint(
+        'toolEvents/parts count mismatch: events=${toolEvents.length} '
+        'parts=$partCount',
+      );
+    }
+    final unused = [for (final event in toolEvents) event];
+    Map<String, dynamic>? takeById(String id) {
+      if (id.isEmpty) return null;
+      final index = unused.indexWhere(
+        (event) => (event['id'] ?? '').toString() == id,
+      );
+      if (index < 0) return null;
+      return unused.removeAt(index);
+    }
+
+    final matchedByPart = List<Map<String, dynamic>?>.filled(
+      parts.length,
+      null,
+    );
+    for (var i = 0; i < parts.length; i++) {
+      final part = parts[i];
+      if (part is! ToolCallPart) continue;
+      final partId = _toolCallPartId(part) ?? '';
+      if (partId.isEmpty) continue;
+      matchedByPart[i] = takeById(partId);
+    }
+    for (var i = 0; i < parts.length; i++) {
+      final part = parts[i];
+      if (part is! ToolCallPart) continue;
+      if ((_toolCallPartId(part) ?? '').isNotEmpty) continue;
+      if (unused.isEmpty) break;
+      matchedByPart[i] = unused.removeAt(0);
+    }
+
+    final out = <MessagePart>[];
+    var lastToolIndex = -1;
+    for (var i = 0; i < parts.length; i++) {
+      final part = parts[i];
+      if (part is! ToolCallPart) {
+        out.add(part);
+        continue;
+      }
+      final matched = matchedByPart[i];
+      if (matched != null) {
+        out.add(ToolCallPart(jsonEncode(_mergeToolPayload(part, matched))));
+      } else {
+        out.add(part);
+      }
+      lastToolIndex = out.length - 1;
+    }
+    if (unused.isNotEmpty) {
+      final extras = [
+        for (final event in unused) ToolCallPart(jsonEncode(event)),
+      ];
+      final insertAt = lastToolIndex >= 0 ? lastToolIndex + 1 : out.length;
+      out.insertAll(insertAt, extras);
+    }
+    return out;
+  }
+
+  Map<String, dynamic> _mergeToolPayload(
+    ToolCallPart part,
+    Map<String, dynamic> event,
+  ) {
+    Map<String, dynamic> base = const <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(part.payloadJson);
+      if (decoded is Map) {
+        base = Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {}
+    final merged = Map<String, dynamic>.from(base);
+    for (final entry in event.entries) {
+      if (_isEmptyToolOverlay(entry.value) &&
+          !_isEmptyToolOverlay(base[entry.key])) {
+        continue;
+      }
+      merged[entry.key] = entry.value;
+    }
+    if (base['server'] == true && event['server'] != false) {
+      merged['server'] = true;
+    }
+    if (_isSearchToolName(merged['name'] ?? base['name'] ?? event['name'])) {
+      merged['content'] = jsonEncode(
+        StreamChunkHandler.mergeSearchItems(
+          base['content'],
+          _searchItemsOf(event['content']),
+        ),
+      );
+    }
+    return merged;
+  }
+
+  bool _isEmptyToolOverlay(Object? value) {
+    if (value == null) return true;
+    if (value is String) return value.isEmpty;
+    if (value is Map) return value.isEmpty;
+    if (value is List) return value.isEmpty;
+    return false;
+  }
+
+  bool _isSearchToolName(Object? name) {
+    final toolName = (name ?? '').toString();
+    return toolName == 'search_web' || toolName == 'builtin_search';
+  }
+
+  List<Map<String, dynamic>> _searchItemsOf(Object? raw) {
+    final map = _asStringKeyedMap(raw);
+    final items = map?['items'];
+    if (items is! List) return const <Map<String, dynamic>>[];
+    return [
+      for (final item in items)
+        if (item is Map) Map<String, dynamic>.from(item),
+    ];
+  }
+
+  Map<String, dynamic>? _asStringKeyedMap(Object? raw) {
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    if (raw is String) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  String? _toolCallPartId(ToolCallPart part) {
+    try {
+      final decoded = jsonDecode(part.payloadJson);
+      if (decoded is Map) {
+        final id = (decoded['id'] ?? '').toString();
+        return id.isEmpty ? null : id;
+      }
+    } catch (_) {}
+    return null;
   }
 
   MessagePart _hydratePart({
@@ -6816,6 +7119,34 @@ class ConversationSearchMatch {
   final String? groupId;
   final int? version;
   final int? maxVersion;
+}
+
+class MiniMapSearchHit {
+  const MiniMapSearchHit({
+    required this.messageId,
+    required this.matchCount,
+    required this.snippet,
+    required this.snippetStart,
+  });
+
+  final String messageId;
+  final int matchCount;
+  final String snippet;
+  final int snippetStart;
+}
+
+/// Grows the snippet window so the first hit is not cut mid-keyword.
+///
+/// Default radius 40 + length 120 leaves only 80 characters for the needle.
+int miniMapSnippetLength({
+  required int needleLength,
+  int snippetRadius = 40,
+  int snippetLength = 120,
+}) {
+  final radius = snippetRadius < 0 ? 0 : snippetRadius;
+  final length = snippetLength < 0 ? 0 : snippetLength;
+  final needed = radius + needleLength;
+  return length < needed ? needed : length;
 }
 
 final class ChatStatsTotals {

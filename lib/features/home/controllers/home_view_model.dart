@@ -4,14 +4,17 @@ import 'package:provider/provider.dart';
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/assistant.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/compress_context_options.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
 import '../../../core/services/chat/chat_service.dart';
+import '../../../core/services/model_override_payload_parser.dart';
 import '../../../core/services/logging/flutter_logger.dart';
 import '../../../core/services/memory/memory_pipeline.dart';
 import '../../../core/services/memory/memory_trace.dart';
+import '../../../utils/utf16_safe_cut.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../chat/widgets/chat_message_widget.dart' show ToolUIPart;
 import '../services/message_builder_service.dart';
@@ -22,43 +25,9 @@ import 'chat_controller.dart';
 import 'generation_controller.dart';
 import 'stream_controller.dart' as stream_ctrl;
 
-enum CompressContextLimitMode { start, recent, unlimited }
+export '../../../core/models/compress_context_options.dart';
 
 enum BackgroundTaskKind { ocr, title, summary, suggestions, memory }
-
-class CompressContextOptions {
-  const CompressContextOptions({required this.mode, this.maxChars});
-
-  static const int defaultMaxChars = 6000;
-
-  final CompressContextLimitMode mode;
-  final int? maxChars;
-}
-
-String buildCompressContextContent(
-  String joined,
-  CompressContextOptions options,
-) {
-  if (options.mode == CompressContextLimitMode.unlimited) return joined;
-  final maxChars = options.maxChars ?? CompressContextOptions.defaultMaxChars;
-  if (maxChars <= 0 || joined.length <= maxChars) return joined;
-  return switch (options.mode) {
-    CompressContextLimitMode.start => joined.substring(0, maxChars),
-    CompressContextLimitMode.recent => joined.substring(
-      joined.length - maxChars,
-    ),
-    CompressContextLimitMode.unlimited => joined,
-  };
-}
-
-String buildConversationTextForCompression(List<ChatMessage> messages) {
-  return messages
-      .where((m) => m.content.trim().isNotEmpty)
-      .map(
-        (m) => '${m.role == "assistant" ? "Assistant" : "User"}: ${m.content}',
-      )
-      .join('\n\n');
-}
 
 class BatchDeleteGroupPlan {
   const BatchDeleteGroupPlan({
@@ -175,6 +144,9 @@ class HomeViewModel extends ChangeNotifier {
   final ChatSuggestionService _suggestionService =
       const ChatSuggestionService();
   late final ChatActions _chatActions;
+
+  @visibleForTesting
+  ChatActions get debugChatActions => _chatActions;
   QueuedChatInput? _queuedInput;
   bool _isDrainingQueuedInput = false;
 
@@ -1087,6 +1059,9 @@ class HomeViewModel extends ChangeNotifier {
       sourceConversationId: sourceConversation.id,
       sourceRevisionId: message.id,
       title: title,
+      preserveVersions: _contextProvider
+          .read<SettingsProvider>()
+          .forkKeepMessageVersions,
     );
 
     // Switch to the new conversation
@@ -1136,24 +1111,35 @@ class HomeViewModel extends ChangeNotifier {
     final collapsed = collapseVersions(allMsgs);
     if (collapsed.isEmpty) return 'no_messages';
 
-    // Build conversation text for compression
-    final joined = buildConversationTextForCompression(collapsed);
-    if (joined.trim().isEmpty) return 'no_messages';
+    List<ChatMessage>? keptMessages;
+    var summarizeInput = collapsed;
+    if (options.mode == CompressContextLimitMode.keepRecent) {
+      final keepN =
+          options.keepUserMessages ??
+          CompressContextOptions.defaultKeepUserMessages;
+      keptMessages = selectKeepRecentMessages(collapsed, keepN);
+      if (keptMessages.length >= collapsed.length) return 'no_messages';
+      summarizeInput = collapsed.sublist(
+        0,
+        collapsed.length - keptMessages.length,
+      );
+    }
 
-    final content = buildCompressContextContent(joined, options);
-    // Resolve model: compress model → summary model → title model → assistant model → global default
-    final provKey =
-        settings.compressModelProvider ??
-        settings.summaryModelProvider ??
-        settings.titleModelProvider ??
-        assistant?.chatModelProvider ??
-        settings.currentModelProvider;
-    final mdlId =
-        settings.compressModelId ??
-        settings.summaryModelId ??
-        settings.titleModelId ??
-        assistant?.chatModelId ??
-        settings.currentModelId;
+    // Resolve model first so the chunk budget can follow its context window.
+    final resolvedModel = resolveCompressContextModel(
+      compressProvider: settings.compressModelProvider,
+      compressModelId: settings.compressModelId,
+      summaryProvider: settings.summaryModelProvider,
+      summaryModelId: settings.summaryModelId,
+      titleProvider: settings.titleModelProvider,
+      titleModelId: settings.titleModelId,
+      assistantProvider: assistant?.chatModelProvider,
+      assistantModelId: assistant?.chatModelId,
+      currentProvider: settings.currentModelProvider,
+      currentModelId: settings.currentModelId,
+    );
+    final provKey = resolvedModel.providerKey;
+    final mdlId = resolvedModel.modelId;
     if (provKey == null || mdlId == null) return 'no_model';
 
     final cfg = settings.getProviderConfig(provKey);
@@ -1161,20 +1147,122 @@ class HomeViewModel extends ChangeNotifier {
       assistant?.thinkingBudget,
     );
 
-    // Build compression prompt from settings template
-    final prompt = settings.compressPrompt
-        .replaceAll('{content}', content)
-        .replaceAll('{locale}', locale);
+    var stage = 'prepare';
+    var inputLength = summarizeInput.fold<int>(
+      0,
+      (sum, message) => sum + message.content.length,
+    );
+
+    Future<String> summarizeContent(String content, String label) async {
+      return summarizeWithContextRetry(
+        content,
+        summarize: (text) async {
+          stage = label;
+          inputLength = text.length;
+          final prompt = settings.compressPrompt
+              .replaceAll('{content}', text)
+              .replaceAll('{locale}', locale);
+          return (await ChatApiService.generateText(
+            config: cfg,
+            modelId: mdlId,
+            prompt: prompt,
+            thinkingBudget: budget,
+            skipImageParsing: true,
+          )).trim();
+        },
+        onSplitRetry: (e, st, text) {
+          FlutterLogger.log(
+            '[CompressContext] context-length split-retry at $stage '
+            '(inputChars=${text.length}): $e\n$st',
+            tag: 'HomeViewModel',
+          );
+        },
+      );
+    }
 
     try {
-      final summary = (await ChatApiService.generateText(
-        config: cfg,
-        modelId: mdlId,
-        prompt: prompt,
-        thinkingBudget: budget,
-      )).trim();
+      stage = 'prepare';
+      final requestChars = compressRequestCharBudget(
+        contextWindowTokens: readModelContextWindowTokens(
+          ModelOverridePayloadParser.modelOverride(cfg.modelOverrides, mdlId),
+        ),
+      );
+      stage = 'chunk';
+      final chunks = buildCompressRequestContents(
+        summarizeInput,
+        options,
+        safeRequestChars: requestChars,
+      );
+      if (chunks.isEmpty) return 'no_messages';
+      inputLength = chunks.fold<int>(0, (sum, chunk) => sum + chunk.length);
+
+      String summary;
+      if (chunks.length == 1) {
+        summary = await summarizeContent(chunks.single, 'generate');
+      } else {
+        final partials = <String>[];
+        for (var i = 0; i < chunks.length; i++) {
+          final part = await summarizeContent(
+            chunks[i],
+            'chunk ${i + 1}/${chunks.length}',
+          );
+          if (part.isEmpty) return 'empty_summary';
+          partials.add(part);
+        }
+        var pending = partials;
+        var mergeRound = 0;
+        const maxMergeRounds = 8;
+        while (pending.length > 1 && mergeRound < maxMergeRounds) {
+          mergeRound++;
+          final packed = chunkPlainTexts(pending, maxChars: requestChars);
+          final next = <String>[];
+          for (var i = 0; i < packed.length; i++) {
+            final part = await summarizeContent(
+              packed[i],
+              'merge $mergeRound (${i + 1}/${packed.length})',
+            );
+            if (part.isEmpty) return 'empty_summary';
+            next.add(part);
+          }
+          pending = next;
+        }
+        if (pending.length > 1) {
+          summary = await summarizeContent(
+            truncateHeadUtf16Safe(pending.join('\n\n'), requestChars),
+            'merge-truncate',
+          );
+        } else {
+          summary = pending.single;
+        }
+      }
 
       if (summary.isEmpty) return 'empty_summary';
+
+      if (keptMessages != null) {
+        final summaryMsg = ChatMessage(
+          role: 'user',
+          content: summary,
+          timestamp: DateTime.now(),
+          conversationId: convo.id,
+        );
+        final newConvo = await _chatService.forkConversationFromMessages(
+          title: convo.title,
+          assistantId: convo.assistantId,
+          sourceMessages: [summaryMsg, ...keptMessages],
+        );
+
+        _chatService.setCurrentConversation(newConvo.id);
+        await _chatController.setCurrentConversationAndLoad(
+          _chatService.getConversation(newConvo.id) ?? newConvo,
+        );
+        _restoreMessageUiState();
+        _streamController.clearAllState();
+        onConversationSwitched?.call();
+        notifyListeners();
+        onScrollToBottom?.call();
+
+        return null; // success
+      }
 
       // Create new conversation with the summary as first user message
       final newConvo = await _chatService.createDraftConversation(
@@ -1199,7 +1287,11 @@ class HomeViewModel extends ChangeNotifier {
       onScrollToBottom?.call();
 
       return null; // success
-    } catch (e) {
+    } catch (e, st) {
+      FlutterLogger.log(
+        '[CompressContext] failed at $stage (inputChars=$inputLength): $e\n$st',
+        tag: 'HomeViewModel',
+      );
       return e.toString();
     }
   }
@@ -1400,6 +1492,7 @@ class HomeViewModel extends ChangeNotifier {
         modelId: mdlId,
         prompt: prompt,
         thinkingBudget: budget,
+        skipImageParsing: true,
       )).trim();
       if (title.isNotEmpty) {
         await _chatService.renameConversation(convo.id, title);
@@ -1540,6 +1633,7 @@ class HomeViewModel extends ChangeNotifier {
         modelId: mdlId,
         prompt: prompt,
         thinkingBudget: budget,
+        skipImageParsing: true,
       )).trim();
       traceStep?.appendResponse(summary);
 

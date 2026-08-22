@@ -350,7 +350,9 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                   pressedScale: 0.98,
                   builder: (pressed) {
                     final bg = context.appColors.surfaceFill;
-                    final overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
+                    final overlay = cs.onSurface.withValues(
+                      alpha: isDark ? 0.06 : 0.05,
+                    );
                     final pressedBg = Color.alphaBlend(overlay, bg);
                     final l10n = AppLocalizations.of(context)!;
                     final settings = context.read<SettingsProvider>();
@@ -454,7 +456,9 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                     pressedScale: 0.98,
                     builder: (pressed) {
                       final bg = context.appColors.surfaceFill;
-                      final overlay = cs.onSurface.withValues(alpha: isDark ? 0.06 : 0.05);
+                      final overlay = cs.onSurface.withValues(
+                        alpha: isDark ? 0.06 : 0.05,
+                      );
                       final pressedBg = Color.alphaBlend(overlay, bg);
                       final iconColor = cs.onSurface.withValues(alpha: 0.75);
                       final textColor = cs.onSurface.withValues(alpha: 0.9);
@@ -973,6 +977,8 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                           256.0,
                           512.0,
                           1024.0,
+                          2048.0,
+                          4096.0,
                         ],
                         onLabelTap: () async {
                           final assistantProvider = context

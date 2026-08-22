@@ -25,7 +25,8 @@ Widget _harness(Widget child) {
             UserProvider(preferences: createBusinessTestPreferences()),
       ),
       ChangeNotifierProvider(
-        create: (_) => TtsProvider(preferences: createBusinessTestPreferences()),
+        create: (_) =>
+            TtsProvider(preferences: createBusinessTestPreferences()),
       ),
       ChangeNotifierProvider(create: (_) => ToolApprovalService()),
       ChangeNotifierProvider(create: (_) => AskUserInteractionService()),
@@ -52,10 +53,7 @@ more text
 ![shot](https://example.com/a.png)
 ''';
       final (clean, images) = parseMcpImagePathsForTesting(content);
-      expect(images, [
-        '/tmp/mcp_img_1.png',
-        'https://example.com/a.png',
-      ]);
+      expect(images, ['/tmp/mcp_img_1.png', 'https://example.com/a.png']);
       expect(clean.contains('!['), isFalse);
       expect(clean.contains('result ok'), isTrue);
       expect(clean.contains('more text'), isTrue);
@@ -209,68 +207,73 @@ more text
     );
   });
 
-  testWidgets('assistant ImagePart/FilePart previews render in parts order', (
-    tester,
-  ) async {
-    const messageId = 'assistant-with-attachments';
+  testWidgets(
+    'assistant FilePart stays in the strip; ImagePart renders in the timeline',
+    (tester) async {
+      const messageId = 'assistant-with-attachments';
 
-    await tester.pumpWidget(
-      _harness(
-        ChatMessageWidget(
-          showModelIcon: false,
-          message: ChatMessage(
-            id: messageId,
-            role: 'assistant',
-            conversationId: 'conversation-assistant-attachments',
-            parts: const [
-              TextPart('这是助手附图'),
-              FilePart(
-                uri: '/tmp/report.pdf',
-                name: 'report.pdf',
-                mime: 'application/pdf',
-              ),
-              ImagePart(uri: 'https://example.com/assistant.png'),
-            ],
+      await tester.pumpWidget(
+        _harness(
+          ChatMessageWidget(
+            showModelIcon: false,
+            message: ChatMessage(
+              id: messageId,
+              role: 'assistant',
+              conversationId: 'conversation-assistant-attachments',
+              parts: const [
+                TextPart('这是助手附图'),
+                FilePart(
+                  uri: '/tmp/report.pdf',
+                  name: 'report.pdf',
+                  mime: 'application/pdf',
+                ),
+                ImagePart(uri: 'https://example.com/assistant.png'),
+              ],
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    final attachmentsFinder = find.byKey(
-      const ValueKey('assistant-message-attachments:$messageId'),
-    );
-    expect(attachmentsFinder, findsOneWidget);
-    expect(
-      find.descendant(of: attachmentsFinder, matching: find.text('report.pdf')),
-      findsOneWidget,
-    );
+      final attachmentsFinder = find.byKey(
+        const ValueKey('assistant-message-attachments:$messageId'),
+      );
+      expect(attachmentsFinder, findsOneWidget);
+      expect(
+        find.descendant(
+          of: attachmentsFinder,
+          matching: find.text('report.pdf'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('assistant-message-attachment:$messageId:0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('assistant-message-attachment:$messageId:1')),
+        findsNothing,
+      );
 
-    final fileFinder = find.byKey(
-      const ValueKey('assistant-message-attachment:$messageId:1'),
-    );
-    final imageFinder = find.byKey(
-      const ValueKey('assistant-message-attachment:$messageId:2'),
-    );
-    expect(fileFinder, findsOneWidget);
-    expect(imageFinder, findsOneWidget);
-    expect(
-      tester.getRect(fileFinder).left,
-      lessThan(tester.getRect(imageFinder).left),
-    );
+      final images = tester.widgetList<Image>(find.byType(Image)).toList();
+      expect(
+        images.any((image) {
+          final provider = image.image;
+          final network = provider is NetworkImage
+              ? provider
+              : provider is ResizeImage &&
+                    provider.imageProvider is NetworkImage
+              ? provider.imageProvider as NetworkImage
+              : null;
+          return network?.url == 'https://example.com/assistant.png';
+        }),
+        isTrue,
+      );
 
-    final image = tester.widget<Image>(
-      find.descendant(of: imageFinder, matching: find.byType(Image)),
-    );
-    expect(image.image, isA<NetworkImage>());
-    expect(
-      (image.image as NetworkImage).url,
-      'https://example.com/assistant.png',
-    );
-
-    final align = tester.widget<Align>(attachmentsFinder);
-    expect(align.alignment, Alignment.centerLeft);
-  });
+      final align = tester.widget<Align>(attachmentsFinder);
+      expect(align.alignment, Alignment.centerLeft);
+    },
+  );
 
   testWidgets('assistant data URI ImagePart uses MemoryImage', (tester) async {
     const messageId = 'assistant-data-image';
@@ -295,7 +298,150 @@ more text
     );
     await tester.pump();
 
+    expect(
+      find.byKey(const ValueKey('assistant-message-attachments:$messageId')),
+      findsNothing,
+    );
     final image = tester.widget<Image>(find.byType(Image));
-    expect(image.image, isA<MemoryImage>());
+    final provider = image.image;
+    final memory = provider is MemoryImage
+        ? provider
+        : provider is ResizeImage && provider.imageProvider is MemoryImage
+        ? provider.imageProvider as MemoryImage
+        : null;
+    expect(memory, isA<MemoryImage>());
+  });
+
+  List<Image> imagesWithUrl(WidgetTester tester, String url) {
+    return tester.widgetList<Image>(find.byType(Image)).where((image) {
+      final provider = image.image;
+      final network = provider is NetworkImage
+          ? provider
+          : provider is ResizeImage && provider.imageProvider is NetworkImage
+          ? provider.imageProvider as NetworkImage
+          : null;
+      return network?.url == url;
+    }).toList();
+  }
+
+  testWidgets(
+    'semantic split fallback inlines ImagePart once and keeps FilePart in the strip',
+    (tester) async {
+      const messageId = 'assistant-semantic-image';
+      const imageUrl = 'https://example.com/semantic.png';
+
+      await tester.pumpWidget(
+        _harness(
+          ChatMessageWidget(
+            showModelIcon: false,
+            message: ChatMessage(
+              id: messageId,
+              role: 'assistant',
+              conversationId: 'conversation-semantic-image',
+              parts: const [
+                ReasoningPart('THINK_PLAN'),
+                TextPart('BODY_HELLO'),
+                FilePart(
+                  uri: '/tmp/report.pdf',
+                  name: 'report.pdf',
+                  mime: 'application/pdf',
+                ),
+                ImagePart(uri: imageUrl),
+              ],
+            ),
+            reasoningSegments: const [
+              ReasoningSegment(
+                text: 'THINK_PLAN',
+                expanded: true,
+                loading: false,
+              ),
+            ],
+            toolParts: const [
+              ToolUIPart(
+                id: 't1',
+                toolName: 'alpha_search',
+                arguments: {},
+                content: 'ok',
+              ),
+              ToolUIPart(
+                id: 't2',
+                toolName: 'beta_search',
+                arguments: {},
+                content: 'ok',
+              ),
+              ToolUIPart(
+                id: 't3',
+                toolName: 'omega_search',
+                arguments: {},
+                content: 'ok',
+              ),
+            ],
+            contentSplitOffsets: const [0],
+            reasoningCountAtSplit: const [1],
+            toolCountAtSplit: const [1],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final attachmentsFinder = find.byKey(
+        const ValueKey('assistant-message-attachments:$messageId'),
+      );
+      expect(attachmentsFinder, findsOneWidget);
+      expect(
+        find.descendant(
+          of: attachmentsFinder,
+          matching: find.text('report.pdf'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: attachmentsFinder, matching: find.byType(Image)),
+        findsNothing,
+      );
+      expect(imagesWithUrl(tester, imageUrl), hasLength(1));
+    },
+  );
+
+  testWidgets('complete historical splits keep ImagePart in the strip only', (
+    tester,
+  ) async {
+    const messageId = 'assistant-complete-split-image';
+    const imageUrl = 'https://example.com/historical.png';
+
+    await tester.pumpWidget(
+      _harness(
+        ChatMessageWidget(
+          showModelIcon: false,
+          message: ChatMessage(
+            id: messageId,
+            role: 'assistant',
+            content: 'hello',
+            conversationId: 'conversation-complete-split-image',
+            parts: const [
+              TextPart('hello'),
+              ImagePart(uri: imageUrl),
+            ],
+          ),
+          reasoningSegments: const [
+            ReasoningSegment(text: 'plan', expanded: true, loading: false),
+          ],
+          contentSplitOffsets: const [0],
+          reasoningCountAtSplit: const [1],
+          toolCountAtSplit: const [0],
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final attachmentsFinder = find.byKey(
+      const ValueKey('assistant-message-attachments:$messageId'),
+    );
+    expect(attachmentsFinder, findsOneWidget);
+    expect(
+      find.descendant(of: attachmentsFinder, matching: find.byType(Image)),
+      findsOneWidget,
+    );
+    expect(imagesWithUrl(tester, imageUrl), hasLength(1));
   });
 }

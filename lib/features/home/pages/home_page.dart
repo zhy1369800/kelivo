@@ -21,7 +21,9 @@ import '../../../core/providers/world_book_provider.dart';
 import '../../../core/models/quick_phrase.dart';
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/compress_context_options.dart';
 import '../../../core/services/android_process_text.dart';
+import '../../../core/services/logging/flutter_logger.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../../../utils/platform_utils.dart';
 import '../../../desktop/search_provider_popover.dart';
@@ -58,7 +60,6 @@ import '../widgets/user_message_edit_overlay.dart';
 import '../utils/model_display_helper.dart';
 import '../utils/chat_layout_constants.dart';
 import '../controllers/home_page_controller.dart';
-import '../controllers/home_view_model.dart';
 import '../controllers/scroll_controller.dart' as scroll_ctrl;
 import 'home_mobile_layout.dart';
 import 'home_desktop_layout.dart';
@@ -137,7 +138,9 @@ String _compressContextErrorMessage(AppLocalizations l10n, String error) {
 }
 
 class _CompressContextOptionsDialog extends StatefulWidget {
-  const _CompressContextOptionsDialog();
+  const _CompressContextOptionsDialog({required this.collapsedMessages});
+
+  final List<ChatMessage> collapsedMessages;
 
   @override
   State<_CompressContextOptionsDialog> createState() =>
@@ -148,25 +151,84 @@ class _CompressContextOptionsDialogState
     extends State<_CompressContextOptionsDialog> {
   CompressContextLimitMode _mode = CompressContextLimitMode.start;
   late final TextEditingController _maxCharsController;
+  late final TextEditingController _keepCountController;
+  late final String _totalTextForEstimate;
   String? _error;
+
+  int get _userMessageCount => countUserMessages(widget.collapsedMessages);
+
+  int? get _keepCount => int.tryParse(_keepCountController.text.trim());
+
+  bool get _keepCoversAll =>
+      _userMessageCount == 0 || (_keepCount ?? 0) >= _userMessageCount;
 
   @override
   void initState() {
     super.initState();
+    final settings = context.read<SettingsProvider>();
+    _mode = settings.compressLimitMode;
     _maxCharsController = TextEditingController(
-      text: CompressContextOptions.defaultMaxChars.toString(),
+      text: settings.compressMaxChars.toString(),
+    );
+    _keepCountController = TextEditingController(
+      text:
+          (settings.compressKeepUserMessages ??
+                  defaultKeepUserMessageCountFor(_userMessageCount))
+              .toString(),
+    );
+    _totalTextForEstimate = buildConversationTextForCompression(
+      widget.collapsedMessages,
     );
   }
 
   @override
   void dispose() {
     _maxCharsController.dispose();
+    _keepCountController.dispose();
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _persistSelections({
+    int? maxChars,
+    int? keepUserMessages,
+  }) async {
+    final settings = context.read<SettingsProvider>();
+    await settings.setCompressLimitMode(_mode);
+    if (keepUserMessages != null) {
+      await settings.setCompressKeepUserMessages(keepUserMessages);
+    } else if (_keepCount != null && _keepCount! > 0) {
+      await settings.setCompressKeepUserMessages(_keepCount);
+    }
+    final persistedMaxChars =
+        maxChars ?? int.tryParse(_maxCharsController.text.trim());
+    if (persistedMaxChars != null && persistedMaxChars > 0) {
+      await settings.setCompressMaxChars(persistedMaxChars);
+    }
+  }
+
+  Future<void> _submit() async {
+    if (_mode == CompressContextLimitMode.keepRecent) {
+      if (_keepCount == null || _keepCount! <= 0) {
+        setState(() {
+          _error = AppLocalizations.of(context)!.compressContextInvalidLimit;
+        });
+        return;
+      }
+      if (_keepCoversAll) {
+        // The keep-all hint is already shown inline in the preview area.
+        return;
+      }
+      await _persistSelections(keepUserMessages: _keepCount);
+      if (!mounted) return;
+      Navigator.of(
+        context,
+      ).pop(CompressContextOptions(mode: _mode, keepUserMessages: _keepCount));
+      return;
+    }
+
     int? maxChars;
-    if (_mode != CompressContextLimitMode.unlimited) {
+    if (_mode == CompressContextLimitMode.start ||
+        _mode == CompressContextLimitMode.recent) {
       maxChars = int.tryParse(_maxCharsController.text.trim());
       if (maxChars == null || maxChars <= 0) {
         setState(() {
@@ -176,9 +238,31 @@ class _CompressContextOptionsDialogState
       }
     }
 
+    await _persistSelections(maxChars: maxChars);
+    if (!mounted) return;
     Navigator.of(
       context,
     ).pop(CompressContextOptions(mode: _mode, maxChars: maxChars));
+  }
+
+  String _keepEstimateText(AppLocalizations l10n) {
+    final keptText = buildConversationTextForCompression(
+      selectKeepRecentMessages(widget.collapsedMessages, _keepCount ?? 0),
+    );
+    final summarizedChars = (_totalTextForEstimate.length - keptText.length)
+        .clamp(0, _totalTextForEstimate.length)
+        .toInt();
+    final est = estimateCompressionTokens(
+      totalText: _totalTextForEstimate,
+      keptText: keptText,
+    );
+    return l10n.compressContextEstimatePreview(
+      summarizedChars,
+      keptText.length,
+      est.minResultTokens,
+      est.maxResultTokens,
+      est.totalTokens,
+    );
   }
 
   @override
@@ -194,7 +278,10 @@ class _CompressContextOptionsDialogState
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       backgroundColor: Colors.transparent,
       child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: constrainedWidth),
+        constraints: BoxConstraints(
+          maxWidth: constrainedWidth,
+          maxHeight: MediaQuery.sizeOf(context).height,
+        ),
         child: Material(
           color: panelColor,
           borderRadius: BorderRadius.circular(18),
@@ -204,66 +291,109 @@ class _CompressContextOptionsDialogState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(
-                  children: [
-                    Icon(Lucide.package2, size: 20, color: cs.primary),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        l10n.compressContextOptionsTitle,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: AppFontWeights.emphasis,
-                          color: cs.onSurface,
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Lucide.package2, size: 20, color: cs.primary),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                l10n.compressContextOptionsTitle,
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: AppFontWeights.emphasis,
+                                  color: cs.onSurface,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.compressContextOptionsDesc,
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.35,
+                            color: cs.onSurface.withValues(alpha: 0.62),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const _CompressModelPickerRow(),
+                        const SizedBox(height: 16),
+                        _CompressModeSegmented(
+                          mode: _mode,
+                          keepRecentDisabled: _userMessageCount <= 1,
+                          onChanged: (mode) {
+                            setState(() {
+                              _mode = mode;
+                              _error = null;
+                            });
+                          },
+                        ),
+                        if (_mode == CompressContextLimitMode.start ||
+                            _mode == CompressContextLimitMode.recent) ...[
+                          const SizedBox(height: 10),
+                          IosFormTextField(
+                            label: l10n.compressContextMaxCharsLabel,
+                            controller: _maxCharsController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            selectAllOnFocus: true,
+                            fieldWidth: 120,
+                            onChanged: (_) {
+                              if (_error != null) {
+                                setState(() => _error = null);
+                              }
+                            },
+                          ),
+                        ],
+                        if (_mode == CompressContextLimitMode.keepRecent) ...[
+                          const SizedBox(height: 10),
+                          IosFormTextField(
+                            label: l10n.compressContextKeepCountLabel,
+                            controller: _keepCountController,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            selectAllOnFocus: true,
+                            fieldWidth: 120,
+                            onChanged: (_) {
+                              setState(() => _error = null);
+                            },
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            _keepCoversAll
+                                ? l10n.compressContextKeepAllMessages
+                                : _keepEstimateText(l10n),
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.35,
+                              color: _keepCoversAll
+                                  ? cs.error
+                                  : cs.onSurface.withValues(alpha: 0.62),
+                            ),
+                          ),
+                        ],
+                        if (_error != null) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            _error!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.error,
+                              fontWeight: AppFontWeights.medium,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.compressContextOptionsDesc,
-                  style: TextStyle(
-                    fontSize: 13,
-                    height: 1.35,
-                    color: cs.onSurface.withValues(alpha: 0.62),
                   ),
                 ),
-                const SizedBox(height: 16),
-                _CompressModeSegmented(
-                  mode: _mode,
-                  onChanged: (mode) {
-                    setState(() {
-                      _mode = mode;
-                      _error = null;
-                    });
-                  },
-                ),
-                if (_mode != CompressContextLimitMode.unlimited) ...[
-                  const SizedBox(height: 10),
-                  IosFormTextField(
-                    label: l10n.compressContextMaxCharsLabel,
-                    controller: _maxCharsController,
-                    keyboardType: TextInputType.number,
-                    textInputAction: TextInputAction.done,
-                    selectAllOnFocus: true,
-                    fieldWidth: 120,
-                    onChanged: (_) {
-                      if (_error != null) setState(() => _error = null);
-                    },
-                  ),
-                ],
-                if (_error != null) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: cs.error,
-                      fontWeight: AppFontWeights.medium,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 18),
                 Row(
                   children: [
@@ -292,39 +422,172 @@ class _CompressContextOptionsDialogState
   }
 }
 
-class _CompressModeSegmented extends StatelessWidget {
-  const _CompressModeSegmented({required this.mode, required this.onChanged});
+String? _compressModelDisplayName(
+  SettingsProvider settings, {
+  required String? providerKey,
+  required String? modelId,
+}) {
+  if (providerKey == null || modelId == null) return null;
+  try {
+    final cfg = settings.getProviderConfig(providerKey);
+    final ov = cfg.modelOverrides[modelId] as Map?;
+    if (ov != null) {
+      final overrideName = (ov['name'] as String?)?.trim();
+      if (overrideName != null && overrideName.isNotEmpty) {
+        return overrideName;
+      }
+      final apiId = (ov['apiModelId'] ?? ov['api_model_id'])?.toString().trim();
+      if (apiId != null && apiId.isNotEmpty) return apiId;
+    }
+    return modelId;
+  } catch (_) {
+    return modelId;
+  }
+}
 
-  final CompressContextLimitMode mode;
-  final ValueChanged<CompressContextLimitMode> onChanged;
+class _CompressModelPickerRow extends StatelessWidget {
+  const _CompressModelPickerRow();
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Row(
+    final cs = Theme.of(context).colorScheme;
+    final settings = context.watch<SettingsProvider>();
+    final assistant = context.watch<AssistantProvider>().currentAssistant;
+    final resolved = resolveCompressContextModel(
+      compressProvider: settings.compressModelProvider,
+      compressModelId: settings.compressModelId,
+      summaryProvider: settings.summaryModelProvider,
+      summaryModelId: settings.summaryModelId,
+      titleProvider: settings.titleModelProvider,
+      titleModelId: settings.titleModelId,
+      assistantProvider: assistant?.chatModelProvider,
+      assistantModelId: assistant?.chatModelId,
+      currentProvider: settings.currentModelProvider,
+      currentModelId: settings.currentModelId,
+    );
+    final display =
+        _compressModelDisplayName(
+          settings,
+          providerKey: resolved.providerKey,
+          modelId: resolved.modelId,
+        ) ??
+        l10n.compressContextModelUnset;
+    final labelColor = cs.onSurface.withValues(alpha: 0.85);
+    final valueColor = cs.onSurface.withValues(alpha: 0.92);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: _SegmentButton(
-            label: l10n.compressContextKeepStart,
-            selected: mode == CompressContextLimitMode.start,
-            onTap: () => onChanged(CompressContextLimitMode.start),
+        Text(
+          l10n.compressContextModelLabel,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: AppFontWeights.semibold,
+            color: labelColor,
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _SegmentButton(
-            label: l10n.compressContextKeepRecent,
-            selected: mode == CompressContextLimitMode.recent,
-            onTap: () => onChanged(CompressContextLimitMode.recent),
+        const SizedBox(height: 6),
+        IosCardPress(
+          baseColor: context.appColors.surfaceFill,
+          borderRadius: BorderRadius.circular(12),
+          pressedScale: 0.98,
+          haptics: false,
+          onTap: () async {
+            final sel = await showModelSelector(
+              context,
+              initialProviderKey: resolved.providerKey,
+              initialModelId: resolved.modelId,
+            );
+            if (sel == null || !context.mounted) return;
+            await context.read<SettingsProvider>().setCompressModel(
+              sel.providerKey,
+              sel.modelId,
+            );
+          },
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  display,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: AppFontWeights.medium,
+                    color: valueColor,
+                  ),
+                ),
+              ),
+              Icon(
+                Lucide.ChevronRight,
+                size: 16,
+                color: cs.onSurface.withValues(alpha: 0.45),
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _SegmentButton(
-            label: l10n.compressContextUnlimited,
-            selected: mode == CompressContextLimitMode.unlimited,
-            onTap: () => onChanged(CompressContextLimitMode.unlimited),
-          ),
+      ],
+    );
+  }
+}
+
+class _CompressModeSegmented extends StatelessWidget {
+  const _CompressModeSegmented({
+    required this.mode,
+    required this.onChanged,
+    this.keepRecentDisabled = false,
+  });
+
+  final CompressContextLimitMode mode;
+  final ValueChanged<CompressContextLimitMode> onChanged;
+  final bool keepRecentDisabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _SegmentButton(
+                label: l10n.compressContextKeepStart,
+                selected: mode == CompressContextLimitMode.start,
+                onTap: () => onChanged(CompressContextLimitMode.start),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _SegmentButton(
+                label: l10n.compressContextKeepRecent,
+                selected: mode == CompressContextLimitMode.recent,
+                onTap: () => onChanged(CompressContextLimitMode.recent),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: _SegmentButton(
+                label: l10n.compressContextUnlimited,
+                selected: mode == CompressContextLimitMode.unlimited,
+                onTap: () => onChanged(CompressContextLimitMode.unlimited),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _SegmentButton(
+                label: l10n.compressContextKeepRecentMessages,
+                selected: mode == CompressContextLimitMode.keepRecent,
+                enabled: !keepRecentDisabled,
+                onTap: () => onChanged(CompressContextLimitMode.keepRecent),
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -336,11 +599,13 @@ class _SegmentButton extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.enabled = true,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -355,7 +620,7 @@ class _SegmentButton extends StatelessWidget {
       baseColor: selected ? selectedBg : baseBg,
       borderRadius: BorderRadius.circular(10),
       pressedScale: 0.98,
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       haptics: false,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       child: Center(
@@ -366,7 +631,11 @@ class _SegmentButton extends StatelessWidget {
           style: TextStyle(
             fontSize: 13,
             fontWeight: AppFontWeights.emphasis,
-            color: selected ? cs.primary : cs.onSurface.withValues(alpha: 0.78),
+            color: !enabled
+                ? cs.onSurface.withValues(alpha: 0.3)
+                : selected
+                ? cs.primary
+                : cs.onSurface.withValues(alpha: 0.78),
           ),
         ),
       ),
@@ -708,9 +977,9 @@ class _HomePageState extends State<HomePage>
 
     return ChatInputOverlayLayout(
       topInset: _chatTopOverlayInset(context),
-      background: backgroundImageActive
-          ? _buildChatBackground(context, cs)
-          : null,
+      // The full-window artwork already sits behind the Scaffold
+      // (MobileBackgroundLayer); painting it again inside the body would only
+      // duplicate it in a box that shrinks with the keyboard.
       topBackground: backgroundImageActive
           ? _buildChatBackground(context, cs)
           : null,
@@ -1449,7 +1718,11 @@ class _HomePageState extends State<HomePage>
         messages: collapsed,
       );
     } else {
-      selectedId = await showMiniMapSheet(context, collapsed);
+      selectedId = await showMiniMapSheet(
+        context,
+        collapsed,
+        onSearch: (query) => _controller.searchMiniMapMatches(query),
+      );
     }
     if (!mounted) return;
     if (selectedId != null && selectedId.isNotEmpty) {
@@ -1662,31 +1935,47 @@ class _HomePageState extends State<HomePage>
   }
 
   Future<void> _showCompressContextOptions() async {
+    final allMsgs = await _controller
+        .allMessagesForCurrentConversationContext();
+    final collapsed = _controller.collapseVersions(allMsgs);
+    if (!mounted) return;
     final options = await showDialog<CompressContextOptions>(
       context: context,
       barrierDismissible: true,
-      builder: (_) => const _CompressContextOptionsDialog(),
+      builder: (_) =>
+          _CompressContextOptionsDialog(collapsedMessages: collapsed),
     );
     if (options == null || !mounted) return;
 
     final l10n = AppLocalizations.of(context)!;
-    unawaited(
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => LoadingDialogCard(label: l10n.compressingContext),
-      ),
+    final dialogContextCompleter = Completer<BuildContext>();
+    final dialogClosed = showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        if (!dialogContextCompleter.isCompleted) {
+          dialogContextCompleter.complete(dialogContext);
+        }
+        return LoadingDialogCard(label: l10n.compressingContext);
+      },
     );
+    unawaited(dialogClosed);
+    final dialogContext = await dialogContextCompleter.future;
 
     String? error;
     try {
       error = await _controller.compressContext(options: options);
-    } catch (e) {
+    } catch (e, st) {
+      FlutterLogger.log(
+        '[CompressContext] dialog failed: $e\n$st',
+        tag: 'HomePage',
+      );
       error = e.toString();
     } finally {
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
+      if (dialogContext.mounted) {
+        Navigator.of(dialogContext).pop();
       }
+      await dialogClosed;
     }
     if (error != null && mounted) {
       showAppSnackBar(

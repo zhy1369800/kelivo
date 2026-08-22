@@ -76,6 +76,92 @@ String memoryScopeLabel(
   return l10n.memoryEntryScopeAssistantNamed(assistantName);
 }
 
+/// Compact info icon: tap or long-press shows [message], matching the
+/// legacy-memory toggle on the assistant Memory tab.
+class MemoryTipIcon extends StatefulWidget {
+  const MemoryTipIcon({super.key, required this.message});
+
+  final String message;
+
+  @override
+  State<MemoryTipIcon> createState() => _MemoryTipIconState();
+}
+
+class _MemoryTipIconState extends State<MemoryTipIcon> {
+  final _tooltipKey = GlobalKey<TooltipState>();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Tooltip(
+      key: _tooltipKey,
+      message: widget.message,
+      triggerMode: TooltipTriggerMode.tap,
+      waitDuration: const Duration(milliseconds: 250),
+      showDuration: const Duration(seconds: 8),
+      preferBelow: true,
+      constraints: const BoxConstraints(maxWidth: 280),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPress: () => _tooltipKey.currentState?.ensureTooltipVisible(),
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: Center(
+            child: Icon(
+              Lucide.BadgeInfo,
+              size: 16,
+              color: cs.onSurface.withValues(alpha: 0.45),
+              semanticLabel: widget.message,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Human-readable label for a pipeline / tool outcome code.
+///
+/// Known codes map to l10n strings. Prefixed codes such as
+/// `gate_request_failed:…` match by prefix. Unknown codes are returned as-is.
+String memoryOutcomeLabel(AppLocalizations l10n, String code) {
+  final key = _memoryOutcomeKey(code);
+  return switch (key) {
+    'temporary_conversation' => l10n.memoryOutcomeTemporaryConversation,
+    'memory_disabled' => l10n.memoryOutcomeMemoryDisabled,
+    'auto_organize_off' => l10n.memoryOutcomeAutoOrganizeOff,
+    'streaming' => l10n.memoryOutcomeStreaming,
+    'below_threshold' => l10n.memoryOutcomeBelowThreshold,
+    'empty_window' => l10n.memoryOutcomeEmptyWindow,
+    'memory_model_unset' => l10n.memoryOutcomeMemoryModelUnset,
+    'memory_model_missing' => l10n.memoryOutcomeMemoryModelMissing,
+    'assistant_missing' => l10n.memoryOutcomeAssistantMissing,
+    'conversation_missing' => l10n.memoryOutcomeConversationMissing,
+    'queue_overflow' => l10n.memoryOutcomeQueueOverflow,
+    'gate_request_failed' => l10n.memoryOutcomeGateRequestFailed,
+    'gate_parse_failed' => l10n.memoryOutcomeGateParseFailed,
+    'extract_request_failed' => l10n.memoryOutcomeExtractRequestFailed,
+    'extract_parse_failed' => l10n.memoryOutcomeExtractParseFailed,
+    'distill_failed' => l10n.memoryOutcomeDistillFailed,
+    'memory_execution_error' => l10n.memoryOutcomeMemoryExecutionError,
+    'unsupported_tool' => l10n.memoryOutcomeUnsupportedTool,
+    'invalid_memory_type' => l10n.memoryOutcomeInvalidMemoryType,
+    'invalid_memory_content' => l10n.memoryOutcomeInvalidMemoryContent,
+    'invalid_query' => l10n.memoryOutcomeInvalidQuery,
+    'invalid_memory_id' => l10n.memoryOutcomeInvalidMemoryId,
+    'memory_not_found' => l10n.memoryOutcomeMemoryNotFound,
+    'invalid_profile_fields' => l10n.memoryOutcomeInvalidProfileFields,
+    'chat_search_unavailable' => l10n.memoryOutcomeChatSearchUnavailable,
+    _ => code,
+  };
+}
+
+String _memoryOutcomeKey(String code) {
+  final colon = code.indexOf(':');
+  return colon < 0 ? code : code.substring(0, colon);
+}
+
 Future<bool> confirmHardDeleteMemory(BuildContext context) async {
   final l10n = AppLocalizations.of(context)!;
   final result = await showDialog<bool>(
@@ -700,10 +786,15 @@ class MemorySearchField extends StatelessWidget {
 }
 
 class MemoryPickerOption<T> {
-  const MemoryPickerOption({required this.value, required this.label});
+  const MemoryPickerOption({
+    required this.value,
+    required this.label,
+    this.subtitle,
+  });
 
   final T value;
   final String label;
+  final String? subtitle;
 }
 
 /// Option picker: centered Dialog on desktop, bottom sheet on mobile.
@@ -722,6 +813,7 @@ Future<T?> showMemoryOptionPicker<T>(
         for (var i = 0; i < options.length; i++) ...[
           _MemoryOptionRow<T>(
             label: options[i].label,
+            subtitle: options[i].subtitle,
             selected: options[i].value == selected,
             onTap: () => Navigator.of(ctx).pop(options[i].value),
           ),
@@ -849,9 +941,7 @@ Future<T?> showMemoryOptionPicker<T>(
                   ),
                 ),
                 const SizedBox(height: 12),
-                Flexible(
-                  child: SingleChildScrollView(child: optionsCard(ctx)),
-                ),
+                Flexible(child: SingleChildScrollView(child: optionsCard(ctx))),
               ],
             ),
           ),
@@ -866,15 +956,18 @@ class _MemoryOptionRow<T> extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    this.subtitle,
   });
 
   final String label;
+  final String? subtitle;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final hasSubtitle = subtitle != null && subtitle!.isNotEmpty;
     return IosCardPress(
       onTap: onTap,
       baseColor: Colors.transparent,
@@ -887,14 +980,37 @@ class _MemoryOptionRow<T> extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: AppFontWeights.semibold,
-                  color: cs.onSurface.withValues(alpha: 0.9),
-                ),
-              ),
+              child: hasSubtitle
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: AppFontWeights.semibold,
+                            color: cs.onSurface.withValues(alpha: 0.9),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle!,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.3,
+                            color: cs.onSurface.withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: AppFontWeights.semibold,
+                        color: cs.onSurface.withValues(alpha: 0.9),
+                      ),
+                    ),
             ),
             if (selected) Icon(Lucide.Check, size: 18, color: cs.primary),
           ],
@@ -962,6 +1078,7 @@ Future<void> showMemoryEntryEditor(
   BuildContext context, {
   MemoryEntry? existing,
   String? defaultAssistantId,
+  MemoryScope defaultScope = MemoryScope.global,
   bool allowAssistantPicker = false,
 }) {
   final l10n = AppLocalizations.of(context)!;
@@ -974,6 +1091,7 @@ Future<void> showMemoryEntryEditor(
     title: title,
     existing: existing,
     defaultAssistantId: defaultAssistantId,
+    defaultScope: defaultScope,
     allowAssistantPicker: allowAssistantPicker,
     desktop: desktop,
   );
@@ -1019,6 +1137,7 @@ class MemoryEntryEditForm extends StatefulWidget {
     required this.title,
     this.existing,
     this.defaultAssistantId,
+    this.defaultScope = MemoryScope.global,
     this.allowAssistantPicker = false,
     this.desktop = false,
   });
@@ -1026,6 +1145,7 @@ class MemoryEntryEditForm extends StatefulWidget {
   final String title;
   final MemoryEntry? existing;
   final String? defaultAssistantId;
+  final MemoryScope defaultScope;
   final bool allowAssistantPicker;
 
   /// When true, render a compact dialog body (no sheet drag handle / inset).
@@ -1048,7 +1168,7 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
     final existing = widget.existing;
     _content = TextEditingController(text: existing?.content ?? '');
     _type = existing?.type ?? MemoryType.identity;
-    _scope = existing?.scope ?? MemoryScope.global;
+    _scope = existing?.scope ?? widget.defaultScope;
     _assistantId = existing?.assistantId ?? widget.defaultAssistantId;
   }
 
@@ -1057,8 +1177,6 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
     _content.dispose();
     super.dispose();
   }
-
-  bool get _isCreate => widget.existing == null;
 
   String? _resolvedAssistantId(List<Assistant> assistants) {
     if (_scope != MemoryScope.assistant) return null;
@@ -1076,31 +1194,59 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
     final mp = context.read<MemoryProviderV2>();
     final assistants = context.read<AssistantProvider>().assistants;
     final assistantId = _resolvedAssistantId(assistants);
-    if (_isCreate &&
-        _scope == MemoryScope.assistant &&
+    if (_scope == MemoryScope.assistant &&
         (assistantId == null || assistantId.isEmpty)) {
       return;
     }
     setState(() => _saving = true);
     final existing = widget.existing;
-    if (existing == null) {
-      await mp.create(
-        scope: _scope,
-        assistantId: assistantId,
-        type: _type,
-        content: text,
-        source: MemorySource.manual,
-      );
-    } else {
-      await mp.updateContent(existing.id, text);
+    final nextType = _type;
+    final nextScope = _scope;
+    try {
+      if (existing == null) {
+        await mp.create(
+          scope: nextScope,
+          assistantId: assistantId,
+          type: nextType,
+          content: text,
+          source: MemorySource.manual,
+        );
+      } else {
+        final scopeKindChanged = nextScope != existing.scope;
+        final assistantRetargeted =
+            nextScope == MemoryScope.assistant &&
+            existing.assistantId != assistantId;
+        final shouldUpdateScope = scopeKindChanged || assistantRetargeted;
+        if (scopeKindChanged) {
+          if (!context.mounted) return;
+          final confirmed = await confirmScopeSwitch(
+            context,
+            toGlobal: nextScope == MemoryScope.global,
+          );
+          if (!confirmed) return;
+        }
+        // Writes are independent of the sheet/dialog staying open.
+        if (text != existing.content) {
+          await mp.updateContent(existing.id, text);
+        }
+        if (nextType != existing.type) {
+          await mp.updateType(existing.id, nextType);
+        }
+        if (shouldUpdateScope) {
+          await mp.updateScope(
+            existing.id,
+            scope: nextScope,
+            assistantId: assistantId,
+          );
+        }
+      }
+      if (mounted) navigator.maybePop();
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    navigator.maybePop();
   }
 
-  List<Widget> _formFields(
-    AppLocalizations l10n,
-    List<Assistant> assistants,
-  ) {
+  List<Widget> _formFields(AppLocalizations l10n, List<Assistant> assistants) {
     return [
       MemorySectionCard(
         children: [
@@ -1119,56 +1265,53 @@ class _MemoryEntryEditFormState extends State<MemoryEntryEditForm> {
           ),
         ],
       ),
-      if (_isCreate) ...[
+      const SizedBox(height: 16),
+      MemorySectionLabel(text: l10n.memoryEntryTypeLabel),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final t in MemoryType.values)
+            MemorySelectChip(
+              label: memoryTypeLabel(l10n, t),
+              selected: _type == t,
+              onTap: () => setState(() => _type = t),
+            ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      MemorySectionLabel(text: l10n.memoryEntryScopeLabel),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          MemorySelectChip(
+            label: l10n.memoryEntryScopeGlobal,
+            selected: _scope == MemoryScope.global,
+            onTap: () => setState(() => _scope = MemoryScope.global),
+          ),
+          MemorySelectChip(
+            label: l10n.memoryEntryScopeAssistant,
+            selected: _scope == MemoryScope.assistant,
+            onTap: () => setState(() => _scope = MemoryScope.assistant),
+          ),
+        ],
+      ),
+      if (widget.allowAssistantPicker && _scope == MemoryScope.assistant) ...[
         const SizedBox(height: 16),
-        MemorySectionLabel(text: l10n.memoryEntryTypeLabel),
+        MemorySectionLabel(text: l10n.memoryUiAssistantLabel),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
-            for (final t in MemoryType.values)
+            for (final a in assistants)
               MemorySelectChip(
-                label: memoryTypeLabel(l10n, t),
-                selected: _type == t,
-                onTap: () => setState(() => _type = t),
+                label: a.name,
+                selected: _resolvedAssistantId(assistants) == a.id,
+                onTap: () => setState(() => _assistantId = a.id),
               ),
           ],
         ),
-        const SizedBox(height: 16),
-        MemorySectionLabel(text: l10n.memoryEntryScopeLabel),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            MemorySelectChip(
-              label: l10n.memoryEntryScopeGlobal,
-              selected: _scope == MemoryScope.global,
-              onTap: () => setState(() => _scope = MemoryScope.global),
-            ),
-            MemorySelectChip(
-              label: l10n.memoryEntryScopeAssistant,
-              selected: _scope == MemoryScope.assistant,
-              onTap: () => setState(() => _scope = MemoryScope.assistant),
-            ),
-          ],
-        ),
-        if (widget.allowAssistantPicker &&
-            _scope == MemoryScope.assistant) ...[
-          const SizedBox(height: 16),
-          MemorySectionLabel(text: l10n.memoryUiAssistantLabel),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final a in assistants)
-                MemorySelectChip(
-                  label: a.name,
-                  selected: _resolvedAssistantId(assistants) == a.id,
-                  onTap: () => setState(() => _assistantId = a.id),
-                ),
-            ],
-          ),
-        ],
       ],
     ];
   }

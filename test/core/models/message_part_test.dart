@@ -173,11 +173,7 @@ void main() {
       );
       final video = MessagePart.fromRow(
         'file',
-        jsonEncode({
-          'uri': '/tmp/v.mp4',
-          'name': 'v.mp4',
-          'mime': 'video/mp4',
-        }),
+        jsonEncode({'uri': '/tmp/v.mp4', 'name': 'v.mp4', 'mime': 'video/mp4'}),
       );
 
       expect(audio, isA<FilePart>());
@@ -186,6 +182,186 @@ void main() {
       expect(video, isA<FilePart>());
       expect(video.kind, 'file');
       expect((video as FilePart).mime, 'video/mp4');
+    });
+  });
+
+  group('renderAssistantFromParts', () {
+    test('uses parts when reasoning or tool_call is present', () {
+      expect(
+        renderAssistantFromParts(
+          parts: const [ReasoningPart('plan'), TextPart('hi')],
+          hasContentSplits: false,
+        ),
+        isTrue,
+      );
+      expect(
+        renderAssistantFromParts(
+          parts: const [
+            ToolCallPart('{"id":"c1","name":"lookup"}'),
+            TextPart('done'),
+          ],
+          hasContentSplits: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('keeps split renderer for flat historical reasoning plus splits', () {
+      expect(
+        renderAssistantFromParts(
+          parts: const [ReasoningPart('plan'), TextPart('hi')],
+          hasContentSplits: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('keeps split renderer for historical text plus extracted images', () {
+      expect(
+        renderAssistantFromParts(
+          parts: const [
+            TextPart('caption'),
+            ImagePart(uri: 'kelivo-file:///images/a.png', mime: 'image/png'),
+          ],
+          hasContentSplits: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('uses parts for new image-only rows without splits', () {
+      expect(
+        renderAssistantFromParts(
+          parts: const [
+            ImagePart(uri: 'https://example.com/a.png', mime: 'image/png'),
+            TextPart('Done'),
+          ],
+          hasContentSplits: false,
+        ),
+        isTrue,
+      );
+    });
+  });
+
+  group('contentSplitsAreUsable', () {
+    test('rejects empty or incomplete triples', () {
+      expect(contentSplitsAreUsable(null, null, null), isFalse);
+      expect(contentSplitsAreUsable(const [], const [], const []), isFalse);
+      expect(contentSplitsAreUsable(const [0], null, const [0]), isFalse);
+    });
+
+    test('rejects mismatched lengths, negatives, and regressions', () {
+      expect(
+        contentSplitsAreUsable(const [0], const [1, 2], const [0]),
+        isFalse,
+      );
+      expect(contentSplitsAreUsable(const [-1], const [1], const [0]), isFalse);
+      expect(
+        contentSplitsAreUsable(const [0, 3], const [2, 1], const [0, 0]),
+        isFalse,
+      );
+    });
+
+    test('accepts non-empty monotonic historical triples', () {
+      expect(contentSplitsAreUsable(const [0], const [1], const [0]), isTrue);
+      expect(
+        contentSplitsAreUsable(const [0, 6], const [1, 1], const [0, 1]),
+        isTrue,
+      );
+    });
+  });
+
+  group('tryParseContentSplits', () {
+    test('rejects mismatched lengths instead of truncating', () {
+      expect(
+        tryParseContentSplits({
+          'offsets': [0, 6],
+          'reasoningCounts': [1],
+          'toolCounts': [0, 1],
+        }),
+        isNull,
+      );
+    });
+
+    test('returns usable triples unchanged', () {
+      final parsed = tryParseContentSplits({
+        'offsets': [0, 6],
+        'reasoningCounts': [1, 1],
+        'toolCounts': [0, 1],
+      });
+      expect(parsed, isNotNull);
+      expect(parsed!.offsets, [0, 6]);
+      expect(parsed.reasoningCounts, [1, 1]);
+      expect(parsed.toolCounts, [0, 1]);
+    });
+  });
+
+  group('contentSplitsMatchTimeline', () {
+    test('rejects offsets past the body and unreachable counts', () {
+      expect(
+        contentSplitsMatchTimeline(
+          offsets: const [11],
+          reasoningCounts: const [1],
+          toolCounts: const [0],
+          contentLength: 5,
+          stepReasoningCounts: const [1],
+          stepToolCounts: const [0],
+        ),
+        isFalse,
+      );
+      expect(
+        contentSplitsMatchTimeline(
+          offsets: const [0],
+          reasoningCounts: const [2],
+          toolCounts: const [0],
+          contentLength: 5,
+          stepReasoningCounts: const [1],
+          stepToolCounts: const [0],
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects an empty timeline even when triples look structural', () {
+      expect(
+        contentSplitsMatchTimeline(
+          offsets: const [0],
+          reasoningCounts: const [1],
+          toolCounts: const [0],
+          contentLength: 5,
+          stepReasoningCounts: const [],
+          stepToolCounts: const [],
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects splits that stop before every tool step', () {
+      expect(
+        contentSplitsMatchTimeline(
+          offsets: const [0],
+          reasoningCounts: const [1],
+          toolCounts: const [7],
+          contentLength: 12,
+          stepReasoningCounts: [1, for (var i = 1; i <= 17; i++) 1],
+          stepToolCounts: [0, for (var i = 1; i <= 17; i++) i],
+        ),
+        isFalse,
+      );
+    });
+
+    test('accepts splits that consume every timeline step', () {
+      expect(
+        contentSplitsMatchTimeline(
+          offsets: const [6],
+          reasoningCounts: const [1],
+          toolCounts: const [2],
+          contentLength: 11,
+          stepReasoningCounts: const [1, 1, 1],
+          stepToolCounts: const [0, 1, 2],
+        ),
+        isTrue,
+      );
     });
   });
 }

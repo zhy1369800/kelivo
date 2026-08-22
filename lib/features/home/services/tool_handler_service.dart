@@ -16,6 +16,7 @@ import '../../../core/services/api/chat_api_service.dart';
 import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/mcp/mcp_tool_service.dart';
 import '../../../core/services/memory/memory_pipeline.dart';
+import '../../../core/services/memory/memory_prompts.dart';
 import '../../../core/services/memory/memory_tools.dart';
 import '../../../core/services/search/search_tool_service.dart';
 import '../../../core/models/system_permission_policy.dart';
@@ -34,6 +35,7 @@ import '../../../core/services/native_speech_recognizer_service.dart';
 import '../../../core/services/native_speech_synthesizer_service.dart';
 import '../../../core/services/native_shortcut_automation_service.dart';
 import 'ask_user_interaction_service.dart';
+import 'built_in_tool_names.dart';
 import 'local_tools_service.dart';
 import 'tool_approval_service.dart';
 
@@ -82,6 +84,19 @@ class ToolHandlerService {
       final v = m['const'];
       if (v is String || v is num || v is bool) {
         m['enum'] = [v];
+        // Keep the declared type in sync so a non-string const is not mistaken
+        // for a string enum downstream.
+        if (m['type'] == null) {
+          if (v is bool) {
+            m['type'] = 'boolean';
+          } else if (v is int) {
+            m['type'] = 'integer';
+          } else if (v is num) {
+            m['type'] = 'number';
+          } else {
+            m['type'] = 'string';
+          }
+        }
       }
       m.remove('const');
     }
@@ -194,6 +209,7 @@ class ToolHandlerService {
       contextProvider.read<McpProvider>(),
       contextProvider.read<AssistantProvider>(),
       assistantId: assistant?.id,
+      reservedNames: BuiltInToolNames.all,
     );
   }
 
@@ -240,7 +256,9 @@ class ToolHandlerService {
     // Memory tools (§10.1)
     if (settings.legacyMemoryMode) {
       if (assistant?.enableMemory == true && supportsTools) {
-        toolDefs.addAll(_buildLegacyMemoryToolDefinitions());
+        toolDefs.addAll(
+          _buildLegacyMemoryToolDefinitions(settings.resolvedMemoryPromptLang),
+        );
       }
     } else if (supportsTools && assistant != null) {
       toolDefs.addAll(
@@ -276,19 +294,27 @@ class ToolHandlerService {
   }
 
   /// Legacy create/edit/delete_memory tool schemas (pre-v2 memory system).
-  List<Map<String, dynamic>> _buildLegacyMemoryToolDefinitions() {
+  ///
+  /// Localised by [lang] like [MemoryTools.buildDefinitions], so the schemas
+  /// match the language the legacy rules are sent in.
+  List<Map<String, dynamic>> _buildLegacyMemoryToolDefinitions(
+    MemoryPromptLang lang,
+  ) {
+    final zh = lang == MemoryPromptLang.zh;
     return [
       {
         'type': 'function',
         'function': {
           'name': 'create_memory',
-          'description': 'create a memory record',
+          'description': zh ? '新增一条记忆记录。' : 'Create a memory record.',
           'parameters': {
             'type': 'object',
             'properties': {
               'content': {
                 'type': 'string',
-                'description': 'The content of the memory record',
+                'description': zh
+                    ? '记忆记录的内容。'
+                    : 'The content of the memory record.',
               },
             },
             'required': ['content'],
@@ -299,17 +325,23 @@ class ToolHandlerService {
         'type': 'function',
         'function': {
           'name': 'edit_memory',
-          'description': 'update a memory record',
+          'description': zh
+              ? '更新一条已有的记忆记录。'
+              : 'Update an existing memory record.',
           'parameters': {
             'type': 'object',
             'properties': {
               'id': {
                 'type': 'integer',
-                'description': 'The id of the memory record',
+                'description': zh
+                    ? '记忆记录的 id。'
+                    : 'The id of the memory record.',
               },
               'content': {
                 'type': 'string',
-                'description': 'The content of the memory record',
+                'description': zh
+                    ? '记忆记录的内容。'
+                    : 'The content of the memory record.',
               },
             },
             'required': ['id', 'content'],
@@ -320,13 +352,15 @@ class ToolHandlerService {
         'type': 'function',
         'function': {
           'name': 'delete_memory',
-          'description': 'delete a memory record',
+          'description': zh ? '删除一条记忆记录。' : 'Delete a memory record.',
           'parameters': {
             'type': 'object',
             'properties': {
               'id': {
                 'type': 'integer',
-                'description': 'The id of the memory record',
+                'description': zh
+                    ? '记忆记录的 id。'
+                    : 'The id of the memory record.',
               },
             },
             'required': ['id'],
@@ -353,6 +387,7 @@ class ToolHandlerService {
       contextProvider.read<AssistantProvider>(),
       assistant?.id,
       routeSnapshot: mcpRouteSnapshot,
+      reservedNames: BuiltInToolNames.all,
     );
 
     if (tools.isEmpty) return [];
@@ -425,10 +460,57 @@ class ToolHandlerService {
           mcp,
           assistantProvider,
           assistantId: assistant?.id,
+          reservedNames: BuiltInToolNames.all,
         );
+
+    Future<String> approveAndExecuteMcp(
+      String name,
+      Map<String, dynamic> args,
+    ) async {
+      if (approvalService != null &&
+          toolSvc.toolNeedsApprovalForAssistant(
+            mcp,
+            assistantProvider,
+            assistantId: assistant?.id,
+            toolName: name,
+            routeSnapshot: routes,
+            reservedNames: BuiltInToolNames.all,
+          )) {
+        // Generate a unique id for this tool call approval request
+        final toolCallId = '${name}_${DateTime.now().microsecondsSinceEpoch}';
+        final result = await approvalService.requestApproval(
+          toolCallId: toolCallId,
+          toolName: name,
+          arguments: args,
+          conversationId: conversationId,
+        );
+        if (!result.approved) {
+          return _toolError(
+            error: 'approval_denied',
+            message: result.denyReason ?? 'User denied the tool call',
+            tool: name,
+          );
+        }
+      }
+
+      final text = await toolSvc.callToolTextForAssistant(
+        mcp,
+        assistantProvider,
+        assistantId: assistant?.id,
+        toolName: name,
+        arguments: args,
+        routeSnapshot: routes,
+        reservedNames: BuiltInToolNames.all,
+      );
+      return text;
+    }
 
     return (name, args, {toolCallId}) async {
       try {
+        if (routes.containsExposedName(name)) {
+          return await approveAndExecuteMcp(name, args);
+        }
+
         // Search tool
         if (name == SearchToolService.toolName &&
             assistant?.searchEnabled == true) {
@@ -924,42 +1006,7 @@ class ToolHandlerService {
           return await _handleShortcutAutomationTool(args: args);
         }
 
-        // Approval gate for MCP tools
-        if (approvalService != null &&
-            toolSvc.toolNeedsApprovalForAssistant(
-              mcp,
-              assistantProvider,
-              assistantId: assistant?.id,
-              toolName: name,
-              routeSnapshot: routes,
-            )) {
-          // Generate a unique id for this tool call approval request
-          final toolCallId = '${name}_${DateTime.now().microsecondsSinceEpoch}';
-          final result = await approvalService.requestApproval(
-            toolCallId: toolCallId,
-            toolName: name,
-            arguments: args,
-            conversationId: conversationId,
-          );
-          if (!result.approved) {
-            return _toolError(
-              error: 'approval_denied',
-              message: result.denyReason ?? 'User denied the tool call',
-              tool: name,
-            );
-          }
-        }
-
-        // MCP tools
-        final text = await toolSvc.callToolTextForAssistant(
-          mcp,
-          assistantProvider,
-          assistantId: assistant?.id,
-          toolName: name,
-          arguments: args,
-          routeSnapshot: routes,
-        );
-        return text;
+        return await approveAndExecuteMcp(name, args);
       } catch (e) {
         // Catch unexpected exceptions and return error JSON to LLM
         // This prevents tool failures from terminating the chat flow

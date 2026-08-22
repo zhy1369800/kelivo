@@ -300,8 +300,9 @@ class ChatService extends ChangeNotifier {
       if (!abort.isCompleted) abort.complete();
     }
     _messageOrderBackfillAbort.clear();
-    final orderBackfills =
-        List<Future<void>>.of(_messageOrderBackfillFutures.values);
+    final orderBackfills = List<Future<void>>.of(
+      _messageOrderBackfillFutures.values,
+    );
     _messageOrderBackfillFutures.clear();
     for (final backfill in orderBackfills) {
       try {
@@ -1213,6 +1214,7 @@ class ChatService extends ChangeNotifier {
     bool includeAllRevisions = false,
     String? conversationId,
     String? excludeConversationId,
+    String? assistantId,
   }) async {
     if (!_initialized) return const <ConversationSearchMatch>[];
     return _repo.searchConversationMatches(
@@ -1221,6 +1223,7 @@ class ChatService extends ChangeNotifier {
       includeAllRevisions: includeAllRevisions,
       conversationId: conversationId,
       excludeConversationId: excludeConversationId,
+      assistantId: assistantId,
     );
   }
 
@@ -1537,6 +1540,93 @@ class ChatService extends ChangeNotifier {
     return _repo.getSelectedMessageProjections(conversationId);
   }
 
+  Future<List<MiniMapSearchHit>> searchMiniMapMatches(
+    String conversationId,
+    String query, {
+    int snippetRadius = 40,
+    int snippetLength = 120,
+  }) async {
+    if (!_initialized) return const <MiniMapSearchHit>[];
+    if (_temporaryConversationIds.contains(conversationId) ||
+        _draftConversations.containsKey(conversationId)) {
+      return _miniMapHitsFromCachedMessages(
+        conversationId,
+        query,
+        snippetRadius: snippetRadius,
+        snippetLength: snippetLength,
+      );
+    }
+    return _repo.searchMiniMapMatches(
+      conversationId,
+      query,
+      snippetRadius: snippetRadius,
+      snippetLength: snippetLength,
+    );
+  }
+
+  List<MiniMapSearchHit> _miniMapHitsFromCachedMessages(
+    String conversationId,
+    String query, {
+    required int snippetRadius,
+    required int snippetLength,
+  }) {
+    final needle = query.trim().toLowerCase();
+    if (needle.isEmpty) return const <MiniMapSearchHit>[];
+    final radius = snippetRadius < 0 ? 0 : snippetRadius;
+    final length = miniMapSnippetLength(
+      needleLength: needle.length,
+      snippetRadius: snippetRadius,
+      snippetLength: snippetLength,
+    );
+    final messages = _messagesCache[conversationId] ?? const <ChatMessage>[];
+    final groups = <String, List<ChatMessage>>{};
+    final order = <String>[];
+    for (final message in messages) {
+      final groupId = message.groupId ?? message.id;
+      if (!groups.containsKey(groupId)) order.add(groupId);
+      groups.putIfAbsent(groupId, () => <ChatMessage>[]).add(message);
+    }
+    final selections = getVersionSelections(conversationId);
+    final hits = <MiniMapSearchHit>[];
+    for (final groupId in order) {
+      final versions = groups[groupId]!
+        ..sort((a, b) => a.version.compareTo(b.version));
+      final version = selections[groupId];
+      final selected =
+          versions.cast<ChatMessage?>().firstWhere(
+            (message) => message!.version == version,
+            orElse: () => null,
+          ) ??
+          versions.last;
+      if (selected.role != 'user' && selected.role != 'assistant') continue;
+      final text = selected.content;
+      final lower = text.toLowerCase();
+      final first = lower.indexOf(needle);
+      if (first < 0) continue;
+      var matchCount = 0;
+      var pos = 0;
+      while (true) {
+        final index = lower.indexOf(needle, pos);
+        if (index < 0) break;
+        matchCount++;
+        pos = index + needle.length;
+      }
+      final snippetStart = first < radius ? 0 : first - radius;
+      final snippetEnd = snippetStart + length > text.length
+          ? text.length
+          : snippetStart + length;
+      hits.add(
+        MiniMapSearchHit(
+          messageId: selected.id,
+          matchCount: matchCount,
+          snippet: text.substring(snippetStart, snippetEnd),
+          snippetStart: snippetStart,
+        ),
+      );
+    }
+    return hits;
+  }
+
   Future<List<ChatMessage>> loadMessagesByIds(List<String> ids) async {
     if (ids.isEmpty) return const <ChatMessage>[];
     final temporaryById = <String, ChatMessage>{
@@ -1834,7 +1924,10 @@ class ChatService extends ChangeNotifier {
     return true;
   }
 
-  Future<bool> _deletePersistedConversation(String id) async {
+  Future<bool> _deletePersistedConversation(
+    String id, {
+    bool bump = true,
+  }) async {
     final conversation = _conversationsCache[id];
     if (conversation == null) return false;
 
@@ -1860,7 +1953,9 @@ class ChatService extends ChangeNotifier {
     if (_currentConversationId == id) {
       _currentConversationId = null;
     }
-    _bumpConversationListRevision();
+    if (bump) {
+      _bumpConversationListRevision();
+    }
     return true;
   }
 
@@ -1884,12 +1979,36 @@ class ChatService extends ChangeNotifier {
       deleted = await _deleteDraftConversation(conversationId) || deleted;
     }
     for (final conversationId in persistedConversationIds) {
-      deleted = await _deletePersistedConversation(conversationId) || deleted;
+      deleted =
+          await _deletePersistedConversation(conversationId, bump: false) ||
+          deleted;
     }
 
     if (!deleted) return;
     await _cleanupOrphanUploads();
+    _bumpConversationListRevision();
     notifyListeners();
+  }
+
+  /// Deletes each id once. Returns the number of conversations actually
+  /// removed. Notifies and bumps the list revision at most once.
+  Future<int> deleteConversations(Iterable<String> ids) async {
+    if (!_initialized) await init();
+
+    var count = 0;
+    final seen = <String>{};
+    for (final id in ids) {
+      if (id.isEmpty || !seen.add(id)) continue;
+      if (await _deleteDraftConversation(id) ||
+          await _deletePersistedConversation(id, bump: false)) {
+        count++;
+      }
+    }
+    if (count == 0) return 0;
+    await _cleanupOrphanUploads();
+    _bumpConversationListRevision();
+    notifyListeners();
+    return count;
   }
 
   List<({String path, String kind})> _extractLocalAttachmentsFromMessage(
@@ -2580,6 +2699,35 @@ class ChatService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Sets pin state to [pinned] for each id. Unchanged items are skipped.
+  /// Returns how many conversations changed. Notifies and bumps at most once.
+  Future<int> setConversationsPinned(Iterable<String> ids, bool pinned) async {
+    if (!_initialized) await init();
+
+    var changed = 0;
+    final seen = <String>{};
+    for (final id in ids) {
+      if (id.isEmpty || !seen.add(id)) continue;
+      if (_draftConversations.containsKey(id)) {
+        final draft = _draftConversations[id]!;
+        if (draft.isPinned == pinned) continue;
+        draft.isPinned = pinned;
+        changed++;
+        continue;
+      }
+      final conversation = _conversationsCache[id];
+      if (conversation == null) continue;
+      if (conversation.isPinned == pinned) continue;
+      conversation.isPinned = pinned;
+      await _saveConversation(conversation);
+      changed++;
+    }
+    if (changed == 0) return 0;
+    _bumpConversationListRevision();
+    notifyListeners();
+    return changed;
+  }
+
   Future<ChatMessage> addMessage({
     required String conversationId,
     required String role,
@@ -2857,6 +3005,7 @@ class ChatService extends ChangeNotifier {
   Future<void> updateMessage(
     String messageId, {
     String? content,
+    List<MessagePart>? parts,
     int? totalTokens,
     bool? isStreaming,
     String? reasoningText,
@@ -2873,6 +3022,7 @@ class ChatService extends ChangeNotifier {
       messageId,
       notify: true,
       content: content,
+      parts: parts,
       totalTokens: totalTokens,
       isStreaming: isStreaming,
       reasoningText: reasoningText,
@@ -2929,6 +3079,7 @@ class ChatService extends ChangeNotifier {
     String messageId, {
     required bool notify,
     String? content,
+    List<MessagePart>? parts,
     int? totalTokens,
     bool? isStreaming,
     String? reasoningText,
@@ -2949,6 +3100,7 @@ class ChatService extends ChangeNotifier {
       _replaceCachedMessage(
         temporaryMessage.copyWith(
           content: content,
+          parts: parts,
           totalTokens: totalTokens,
           isStreaming: isStreaming,
           reasoningText: reasoningText,
@@ -2966,13 +3118,14 @@ class ChatService extends ChangeNotifier {
       return;
     }
 
-    if (content != null) {
+    if (content != null || parts != null) {
       await _repo.markMessageAssetReferencesDirty(messageId);
     }
 
     final updatedMessage = await _repo.updateMessageFields(
       messageId,
       content: content,
+      parts: parts,
       totalTokens: totalTokens,
       isStreaming: isStreaming,
       reasoningText: reasoningText,
@@ -2987,7 +3140,7 @@ class ChatService extends ChangeNotifier {
     );
     if (updatedMessage == null) return;
 
-    if (content != null) {
+    if (content != null || parts != null) {
       await _synchronizeMessageAssetsBestEffort(updatedMessage);
     }
 
@@ -3210,10 +3363,27 @@ class ChatService extends ChangeNotifier {
     required String sourceConversationId,
     required String sourceRevisionId,
     required String title,
+    bool preserveVersions = false,
   }) async {
     if (!_initialized) await init();
     final source = _conversationsCache[sourceConversationId];
     if (source == null) throw StateError('conversation_missing');
+    if (preserveVersions) {
+      final forked = await _repo.forkConversationWithVersions(
+        sourceId: sourceConversationId,
+        targetRevisionId: sourceRevisionId,
+        title: source.title,
+        assistantId: source.assistantId,
+      );
+      if (forked == null) throw StateError('linear_fork_target_missing');
+      _conversationsCache[forked.id] = forked;
+      _messageOrderIds[forked.id] = List<String>.of(forked.messageIds);
+      _messageCounts[forked.id] = forked.messageIds.length;
+      _bumpConversationListRevision();
+      _currentConversationId = forked.id;
+      notifyListeners();
+      return forked;
+    }
     final targetMessage = await _repo.getMessage(sourceRevisionId);
     if (targetMessage == null ||
         targetMessage.conversationId != sourceConversationId) {
@@ -3244,6 +3414,47 @@ class ChatService extends ChangeNotifier {
     _messagesCache[persisted.id] = <ChatMessage>[];
     _messageOrderIds[persisted.id] = <String>[];
     _messageCounts[persisted.id] = 0;
+    await _cloneMessagesInto(persisted.id, sourceMessages);
+    _currentConversationId = persisted.id;
+    notifyListeners();
+    return persisted;
+  }
+
+  Future<Conversation> forkConversationFromMessages({
+    required String title,
+    required String? assistantId,
+    required List<ChatMessage> sourceMessages,
+  }) async {
+    if (!_initialized) await init();
+    final persisted = await createConversation(
+      title: title,
+      assistantId: assistantId,
+    );
+    _messagesCache[persisted.id] = <ChatMessage>[];
+    _messageOrderIds[persisted.id] = <String>[];
+    _messageCounts[persisted.id] = 0;
+    await _cloneMessagesInto(persisted.id, sourceMessages);
+    _currentConversationId = persisted.id;
+    notifyListeners();
+    return persisted;
+  }
+
+  Future<void> _cloneMessagesInto(
+    String targetConversationId,
+    List<ChatMessage> sourceMessages,
+  ) async {
+    final sourceIds = [
+      for (final message in sourceMessages)
+        if (message.id.isNotEmpty) message.id,
+    ];
+    final toolEventsBySourceId = sourceIds.isEmpty
+        ? const <String, List<Map<String, dynamic>>>{}
+        : await _repo.getToolEventsForMessages(sourceIds);
+    final signaturesBySourceId = sourceIds.isEmpty
+        ? const <String, String>{}
+        : await _repo.getGeminiThoughtSignaturesForMessages(sourceIds);
+
+    final cloned = <ChatMessage>[];
     for (final message in sourceMessages) {
       final forked = ChatMessage(
         role: message.role,
@@ -3252,7 +3463,7 @@ class ChatService extends ChangeNotifier {
         modelId: message.modelId,
         providerId: message.providerId,
         totalTokens: message.totalTokens,
-        conversationId: persisted.id,
+        conversationId: targetConversationId,
         isStreaming: false,
         reasoningText: message.reasoningText,
         reasoningStartAt: message.reasoningStartAt,
@@ -3264,17 +3475,32 @@ class ChatService extends ChangeNotifier {
         cachedTokens: message.cachedTokens,
         durationMs: message.durationMs,
       );
-      await addMessageDirectly(persisted.id, forked);
+      await addMessageDirectly(targetConversationId, forked);
+      cloned.add(forked);
       if (message.role == 'user') {
         await _inheritImageOcrArtifactsBestEffort(
           fromRevisionId: message.id,
           toRevisionId: forked.id,
         );
       }
+      // Tool-event / Gemini-signature rows are keyed by revision id. The
+      // cloned conversation already has a complete messages+order cache, so
+      // the first timeline load takes the fast path and skips
+      // `_cacheMessageArtifacts`. Persist under the new ids and refresh the
+      // in-memory caches so tool cards and thought signatures survive.
+      final events =
+          toolEventsBySourceId[message.id] ?? getToolEvents(message.id);
+      if (events.isNotEmpty) {
+        await setToolEvents(forked.id, events);
+      }
+      final signature =
+          signaturesBySourceId[message.id] ??
+          getGeminiThoughtSignature(message.id);
+      if (signature != null && signature.trim().isNotEmpty) {
+        await setGeminiThoughtSignature(forked.id, signature);
+      }
     }
-    _currentConversationId = persisted.id;
-    notifyListeners();
-    return persisted;
+    await _cacheMessageArtifacts(cloned);
   }
 
   Future<ChatMessage?> appendMessageVersion({
@@ -3297,11 +3523,14 @@ class ChatService extends ChangeNotifier {
       final nextVersion = versions.isEmpty
           ? 0
           : versions.reduce((a, b) => a > b ? a : b) + 1;
-      // Content-only append must keep prior ImagePart/FilePart attachments
-      // and preserve ordinal ([Image, Text] stays [Image, Text(new)]).
+      // Content-only append must keep prior attachments and TextPart slots
+      // ([Text, Tool, Text] stays three parts, not a merged first TextPart).
       final resolvedParts =
           parts ??
-          ChatMessage.partsWithReplacedText(temporaryOriginal.parts, content);
+          ChatMessage.partsWithRedistributedText(
+            temporaryOriginal.parts,
+            content,
+          );
       final newMsg = ChatMessage(
         role: temporaryOriginal.role,
         parts: resolvedParts,
@@ -3736,18 +3965,27 @@ class ChatService extends ChangeNotifier {
   Future<bool> moveConversationToAssistant({
     required String conversationId,
     required String assistantId,
+  }) {
+    return _moveConversationToAssistantInternal(
+      conversationId: conversationId,
+      assistantId: assistantId,
+      notify: true,
+    );
+  }
+
+  Future<bool> _moveConversationToAssistantInternal({
+    required String conversationId,
+    required String assistantId,
+    bool notify = true,
   }) async {
     if (!_initialized) await init();
-
-    // Draft conversation case
     if (_draftConversations.containsKey(conversationId)) {
       final draft = _draftConversations[conversationId]!;
       draft.assistantId = assistantId;
       draft.updatedAt = DateTime.now();
-      notifyListeners();
+      if (notify) notifyListeners(); // preserve today's draft: notify, no bump
       return true;
     }
-
     final c = _conversationsCache[conversationId];
     if (c == null) return false;
     if (c.assistantId == assistantId) return true;
@@ -3761,9 +3999,41 @@ class ChatService extends ChangeNotifier {
     c.assistantId = assistantId;
     c.updatedAt = updatedAt;
     c.injectedMemoryHash = null;
+    if (notify) {
+      _bumpConversationListRevision();
+      notifyListeners();
+    }
+    return true;
+  }
+
+  /// Moves each conversation to [assistantId]. Items already on that assistant
+  /// are skipped. Returns how many actually moved. Notifies and bumps at most
+  /// once. Active-generation rejections are not counted.
+  Future<int> moveConversationsToAssistant({
+    required Iterable<String> conversationIds,
+    required String assistantId,
+  }) async {
+    if (!_initialized) await init();
+
+    var n = 0;
+    final seen = <String>{};
+    for (final id in conversationIds) {
+      if (id.isEmpty || !seen.add(id)) continue;
+      final conversation = _draftConversations[id] ?? _conversationsCache[id];
+      if (conversation == null) continue;
+      if (conversation.assistantId == assistantId) continue;
+      if (await _moveConversationToAssistantInternal(
+        conversationId: id,
+        assistantId: assistantId,
+        notify: false,
+      )) {
+        n++;
+      }
+    }
+    if (n == 0) return 0;
     _bumpConversationListRevision();
     notifyListeners();
-    return true;
+    return n;
   }
 }
 

@@ -126,6 +126,9 @@
   "storageSpaceClearCacheButton": "Clear Cache",
   "storageSpaceClearLogsButton": "Clear Logs",
   "storageSpaceClearLegacyChatDataButton": "Clear Old Chat Records",
+  "storageSpaceExportLegacyChatFileButton": "Export",
+  "storageSpaceExportDone": "{fileName} exported",
+  "storageSpaceExportFailed": "Export failed: {error}",
   "storageSpaceClearLegacyChatDataConfirmMessage": "Clear the retained old chat files? Your current SQLite chat records will remain available.",
   "storageSpaceViewLogsButton": "View Logs",
   "storageSpaceDeleteConfirmTitle": "Confirm deletion",
@@ -710,6 +713,14 @@
       }
     }
   },
+  "backupPageExportFailedMessage": "Export failed: {error}",
+  "@backupPageExportFailedMessage": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "backupPageOK": "OK",
   "backupPageCancel": "Cancel",
   "backupPageSelectImportMode": "Select Import Mode",
@@ -727,7 +738,6 @@
   "backupPageImportBackupFile": "Import Backup File",
   "backupPageImportBackupFileSubtitle": "Import a local backup file",
   "backupPageImportFromOtherApps": "Import from Other Apps",
-  "backupPageImportFromRikkaHub": "Import from RikkaHub",
   "backupPageNotSupportedYet": "Not supported yet",
   "backupPageRemoteBackups": "Remote Backups",
   "backupPageNoBackups": "No backups",
@@ -842,6 +852,32 @@
   "compressContextMaxCharsLabel": "Characters",
   "compressContextInvalidLimit": "Enter a positive character count",
   "compressContextStartButton": "Compress",
+  "compressContextModelLabel": "Model",
+  "compressContextModelUnset": "Select a model",
+  "compressContextKeepRecentMessages": "Keep N",
+  "compressContextKeepCountLabel": "Keep recent messages",
+  "compressContextKeepAllMessages": "Keeping that many covers all messages — nothing to compress",
+  "compressContextEstimatePreview": "Summarize {summarized} chars, keep {kept} chars verbatim → about {minTokens}–{maxTokens} tokens (original about {totalTokens} tokens)",
+  "@compressContextEstimatePreview": {
+    "description": "Keep-recent compression preview: summarized/kept char counts and the estimated result token band",
+    "placeholders": {
+      "summarized": {
+        "type": "int"
+      },
+      "kept": {
+        "type": "int"
+      },
+      "minTokens": {
+        "type": "int"
+      },
+      "maxTokens": {
+        "type": "int"
+      },
+      "totalTokens": {
+        "type": "int"
+      }
+    }
+  },
   "bottomToolsSheetLearningMode": "Learning Mode",
   "bottomToolsSheetLearningModeDescription": "Help you learn step by step",
   "bottomToolsSheetConfigurePrompt": "Configure prompt",
@@ -1095,6 +1131,46 @@
   "sideDrawerMenuCopy": "Copy",
   "sideDrawerMenuMoveTo": "Move to",
   "sideDrawerMenuDelete": "Delete",
+  "sideDrawerMenuSelect": "Select",
+  "sideDrawerSelectionTitle": "Selected {count} items",
+  "@sideDrawerSelectionTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sideDrawerSelectionSelectAll": "Select all",
+  "sideDrawerSelectionDeselectAll": "Deselect all",
+  "sideDrawerSelectionPin": "Pin",
+  "sideDrawerSelectionUnpin": "Unpin",
+  "sideDrawerSelectionMove": "Move",
+  "sideDrawerSelectionDelete": "Delete",
+  "sideDrawerSelectionDeleteConfirmTitle": "Delete conversations",
+  "sideDrawerSelectionDeleteConfirmContent": "Delete {count} conversations?",
+  "@sideDrawerSelectionDeleteConfirmContent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sideDrawerDeleteSelectedSnackbar": "Deleted {count} conversations",
+  "@sideDrawerDeleteSelectedSnackbar": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sideDrawerMoveSelectedSnackbar": "Moved {count} conversations",
+  "@sideDrawerMoveSelectedSnackbar": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "sideDrawerDeleteSnackbar": "Deleted \"{title}\"",
   "@sideDrawerDeleteSnackbar": {
     "placeholders": {
@@ -1421,7 +1497,7 @@
   "modelFetchInvertTooltip": "Invert",
   "modelDetailSheetSaveFailedMessage": "Save failed. Please try again.",
   "modelDetailSheetAddBody": "Add Body",
-  "modelDetailSheetBuiltinToolsDescription": "Built-in tools only support official APIs.",
+  "modelDetailSheetBuiltinToolsDescription": "Built-in tools depend on the provider and API mode.",
   "modelDetailSheetBuiltinToolsUnsupportedHint": "Current provider does not support these built-in tools.",
   "modelDetailSheetSearchTool": "Search",
   "modelDetailSheetSearchToolDescription": "Enable Google Search integration",
@@ -1432,6 +1508,10 @@
   "modelDetailSheetYoutubeTool": "YouTube",
   "modelDetailSheetYoutubeToolDescription": "Enable YouTube URL ingestion (auto-detect links in prompts)",
   "modelDetailSheetOpenaiBuiltinToolsResponsesOnlyHint": "Requires OpenAI Responses API.",
+  "modelDetailSheetOpenrouterWebFetchTool": "Web Fetch",
+  "modelDetailSheetOpenrouterWebFetchToolDescription": "Enable OpenRouter web fetch server tool",
+  "modelDetailSheetOpenrouterShellTool": "Shell",
+  "modelDetailSheetOpenrouterShellToolDescription": "Run Shell commands in a hosted, isolated sandbox",
   "modelDetailSheetOpenaiCodeInterpreterTool": "Code Interpreter",
   "modelDetailSheetOpenaiCodeInterpreterToolDescription": "Enable code interpreter tool (container auto, memory limit 4g)",
   "modelDetailSheetOpenaiImageGenerationTool": "Image Generation",
@@ -1643,6 +1723,15 @@
   "miniMapTitle": "Minimap",
   "miniMapTooltip": "Minimap",
   "miniMapScrollToBottomTooltip": "Scroll to bottom",
+  "miniMapSearchMatchCount": "{count}",
+  "@miniMapSearchMatchCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "miniMapSearchNoResults": "No matching messages",
   "searchServicesPageApiKeyRequiredStatus": "API Key Required",
   "searchServicesPageUrlRequiredStatus": "URL Required",
   "searchServicesAddDialogTitle": "Add Search Service",
@@ -1764,6 +1853,8 @@
   "searchSettingsSheetNoServicesMessage": "No services. Add from Search Services.",
   "aboutPageEasterEggMessage": "Thanks for exploring! \n (No egg yet)",
   "aboutPageEasterEggButton": "Nice!",
+  "aboutPageKelivoSearchUnlocked": "An unnamed door opened a crack. You might find it in Settings.",
+  "aboutPageKelivoSearchAlreadyUnlocked": "You've already been through this door.",
   "aboutPageAppName": "Kelivo",
   "aboutPageAppDescription": "Open-source AI Assistant",
   "aboutPageNoQQGroup": "No QQ group yet",
@@ -1829,6 +1920,7 @@
   "displaySettingsPageShowToolResultSummarySubtitle": "Display the summary text below tool steps",
   "displaySettingsPageRegenerateDeleteTrailingMessagesTitle": "Delete messages below when regenerating",
   "displaySettingsPageShowRegenerateConfirmDialogTitle": "Confirm before regenerating",
+  "displaySettingsPageForkKeepMessageVersionsTitle": "Keep Message Versions When Forking",
   "chainOfThoughtExpandSteps": "Show {count} more steps",
   "@chainOfThoughtExpandSteps": {
     "placeholders": {
@@ -1867,6 +1959,9 @@
   "displaySettingsPageNewChatOnAssistantSwitchTitle": "New chat when switching assistants",
   "displaySettingsPageNewChatOnLaunchTitle": "New Chat on Launch",
   "displaySettingsPageEnterToSendTitle": "Enter Key to Send",
+  "displaySettingsPageLongPasteAsFileTitle": "Paste long text as file",
+  "displaySettingsPageLongPasteAsFileThresholdTitle": "Conversion threshold",
+  "displaySettingsPageLongPasteAsFileThresholdUnit": "characters",
   "displaySettingsPageSendShortcutTitle": "Send Shortcut",
   "displaySettingsPageSendShortcutEnter": "Enter",
   "displaySettingsPageSendShortcutCtrlEnter": "Ctrl/Cmd + Enter",
@@ -1897,8 +1992,6 @@
   "displaySettingsPageAppFontTitle": "App Font",
   "displaySettingsPageCodeFontTitle": "Code Font",
   "fontPickerChooseLocalFile": "Choose Local File",
-  "fontPickerGetFromGoogleFonts": "Browse Google Fonts",
-  "fontPickerFilterHint": "Filter fonts...",
   "desktopFontLoading": "Loading fonts…",
   "displaySettingsPageFontLocalFileLabel": "Local file",
   "displaySettingsPageFontResetLabel": "Reset font settings",
@@ -2207,6 +2300,7 @@
   "searchProviderFirecrawlDescription": "Firecrawl Search API v2. API key is optional. Scrape is not supported here.",
   "searchServiceNameTinyFish": "TinyFish",
   "searchProviderTinyFishDescription": "TinyFish Search API with region/language filters. Requires an API key. Fetch/Scrape is not supported here.",
+  "searchServiceNameKelivo": "Kelivo",
   "searchServicesDialogCountryOptional": "Country/region (optional)",
   "searchServicesDialogLanguageOptional": "Language (optional)",
   "searchServicesDialogTimeFilterOptional": "Time filter (optional)",
@@ -2491,6 +2585,7 @@
   "contextLogSourceChatHistory": "Chat history",
   "contextLogSourceToolCall": "Tool call",
   "contextLogSourceToolResult": "Tool result",
+  "contextLogTokensEstimateHint": "Token counts are estimates only; use the model's actual usage as the source of truth.",
   "contextLogSnapshotsCount": "{count} snapshots",
   "@contextLogSnapshotsCount": {
     "placeholders": {
@@ -2570,29 +2665,49 @@
   "assistantEditDeleteSummaryTitle": "Clear Summary",
   "assistantEditDeleteSummaryContent": "Are you sure you want to clear this summary?",
   "homePageProcessingFiles": "Processing files...",
-  "fileUploadDuplicateTitle": "File already exists",
-  "fileUploadDuplicateContent": "A file named {fileName} already exists. Use the existing file?",
-  "@fileUploadDuplicateContent": {
-    "placeholders": {
-      "fileName": {
-        "type": "String"
-      }
-    }
-  },
-  "fileUploadDuplicateUseExisting": "Use existing",
-  "fileUploadDuplicateUploadNew": "Upload new",
   "settingsPageWorldBook": "World Book",
   "settingsPageMemory": "Memory",
   "memorySettingsPageTitle": "Memory",
+  "memorySettingsGlobalSubtitle": "Memory mode, model, and prompts",
+  "memorySettingsModeSection": "Memory mode",
   "memorySettingsModelSection": "Memory model",
   "memorySettingsModelTitle": "Processing model",
   "memorySettingsModelUnset": "Not selected",
   "memorySettingsModelTip": "After Auto-organize memory is enabled, this model is called frequently in the background. Prefer a cheap, fast model.",
   "memorySettingsAboutTitle": "About memory",
   "memorySettingsAboutSubtitle": "How memory works and when it runs",
-  "memorySettingsAboutBody": "How memory works\nMemories are organized as Identity / Workflow / Voice / Instruction, with global or assistant scope. Relevant memories are injected into the model context; when there are many, a summary is shown first and the model can query for more.\n\nBackground processing and triggers\nThe processing model powers the background pipeline: decide whether to remember, extract candidates, dedupe/merge, and distill the user profile when needed. With Auto-organize on, it runs every N turns after chats; you can also run Organize manually on the assistant Memory tab. That is why this model is called often.\n\nKeep caching healthy\nKeep the injected memory prefix stable and avoid pointless bulk edits or reshuffles so prompt cache can hit more often, lowering cost and latency. Day-to-day single-entry edits usually have limited impact.",
+  "memoryAboutQuickstartTitle": "Get started",
+  "memoryAboutQuickstartBody": "1. In Settings → Memory, choose a processing model.\n2. On the assistant Memory tab, turn on long-term memory and Auto-organize.\n3. Chat for a few turns or tap Organize, then open All memories to see what was saved.",
+  "memoryAboutTypesTitle": "Memory types",
+  "memoryAboutTypesBody": "Identity: stable facts about the user, such as how to address them, role, language, and long-term preferences. Write complete third-person statements.\n\nWorkflow: how they like to get work done — tools, formats, and review habits.\n\nVoice: how they want the assistant to sound — tone, length, and language style.\n\nInstruction: standing rules the assistant should follow, not one-off tasks from this chat.",
+  "memoryAboutScopeTitle": "Global vs assistant",
+  "memoryAboutScopeBody": "Global memories are injected for every assistant. Assistant-scope memories are only visible to that assistant. Use global for facts that should follow the user everywhere; use assistant scope for rules or context that belong to one persona.",
+  "memoryAboutInjectionTitle": "How memories are injected",
+  "memoryAboutInjectionBody": "At the start of a chat, the newest items of each type are placed in the model context. If a type exceeds the injection limit, the block is marked mode=\"summary\" with total and shown counts; the rest can be fetched with memory_search_profile. Raise the limit in Settings → Memory for more completeness at a higher token cost.",
+  "memoryAboutPipelineTitle": "Background pipeline",
+  "memoryAboutPipelineBody": "Auto-organize runs after chats: decide whether anything is worth remembering, extract candidates, dedupe and merge, then distill identity items into the user profile when needed. You can also tap Organize on the assistant Memory tab. That is why the processing model is called often.",
+  "memoryAboutCacheTitle": "Keep caching healthy",
+  "memoryAboutCacheBody": "The injected memory prefix is kept stable so unchanged chats can reuse the prompt cache, lowering cost and latency. Avoid pointless bulk edits or reshuffles. Day-to-day single-entry edits usually have limited impact.",
+  "memoryAboutFaqTitle": "FAQ",
+  "memoryAboutFaqWhyNotRememberedTitle": "Why wasn't this remembered?",
+  "memoryAboutFaqWhyNotRememberedBody": "Organize is skipped when there are not enough new messages to organize, no new messages to organize, or no memory processing model selected. Temporary chats are not saved to memory. You can also turn memory or Auto-organize off per assistant.",
   "memorySettingsThinkingTitle": "Enable thinking",
   "memorySettingsThinkingSubtitle": "Allow the memory model to use reasoning when supported",
+  "memorySettingsInjectionSection": "Memory injection",
+  "memorySettingsInjectionMaxItemsTitle": "Items injected per type",
+  "memorySettingsInjectionMaxItemsSubtitle": "When a type exceeds this limit, only the newest items are injected. The rest can be fetched with memory_search_profile. A larger number is more complete but uses more tokens. If you customized the rules prompt, update it or restore the default.",
+  "memorySettingsInjectionMaxItemsOption": "{n}",
+  "@memorySettingsInjectionMaxItemsOption": {
+    "placeholders": {
+      "n": {"type": "int"}
+    }
+  },
+  "memorySettingsInjectionMaxItemsCustomButton": "Custom",
+  "memorySettingsInjectionMaxItemsCustomTitle": "Custom injection count",
+  "memorySettingsInjectionMaxItemsCustomDescription": "Enter a number between 1 and 100.",
+  "memorySettingsInjectionMaxItemsCustomLabel": "Count",
+  "memorySettingsInjectionMaxItemsCustomHint": "1–100",
+  "memorySettingsInjectionMaxItemsCustomInvalid": "Enter a number between 1 and 100",
   "memorySettingsPromptLangSection": "Prompt language",
   "memorySettingsPromptLangAuto": "Auto",
   "memorySettingsPromptLangAutoSubtitle": "Follow the UI language (Chinese → zh, otherwise en)",
@@ -2601,6 +2716,7 @@
   "memorySettingsPromptLangEn": "English",
   "memorySettingsPromptLangEnSubtitle": "Always use English memory prompts and tool descriptions",
   "memorySettingsPromptsSection": "Prompt templates",
+  "memorySettingsLegacyPromptTitle": "Legacy memory rules",
   "memoryPromptEditRulesTitle": "Memory rules",
   "memoryPromptEditRulesSubtitle": "Injected into the main chat system prompt",
   "memoryPromptEditGateTitle": "Gatekeeper",
@@ -2611,11 +2727,14 @@
   "memoryPromptEditSmartAddSubtitle": "NEW / MERGE / CONFLICT / SKIP dedupe judge",
   "memoryPromptEditDistillTitle": "Profile Distiller",
   "memoryPromptEditDistillSubtitle": "Distills identity memories into profile fields",
+  "memoryPromptEditMigrateTitle": "Legacy migration",
+  "memoryPromptEditMigrateSubtitle": "Used when migration rewrites memory wording",
   "memoryPromptEditReset": "Reset to default",
   "memoryPromptEditSave": "Save",
   "memoryPromptEditSectionPerItem": "Per-item prompt",
   "memoryPromptEditSectionBatch": "Batched prompt",
   "memorySettingsEntriesSection": "All memories",
+  "memorySettingsLegacySection": "Legacy memory",
   "memorySettingsEntriesTitle": "Memory list",
   "memorySettingsEntriesSubtitle": "Browse, edit, archive, and delete memories",
   "memorySettingsProfileTitle": "User profile",
@@ -2719,6 +2838,37 @@
       "reason": {"type": "String"}
     }
   },
+  "memoryOrganizeStatusSkippedReason": "skipped: {reason}",
+  "@memoryOrganizeStatusSkippedReason": {
+    "placeholders": {
+      "reason": {"type": "String"}
+    }
+  },
+  "memoryOutcomeTemporaryConversation": "Temporary chats are not saved to memory",
+  "memoryOutcomeMemoryDisabled": "Memory is off for this assistant",
+  "memoryOutcomeAutoOrganizeOff": "Auto-organize is off",
+  "memoryOutcomeStreaming": "Skipped while a reply is still streaming",
+  "memoryOutcomeBelowThreshold": "Not enough new messages to organize",
+  "memoryOutcomeEmptyWindow": "No new messages to organize",
+  "memoryOutcomeMemoryModelUnset": "No memory processing model selected",
+  "memoryOutcomeMemoryModelMissing": "The selected memory model is no longer available",
+  "memoryOutcomeAssistantMissing": "Assistant not found",
+  "memoryOutcomeConversationMissing": "Conversation not found",
+  "memoryOutcomeQueueOverflow": "The organize queue was full, so this run was dropped",
+  "memoryOutcomeGateRequestFailed": "Could not reach the memory model for the remember/skip check",
+  "memoryOutcomeGateParseFailed": "The remember/skip check returned an unreadable reply",
+  "memoryOutcomeExtractRequestFailed": "Could not reach the memory model to extract memories",
+  "memoryOutcomeExtractParseFailed": "The memory extract reply could not be parsed",
+  "memoryOutcomeDistillFailed": "Could not distill the user profile",
+  "memoryOutcomeMemoryExecutionError": "A memory tool failed to run",
+  "memoryOutcomeUnsupportedTool": "Unsupported memory tool",
+  "memoryOutcomeInvalidMemoryType": "Invalid memory type",
+  "memoryOutcomeInvalidMemoryContent": "Invalid memory content",
+  "memoryOutcomeInvalidQuery": "Invalid search query",
+  "memoryOutcomeInvalidMemoryId": "Invalid memory id",
+  "memoryOutcomeMemoryNotFound": "Memory not found",
+  "memoryOutcomeInvalidProfileFields": "Invalid profile fields",
+  "memoryOutcomeChatSearchUnavailable": "Chat search is unavailable",
   "memoryOrganizeJustNow": "just now",
   "memoryOrganizeMinutesAgo": "{n} min ago",
   "@memoryOrganizeMinutesAgo": {
@@ -2810,9 +2960,40 @@
   "legacyMemoryMigrationFailed": "Migration stopped. You can retry; memories already saved will be skipped.",
   "legacyMemoryMigrationRetry": "Retry",
   "legacyMemoryMigrationClose": "Done",
+  "legacyMemoryMigrationContentMode": "Content",
+  "legacyMemoryMigrationContentPreserve": "Keep original",
+  "legacyMemoryMigrationContentOrganize": "Rewrite with model",
+  "legacyMemoryMigrationContentPreserveDescription": "The model only assigns a type. The original wording is saved as-is.",
+  "legacyMemoryMigrationContentOrganizeDescription": "The model classifies and rewrites each memory using the editable migrate prompt.",
+  "legacyMemoryMigrationBatchSize": "Batch size",
+  "legacyMemoryMigrationPartial": "{created} migrated · {skipped} skipped · {failed} failed",
+  "@legacyMemoryMigrationPartial": {
+    "placeholders": {
+      "created": {"type": "int"},
+      "skipped": {"type": "int"},
+      "failed": {"type": "int"}
+    }
+  },
+  "legacyMemoryMigrationContinue": "Continue migration",
+  "legacyMemoryMigrationErrorNetwork": "Network error. Check the connection and try again.",
+  "legacyMemoryMigrationErrorFormat": "The model returned an invalid response.",
+  "legacyMemoryMigrationErrorAuth": "Authentication failed. Check the API key.",
+  "legacyMemoryMigrationErrorOther": "Migration failed: {message}",
+  "@legacyMemoryMigrationErrorOther": {
+    "placeholders": {
+      "message": {"type": "String"}
+    }
+  },
   "legacyMemoryModeTitle": "Use legacy memory",
-  "legacyMemoryModeSubtitle": "Global setting for all assistants. Both datasets are kept; you can switch back anytime. Legacy memory is per-assistant only — no global memory, user profile, background organize, traces, or past-conversation search.",
-  "legacyMemoryModeCacheWarning": "Legacy mode writes all memories and the current time into the system prompt every turn, so prompt cache cannot hit and long chats cost more.",
+  "legacyMemoryModeSubtitle": "Global setting for all assistants",
+  "legacyMemoryModeCacheWarning": "The default template injects the current time via {token}, which affects cache hit rate. Remove it if you do not need it.",
+  "@legacyMemoryModeCacheWarning": {
+    "placeholders": {
+      "token": {
+        "type": "String"
+      }
+    }
+  },
   "memoryUiContentLabel": "Content",
   "memoryUiValueLabel": "Value",
   "memoryUiCustomKeyLabel": "Key",
@@ -2823,6 +3004,7 @@
   "memoryUiAssistantLegacyTitle": "Legacy memories (read-only)",
   "memoryUiAssistantLegacySubtitle": "Old memories of this assistant from previous versions",
   "assistantEditMemorySwitchTitle": "Use long-term memory",
+  "assistantEditMemorySwitchSubtitle": "Inject saved memories into chats and let this assistant write new ones",
   "assistantEditAutoOrganizeTitle": "Auto-organize memory",
   "assistantEditAutoOrganizeSubtitle": "Run the memory pipeline after chats",
   "assistantEditAllowPastRecallTitle": "Allow recalling past chats",
@@ -2833,13 +3015,19 @@
   "assistantEditWriteScopeTitle": "Memory write scope",
   "assistantEditWriteScopeSubtitle": "Where new memories are stored by default",
   "assistantEditWriteScopeAlwaysGlobal": "Always global",
+  "assistantEditWriteScopeAlwaysGlobalSubtitle": "New memories are shared with every assistant",
   "assistantEditWriteScopeAlwaysAssistant": "Always this assistant",
+  "assistantEditWriteScopeAlwaysAssistantSubtitle": "New memories stay private to this assistant",
   "assistantEditWriteScopeToolDefaultGlobal": "Model chooses (default global)",
+  "assistantEditWriteScopeToolDefaultGlobalSubtitle": "The model may pick global or this assistant; default is global",
   "assistantEditWriteScopeToolDefaultAssistant": "Model chooses (default assistant)",
+  "assistantEditWriteScopeToolDefaultAssistantSubtitle": "The model may pick global or this assistant; default is this assistant",
   "assistantEditDedupeModeTitle": "Dedupe mode",
   "assistantEditDedupeModeSubtitle": "How candidates are judged against existing memories",
   "assistantEditDedupeModeBatched": "Batched",
+  "assistantEditDedupeModeBatchedSubtitle": "Judge all new candidates in one request. Faster and cheaper; less precise when many items arrive at once.",
   "assistantEditDedupeModePerItem": "Per item",
+  "assistantEditDedupeModePerItemSubtitle": "Judge each candidate in its own request. More accurate; uses more model calls.",
   "assistantEditOrganizeFrequencyTitle": "Organize every N turns",
   "assistantEditOrganizeFrequencySubtitle": "Run auto-organize after this many assistant replies",
   "assistantEditOrganizeFrequencyOption": "Every {n}",
@@ -3254,5 +3442,27 @@
     }
   },
   "memoryTraceShowMore": "Show full text",
-  "memoryTraceShowLess": "Collapse"
+  "memoryTraceShowLess": "Collapse",
+  "messageStyleSettingsPageTitle": "Message Style",
+  "messageStyleSettingsPageReset": "Reset",
+  "messageStyleSettingsPageResetConfirm": "Reset all message style customizations?",
+  "messageStyleSettingsPageCancel": "Cancel",
+  "messageStyleSettingsPageLight": "Light",
+  "messageStyleSettingsPageDark": "Dark",
+  "messageStyleSettingsPageDefaultHint": "Default style follows the current theme and has no extra controls.",
+  "messageStyleSettingsPageStyleDefaultSubtitle": "Follows the theme; not customizable",
+  "messageStyleSettingsPageStyleFrostedSubtitle": "Translucent frosted glass",
+  "messageStyleSettingsPageStyleSolidSubtitle": "Opaque solid fill",
+  "messageStyleSettingsPageBlur": "Blur",
+  "messageStyleSettingsPageBlurHint": "Blur applies to content behind the bubble. It is barely visible without a chat wallpaper.",
+  "messageStyleSettingsPageBackgroundColor": "Background",
+  "messageStyleSettingsPageBackgroundOpacity": "Background Opacity",
+  "messageStyleSettingsPageBorderColor": "Border",
+  "messageStyleSettingsPageBorderOpacity": "Border Opacity",
+  "messageStyleSettingsPageBorderWidth": "Border Width",
+  "messageStyleSettingsPageTextColor": "Text",
+  "messageStyleSettingsPageCornerRadius": "Corner Radius",
+  "messageStyleSettingsPagePreviewUser": "This is a user message",
+  "messageStyleSettingsPagePreviewAssistant": "This is an assistant reply.",
+  "messageStyleSettingsPagePreviewThinking": "Thinking"
 }

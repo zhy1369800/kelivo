@@ -73,6 +73,7 @@ import '../utils/provider_grouping_logic.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
 import '../theme/custom_theme.dart';
 import '../features/settings/widgets/custom_theme_widgets.dart';
+import '../features/settings/pages/message_style_settings_page.dart';
 
 part 'setting/assistants_pane.dart';
 part 'setting/providers_pane.dart';
@@ -142,11 +143,6 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
-    final settings = context.watch<SettingsProvider>();
-    final effectiveSelected =
-        settings.legacyMemoryMode && _selected == _SettingsMenuItem.memory
-        ? _SettingsMenuItem.display
-        : _selected;
 
     const double menuWidth = 250;
     final topBar = SizedBox(
@@ -180,7 +176,7 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
               children: [
                 _SettingsMenu(
                   width: menuWidth,
-                  selected: effectiveSelected,
+                  selected: _selected,
                   onSelect: (it) => setState(() => _selected = it),
                 ),
                 VerticalDivider(
@@ -193,7 +189,7 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                     duration: const Duration(milliseconds: 200),
                     switchInCurve: Curves.easeOutCubic,
                     child: () {
-                      switch (effectiveSelected) {
+                      switch (_selected) {
                         case _SettingsMenuItem.display:
                           return const _DisplaySettingsBody(
                             key: ValueKey('display'),
@@ -279,7 +275,6 @@ class _SettingsMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final settings = context.watch<SettingsProvider>();
     final items = [
       (
         _SettingsMenuItem.display,
@@ -318,12 +313,7 @@ class _SettingsMenu extends StatelessWidget {
         lucide.Lucide.BookOpen,
         l10n.settingsPageWorldBook,
       ),
-      if (!settings.legacyMemoryMode)
-        (
-          _SettingsMenuItem.memory,
-          lucide.Lucide.Brain,
-          l10n.settingsPageMemory,
-        ),
+      (_SettingsMenuItem.memory, lucide.Lucide.Brain, l10n.settingsPageMemory),
       (_SettingsMenuItem.tts, lucide.Lucide.Volume2, l10n.settingsPageTts),
       (
         _SettingsMenuItem.networkProxy,

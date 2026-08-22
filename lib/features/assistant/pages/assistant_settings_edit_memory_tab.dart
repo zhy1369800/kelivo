@@ -1,126 +1,24 @@
 part of 'assistant_settings_edit_page.dart';
 
-class _LegacyMemoryModeToggleCard extends StatelessWidget {
-  const _LegacyMemoryModeToggleCard();
+class _MemorySettingsNavCard extends StatelessWidget {
+  const _MemorySettingsNavCard({required this.onTap});
+
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final cs = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final settings = context.watch<SettingsProvider>();
-    final tip =
-        '${l10n.legacyMemoryModeSubtitle}\n\n${l10n.legacyMemoryModeCacheWarning}';
-
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: context.appColors.surfaceCard,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: MemorySectionCard(
+        padding: EdgeInsets.zero,
+        children: [
+          MemoryNavRow(
+            title: l10n.settingsPageMemory,
+            subtitle: l10n.memorySettingsGlobalSubtitle,
+            onTap: onTap,
           ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            children: [
-              Expanded(
-                child: _TactileRow(
-                  onTap: () {
-                    context.read<SettingsProvider>().setLegacyMemoryMode(
-                      !settings.legacyMemoryMode,
-                    );
-                  },
-                  builder: (pressed) {
-                    final baseColor = cs.onSurface.withValues(alpha: 0.9);
-                    return _AnimatedPressColor(
-                      pressed: pressed,
-                      base: baseColor,
-                      builder: (c) {
-                        return Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 0, 4),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 36,
-                                child: Icon(Lucide.Globe, size: 20, color: c),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  l10n.legacyMemoryModeTitle,
-                                  style: TextStyle(fontSize: 15, color: c),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-              _LegacyMemoryModeTipIcon(message: tip),
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: IosSwitch(
-                  value: settings.legacyMemoryMode,
-                  onChanged: (v) {
-                    context.read<SettingsProvider>().setLegacyMemoryMode(v);
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LegacyMemoryModeTipIcon extends StatefulWidget {
-  const _LegacyMemoryModeTipIcon({required this.message});
-
-  final String message;
-
-  @override
-  State<_LegacyMemoryModeTipIcon> createState() =>
-      _LegacyMemoryModeTipIconState();
-}
-
-class _LegacyMemoryModeTipIconState extends State<_LegacyMemoryModeTipIcon> {
-  final _tooltipKey = GlobalKey<TooltipState>();
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Tooltip(
-      key: _tooltipKey,
-      message: widget.message,
-      triggerMode: TooltipTriggerMode.tap,
-      waitDuration: const Duration(milliseconds: 250),
-      showDuration: const Duration(seconds: 8),
-      preferBelow: true,
-      constraints: const BoxConstraints(maxWidth: 280),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onLongPress: () => _tooltipKey.currentState?.ensureTooltipVisible(),
-        child: SizedBox(
-          width: 28,
-          height: 28,
-          child: Center(
-            child: Icon(
-              Lucide.BadgeInfo,
-              size: 16,
-              color: cs.onSurface.withValues(alpha: 0.45),
-              semanticLabel: widget.message,
-            ),
-          ),
-        ),
+        ],
       ),
     );
   }
@@ -149,25 +47,20 @@ class _MemoryTabState extends State<_MemoryTab> {
   }
 
   Future<void> _showAddEditSheet({MemoryEntry? existing}) {
+    final assistant = context.read<AssistantProvider>().getById(
+      widget.assistantId,
+    );
+    final writeScope = assistant?.memoryWriteScope;
+    final prefersAssistant =
+        writeScope == MemoryWriteScope.alwaysAssistant ||
+        writeScope == MemoryWriteScope.toolDefaultAssistant;
     return showMemoryEntryEditor(
       context,
       existing: existing,
       defaultAssistantId: widget.assistantId,
-    );
-  }
-
-  Future<void> _goLegacyMemory() async {
-    if (PlatformUtils.isDesktopTarget) {
-      await showDesktopLegacyMemoryDialog(
-        context,
-        assistantId: widget.assistantId,
-      );
-      return;
-    }
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => LegacyMemoryPage(assistantId: widget.assistantId),
-      ),
+      defaultScope: existing == null && prefersAssistant
+          ? MemoryScope.assistant
+          : MemoryScope.global,
     );
   }
 
@@ -220,7 +113,13 @@ class _MemoryTabState extends State<_MemoryTab> {
     final when = _formatRelative(l10n, lastAt);
     final parts = <String>[l10n.memoryOrganizeStatusLast(when)];
     if (result.error != null && result.error!.isNotEmpty) {
-      parts.add(l10n.memoryOrganizeStatusFailed(result.error!));
+      final code = result.error!;
+      final label = memoryOutcomeLabel(l10n, code);
+      if (MemoryPipelineService.skipReasonCodes.contains(code)) {
+        parts.add(l10n.memoryOrganizeStatusSkippedReason(label));
+      } else {
+        parts.add(l10n.memoryOrganizeStatusFailed(label));
+      }
     } else if (result.gate == MemoryGateParseResult.skip ||
         (result.extractedCount == 0 && result.advanced)) {
       parts.add(l10n.memoryOrganizeStatusSkipped);
@@ -262,11 +161,10 @@ class _MemoryTabState extends State<_MemoryTab> {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
-    const toggleCard = _LegacyMemoryModeToggleCard();
     if (settings.legacyMemoryMode) {
       return _LegacyMemoryTabBody(
         assistantId: widget.assistantId,
-        header: toggleCard,
+        footer: _MemorySettingsNavCard(onTap: _goMemorySettings),
       );
     }
 
@@ -313,7 +211,6 @@ class _MemoryTabState extends State<_MemoryTab> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(0, 8, 0, 16),
       children: [
-        toggleCard,
         sectionCard(
           child: Column(
             children: [
@@ -321,6 +218,7 @@ class _MemoryTabState extends State<_MemoryTab> {
                 context,
                 icon: Lucide.bookHeart,
                 label: l10n.assistantEditMemorySwitchTitle,
+                tip: l10n.assistantEditMemorySwitchSubtitle,
                 value: a.enableMemory,
                 onChanged: (v) async {
                   await context.read<AssistantProvider>().updateAssistant(
@@ -339,6 +237,7 @@ class _MemoryTabState extends State<_MemoryTab> {
                             context,
                             icon: Lucide.Sparkles,
                             label: l10n.assistantEditAutoOrganizeTitle,
+                            tip: l10n.assistantEditAutoOrganizeSubtitle,
                             value: a.autoOrganizeMemory,
                             onChanged: (v) async {
                               await context
@@ -386,6 +285,7 @@ class _MemoryTabState extends State<_MemoryTab> {
                 context,
                 icon: Lucide.History,
                 label: l10n.assistantEditAllowPastRecallTitle,
+                tip: l10n.assistantEditAllowPastRecallSubtitle,
                 value: a.allowPastConversationRecall,
                 onChanged: (v) async {
                   await context.read<AssistantProvider>().updateAssistant(
@@ -409,6 +309,7 @@ class _MemoryTabState extends State<_MemoryTab> {
                             context,
                             icon: Lucide.FileText,
                             label: l10n.assistantEditGenerateSummaryTitle,
+                            tip: l10n.assistantEditGenerateSummarySubtitle,
                             value: a.generateConversationSummary,
                             onChanged: (v) async {
                               await context
@@ -440,6 +341,8 @@ class _MemoryTabState extends State<_MemoryTab> {
             ],
           ),
         ),
+
+        _MemorySettingsNavCard(onTap: _goMemorySettings),
 
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -532,32 +435,6 @@ class _MemoryTabState extends State<_MemoryTab> {
               fontSize: 12,
               color: cs.onSurface.withValues(alpha: 0.55),
             ),
-          ),
-        ),
-
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: MemorySectionCard(
-            padding: EdgeInsets.zero,
-            children: [
-              MemoryNavRow(
-                title: l10n.settingsPageMemory,
-                subtitle: l10n.memorySettingsEntriesSubtitle,
-                onTap: _goMemorySettings,
-              ),
-              Divider(
-                height: 1,
-                thickness: 0.6,
-                indent: 14,
-                endIndent: 12,
-                color: cs.outlineVariant.withValues(alpha: 0.18),
-              ),
-              MemoryNavRow(
-                title: l10n.memoryUiAssistantLegacyTitle,
-                subtitle: l10n.memoryUiAssistantLegacySubtitle,
-                onTap: _goLegacyMemory,
-              ),
-            ],
           ),
         ),
 
@@ -1100,6 +977,8 @@ Widget _memoryDesktopSelectRow<T>({
   required T value,
   required List<DesktopSelectOption<T>> options,
   required Future<void> Function(T value) onSelected,
+  String? subtitle,
+  String? tip,
 }) {
   final cs = Theme.of(context).colorScheme;
   return Padding(
@@ -1116,16 +995,40 @@ Widget _memoryDesktopSelectRow<T>({
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 15,
-              color: cs.onSurface.withValues(alpha: 0.9),
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+          child: subtitle == null
+              ? Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: cs.onSurface.withValues(alpha: 0.9),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: cs.onSurface.withValues(alpha: 0.9),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: cs.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ],
+                ),
         ),
+        if (tip != null) MemoryTipIcon(message: tip),
         const SizedBox(width: 8),
         DesktopSelectDropdown<T>(
           value: value,
@@ -1225,6 +1128,7 @@ class _MemoryOrganizeFrequencySection extends StatelessWidget {
         context: context,
         icon: Lucide.FileClock,
         label: l10n.assistantEditOrganizeFrequencyTitle,
+        tip: l10n.assistantEditOrganizeFrequencySubtitle,
         value: selected,
         options: [
           for (final count in counts)
@@ -1245,6 +1149,7 @@ class _MemoryOrganizeFrequencySection extends StatelessWidget {
       context,
       icon: Lucide.FileClock,
       label: l10n.assistantEditOrganizeFrequencyTitle,
+      tip: l10n.assistantEditOrganizeFrequencySubtitle,
       detailText: detail,
       onTap: () => _openMobilePicker(context),
     );
@@ -1267,22 +1172,37 @@ class _MemoryDedupeModeSection extends StatelessWidget {
     };
   }
 
+  String _subtitle(AppLocalizations l10n, MemorySmartAddMode mode) {
+    return switch (mode) {
+      MemorySmartAddMode.batched => l10n.assistantEditDedupeModeBatchedSubtitle,
+      MemorySmartAddMode.perItem => l10n.assistantEditDedupeModePerItemSubtitle,
+    };
+  }
+
+  List<MemoryPickerOption<MemorySmartAddMode>> _options(
+    AppLocalizations l10n,
+  ) => [
+    for (final mode in MemorySmartAddMode.values)
+      MemoryPickerOption(
+        value: mode,
+        label: _label(l10n, mode),
+        subtitle: _subtitle(l10n, mode),
+      ),
+  ];
+
   Future<void> _apply(BuildContext context, MemorySmartAddMode mode) async {
     await context.read<AssistantProvider>().updateAssistant(
       assistant.copyWith(memorySmartAddMode: mode),
     );
   }
 
-  Future<void> _openMobilePicker(BuildContext context) async {
+  Future<void> _openPicker(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
-    final choice = await _showMemoryChoiceSheet<MemorySmartAddMode>(
+    final choice = await showMemoryOptionPicker<MemorySmartAddMode>(
       context,
       title: l10n.assistantEditDedupeModeTitle,
       selected: assistant.memorySmartAddMode,
-      options: [
-        for (final mode in MemorySmartAddMode.values)
-          (mode, _label(l10n, mode)),
-      ],
+      options: _options(l10n),
     );
     if (choice == null || !context.mounted) return;
     await _apply(context, choice);
@@ -1298,10 +1218,15 @@ class _MemoryDedupeModeSection extends StatelessWidget {
         context: context,
         icon: Lucide.Layers,
         label: l10n.assistantEditDedupeModeTitle,
+        tip: l10n.assistantEditDedupeModeSubtitle,
         value: selected,
         options: [
           for (final mode in MemorySmartAddMode.values)
-            DesktopSelectOption(value: mode, label: _label(l10n, mode)),
+            DesktopSelectOption(
+              value: mode,
+              label: _label(l10n, mode),
+              subtitle: _subtitle(l10n, mode),
+            ),
         ],
         onSelected: (mode) => _apply(context, mode),
       );
@@ -1311,8 +1236,9 @@ class _MemoryDedupeModeSection extends StatelessWidget {
       context,
       icon: Lucide.Layers,
       label: l10n.assistantEditDedupeModeTitle,
+      tip: l10n.assistantEditDedupeModeSubtitle,
       detailText: _label(l10n, selected),
-      onTap: () => _openMobilePicker(context),
+      onTap: () => _openPicker(context),
     );
   }
 }
@@ -1326,27 +1252,35 @@ class _MemoryWriteScopeSection extends StatelessWidget {
   final Assistant assistant;
   final bool desktop;
 
-  List<(MemoryWriteScope, String)> _items(AppLocalizations l10n) => [
-    (MemoryWriteScope.alwaysGlobal, l10n.assistantEditWriteScopeAlwaysGlobal),
-    (
-      MemoryWriteScope.alwaysAssistant,
-      l10n.assistantEditWriteScopeAlwaysAssistant,
-    ),
-    (
-      MemoryWriteScope.toolDefaultGlobal,
-      l10n.assistantEditWriteScopeToolDefaultGlobal,
-    ),
-    (
-      MemoryWriteScope.toolDefaultAssistant,
-      l10n.assistantEditWriteScopeToolDefaultAssistant,
-    ),
-  ];
+  List<MemoryPickerOption<MemoryWriteScope>> _options(AppLocalizations l10n) =>
+      [
+        MemoryPickerOption(
+          value: MemoryWriteScope.alwaysGlobal,
+          label: l10n.assistantEditWriteScopeAlwaysGlobal,
+          subtitle: l10n.assistantEditWriteScopeAlwaysGlobalSubtitle,
+        ),
+        MemoryPickerOption(
+          value: MemoryWriteScope.alwaysAssistant,
+          label: l10n.assistantEditWriteScopeAlwaysAssistant,
+          subtitle: l10n.assistantEditWriteScopeAlwaysAssistantSubtitle,
+        ),
+        MemoryPickerOption(
+          value: MemoryWriteScope.toolDefaultGlobal,
+          label: l10n.assistantEditWriteScopeToolDefaultGlobal,
+          subtitle: l10n.assistantEditWriteScopeToolDefaultGlobalSubtitle,
+        ),
+        MemoryPickerOption(
+          value: MemoryWriteScope.toolDefaultAssistant,
+          label: l10n.assistantEditWriteScopeToolDefaultAssistant,
+          subtitle: l10n.assistantEditWriteScopeToolDefaultAssistantSubtitle,
+        ),
+      ];
 
   String _label(AppLocalizations l10n, MemoryWriteScope scope) {
-    for (final item in _items(l10n)) {
-      if (item.$1 == scope) return item.$2;
+    for (final item in _options(l10n)) {
+      if (item.value == scope) return item.label;
     }
-    return _items(l10n).first.$2;
+    return _options(l10n).first.label;
   }
 
   Future<void> _apply(BuildContext context, MemoryWriteScope scope) async {
@@ -1355,13 +1289,13 @@ class _MemoryWriteScopeSection extends StatelessWidget {
     );
   }
 
-  Future<void> _openMobilePicker(BuildContext context) async {
+  Future<void> _openPicker(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
-    final choice = await _showMemoryChoiceSheet<MemoryWriteScope>(
+    final choice = await showMemoryOptionPicker<MemoryWriteScope>(
       context,
       title: l10n.assistantEditWriteScopeTitle,
       selected: assistant.memoryWriteScope,
-      options: _items(l10n),
+      options: _options(l10n),
     );
     if (choice == null || !context.mounted) return;
     await _apply(context, choice);
@@ -1377,10 +1311,15 @@ class _MemoryWriteScopeSection extends StatelessWidget {
         context: context,
         icon: Lucide.Globe,
         label: l10n.assistantEditWriteScopeTitle,
+        tip: l10n.assistantEditWriteScopeSubtitle,
         value: selected,
         options: [
-          for (final item in _items(l10n))
-            DesktopSelectOption(value: item.$1, label: item.$2),
+          for (final item in _options(l10n))
+            DesktopSelectOption(
+              value: item.value,
+              label: item.label,
+              subtitle: item.subtitle,
+            ),
         ],
         onSelected: (scope) => _apply(context, scope),
       );
@@ -1390,8 +1329,9 @@ class _MemoryWriteScopeSection extends StatelessWidget {
       context,
       icon: Lucide.Globe,
       label: l10n.assistantEditWriteScopeTitle,
+      tip: l10n.assistantEditWriteScopeSubtitle,
       detailText: _label(l10n, selected),
-      onTap: () => _openMobilePicker(context),
+      onTap: () => _openPicker(context),
     );
   }
 }

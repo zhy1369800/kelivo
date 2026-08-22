@@ -4,8 +4,10 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../core/database/chat_database_repository.dart';
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
+import '../../../core/models/message_part.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/quick_phrase.dart';
 import '../../../core/models/assistant_regex.dart';
@@ -21,6 +23,7 @@ import '../../../core/services/tts/tts_text_selection.dart';
 import '../../../core/services/haptics.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/snackbar.dart';
+import '../../../utils/markdown_media_sanitizer.dart';
 import '../../../utils/platform_utils.dart';
 import '../../../utils/assistant_regex.dart';
 import '../../chat/models/message_edit_result.dart';
@@ -556,8 +559,7 @@ class HomePageController extends ChangeNotifier {
     );
   }
 
-  /// Give a newly opened conversation its own scroll state, matching
-  /// RikkaHub's per-ChatPage `rememberLazyListState` lifecycle.
+  /// Give a newly opened conversation its own scroll state.
   void replaceScrollController(ScrollController controller) {
     if (identical(_scrollController, controller)) return;
     _scrollCtrl.dispose();
@@ -1148,8 +1150,15 @@ class HomePageController extends ChangeNotifier {
   }) async {
     final result = await _viewModel.compressContext(options: options);
     if (result == null) {
-      // Success - switched to new conversation
-      _translations.clear();
+      // Success - switched to new conversation.
+      // keepRecent clones original messages (including translation text).
+      // `onConversationSwitched` already rebuilt fold state for those ids;
+      // clearing here would leave arrows visible but untoggleable.
+      if (options.mode == CompressContextLimitMode.keepRecent) {
+        _restoreMessageUiState();
+      } else {
+        _translations.clear();
+      }
       notifyListeners();
       _scrollToBottomSoon(animate: false);
     }
@@ -2072,6 +2081,10 @@ class HomePageController extends ChangeNotifier {
     return _chatController.collapseVersions(items);
   }
 
+  Future<List<ChatMessage>> allMessagesForCurrentConversationContext() {
+    return _chatController.allMessagesForCurrentConversationContext();
+  }
+
   // ============================================================================
   // Public Methods - UI State
   // ============================================================================
@@ -2309,6 +2322,9 @@ class HomePageController extends ChangeNotifier {
 
   Future<List<ChatMessage>> loadAllCollapsedMessagesForCurrentConversation() =>
       _chatController.loadAllCollapsedMessagesForCurrentConversation();
+
+  Future<List<MiniMapSearchHit>> searchMiniMapMatches(String query) =>
+      _chatController.searchMiniMapMatches(query);
 
   // Issue 7 audit: jumps via collapsed-index + loadUntilMessageVisible only.
   // Does not call ChatService.getMessageIndex, so an absent message-order
@@ -2559,14 +2575,14 @@ class HomePageController extends ChangeNotifier {
       if (m.role == 'assistant') {
         _restoreAssistantMessageUiState(m);
 
-        final cleanedContent = _streamController.captureGeminiThoughtSignature(
-          m.content,
-          m.id,
+        final cleanedParts = ChatMessage.partsWithRewrittenText(
+          m.parts,
+          (text) => _streamController.captureGeminiThoughtSignature(text, m.id),
         );
-        if (cleanedContent != m.content) {
-          final updated = m.copyWith(content: cleanedContent);
+        if (!identical(cleanedParts, m.parts)) {
+          final updated = m.copyWith(parts: cleanedParts);
           messages[i] = updated;
-          unawaited(_chatService.updateMessage(m.id, content: cleanedContent));
+          unawaited(_chatService.updateMessage(m.id, parts: cleanedParts));
         }
 
         _scheduleInlineImageSanitize(
@@ -2614,12 +2630,25 @@ class HomePageController extends ChangeNotifier {
       messageId,
       latestContent: snapshot,
       immediate: immediate,
-      onSanitized: (id, sanitized) async {
-        await _chatService.updateMessage(id, content: sanitized);
+      onSanitized: (id, _) async {
         final i = messages.indexWhere((m) => m.id == id);
-        if (i != -1) {
-          messages[i] = messages[i].copyWith(content: sanitized);
+        if (i == -1) return;
+        final nextParts = <MessagePart>[];
+        for (final part in messages[i].parts) {
+          if (part is TextPart) {
+            nextParts.add(
+              TextPart(
+                await MarkdownMediaSanitizer.replaceInlineBase64Images(
+                  part.text,
+                ),
+              ),
+            );
+          } else {
+            nextParts.add(part);
+          }
         }
+        await _chatService.updateMessage(id, parts: nextParts);
+        messages[i] = messages[i].copyWith(parts: nextParts);
         notifyListeners();
       },
     );

@@ -32,6 +32,7 @@ import '../../../shared/widgets/snackbar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/providers/settings_provider.dart';
+import '../../../theme/chat_bubble_style.dart';
 import '../../../core/providers/model_provider.dart';
 import '../../../core/models/assistant_regex.dart';
 import '../../../shared/widgets/custom_bottom_sheet.dart';
@@ -53,6 +54,10 @@ import 'tool_detail_text_section.dart';
 import '../../../theme/app_font_weights.dart';
 
 final RegExp _urlSchemeRe = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*:');
+
+@visibleForTesting
+bool shouldInlineImagePart(ImagePart part) =>
+    !part.unavailable && part.uri.trim().isNotEmpty;
 
 Uri? _tryNormalizeExternalUri(String raw) {
   var u = raw.trim();
@@ -1520,7 +1525,6 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                 context,
                 visualText,
                 userMessageSettings.enableMarkdown,
-                cs,
               ),
             ),
           )
@@ -1800,7 +1804,6 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     BuildContext context,
     String visualText,
     bool enableUserMarkdown,
-    ColorScheme cs,
   ) {
     final bool isDesktop =
         defaultTargetPlatform == TargetPlatform.macOS ||
@@ -1820,7 +1823,11 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     } else {
       content = Text(
         visualText,
-        style: TextStyle(fontSize: baseUser, height: 1.4, color: cs.onSurface),
+        style: TextStyle(
+          fontSize: baseUser,
+          height: 1.4,
+          color: _chatSurfacePlainTextColor(context),
+        ),
       );
     }
 
@@ -2174,7 +2181,6 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     SettingsProvider settings,
     Map<String, String> citationIndexLookup,
   ) {
-    final cs = Theme.of(context).colorScheme;
     final bool isDesktop =
         defaultTargetPlatform == TargetPlatform.macOS ||
         defaultTargetPlatform == TargetPlatform.windows ||
@@ -2197,7 +2203,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
         style: TextStyle(
           fontSize: baseAssistant,
           height: 1.5,
-          color: cs.onSurface,
+          color: _chatSurfacePlainTextColor(context),
         ),
       );
     }
@@ -2328,10 +2334,134 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     return steps;
   }
 
+  bool get _hasUsableContentSplits => contentSplitsAreUsable(
+    widget.contentSplitOffsets,
+    widget.reasoningCountAtSplit,
+    widget.toolCountAtSplit,
+  );
+
+  bool get _hasStructuredAssistantParts => renderAssistantFromParts(
+    parts: widget.message.parts,
+    hasContentSplits: false,
+  );
+
+  bool _shouldRenderAssistantFromParts(
+    String visualContent, {
+    List<ReasoningSegment>? reasoningSegments,
+  }) {
+    if (renderAssistantFromParts(
+      parts: widget.message.parts,
+      hasContentSplits: _hasUsableContentSplits,
+    )) {
+      return true;
+    }
+    if (!_hasStructuredAssistantParts) return false;
+    final visibleTools = (widget.toolParts ?? const <ToolUIPart>[])
+        .where((p) => p.toolName != 'builtin_search')
+        .toList();
+    final steps = _buildTimelineSteps(
+      visibleTools,
+      reasoningSegments: reasoningSegments,
+    );
+    return !_contentSplitsMatchSteps(steps, visualContent);
+  }
+
+  List<_RenderBlock> _buildRenderBlocksFromParts(
+    List<MessagePart> parts, {
+    List<ReasoningSegment>? reasoningSegments,
+  }) {
+    final liveTools = <String, ToolUIPart>{
+      for (final tool in widget.toolParts ?? const <ToolUIPart>[])
+        if (tool.toolName != 'builtin_search' && tool.id.isNotEmpty)
+          tool.id: tool,
+    };
+    final blocks = <_RenderBlock>[];
+    var pendingSteps = <_TimelineStepData>[];
+    var reasoningCount = 0;
+    var toolCount = 0;
+    var reasoningIndex = 0;
+    final assistant = _assistantForMessage();
+
+    void flushSteps() {
+      if (pendingSteps.isEmpty) return;
+      blocks.add(
+        _RenderBlock.thinking(List<_TimelineStepData>.of(pendingSteps)),
+      );
+      pendingSteps = <_TimelineStepData>[];
+    }
+
+    for (final part in parts) {
+      switch (part) {
+        case TextPart(:final text):
+          final visual = _applyVisualAssistantRegexes(
+            text,
+            assistant: assistant,
+            scope: AssistantRegexScope.assistant,
+          );
+          if (visual.trim().isEmpty) continue;
+          flushSteps();
+          blocks.add(_RenderBlock.text(visual));
+        case ImagePart(:final uri):
+          if (!shouldInlineImagePart(part)) continue;
+          flushSteps();
+          blocks.add(_RenderBlock.text('\n\n![image]($uri)'));
+        case ReasoningPart(:final text):
+          if (text.isEmpty) continue;
+          final provided =
+              reasoningSegments != null &&
+                  reasoningIndex < reasoningSegments.length
+              ? reasoningSegments[reasoningIndex]
+              : null;
+          reasoningIndex++;
+          pendingSteps.add(
+            _TimelineStepData.reasoning(
+              reasoning: ReasoningSegment(
+                text: text,
+                expanded: provided?.expanded ?? true,
+                loading: provided?.loading ?? false,
+                startAt: provided?.startAt,
+                finishedAt: provided?.finishedAt,
+                onToggle: provided?.onToggle,
+                toolStartIndex: provided?.toolStartIndex ?? toolCount,
+              ),
+              reasoningCountAfter: ++reasoningCount,
+              toolCountAfter: toolCount,
+            ),
+          );
+        case ToolCallPart(:final payloadJson):
+          final parsed = toolUiFromPayload(
+            payloadJson,
+            fallbackOrdinal: toolCount,
+          );
+          if (parsed == null || parsed.toolName == 'builtin_search') continue;
+          pendingSteps.add(
+            _TimelineStepData.tool(
+              tool: liveTools[parsed.id] ?? parsed,
+              reasoningCountAfter: reasoningCount,
+              toolCountAfter: ++toolCount,
+            ),
+          );
+        default:
+          break;
+      }
+    }
+    flushSteps();
+    return blocks;
+  }
+
   List<_RenderBlock> _buildRenderBlocks(
     String visualContent, {
     List<ReasoningSegment>? reasoningSegments,
   }) {
+    if (_shouldRenderAssistantFromParts(
+      visualContent,
+      reasoningSegments: reasoningSegments,
+    )) {
+      return _buildRenderBlocksFromParts(
+        widget.message.parts,
+        reasoningSegments: reasoningSegments,
+      );
+    }
     final visibleTools = (widget.toolParts ?? const <ToolUIPart>[])
         .where((p) => p.toolName != 'builtin_search')
         .toList();
@@ -2345,10 +2475,7 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
           : <_RenderBlock>[_RenderBlock.text(visualContent)];
     }
 
-    final offsets = widget.contentSplitOffsets;
-    final reasoningCounts = widget.reasoningCountAtSplit;
-    final toolCounts = widget.toolCountAtSplit;
-    if (offsets == null || reasoningCounts == null || toolCounts == null) {
+    if (!_contentSplitsMatchSteps(steps, visualContent)) {
       final blocks = <_RenderBlock>[_RenderBlock.thinking(steps)];
       if (visualContent.trim().isNotEmpty) {
         blocks.add(_RenderBlock.text(visualContent));
@@ -2356,6 +2483,9 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
       return blocks;
     }
 
+    final offsets = widget.contentSplitOffsets!;
+    final reasoningCounts = widget.reasoningCountAtSplit!;
+    final toolCounts = widget.toolCountAtSplit!;
     final blocks = <_RenderBlock>[];
     int stepIndex = 0;
     int textStart = 0;
@@ -2367,10 +2497,8 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
         blocks.add(_RenderBlock.text(textSlice.trim()));
       }
 
-      final targetReasoning = i < reasoningCounts.length
-          ? reasoningCounts[i]
-          : 0;
-      final targetTool = i < toolCounts.length ? toolCounts[i] : 0;
+      final targetReasoning = reasoningCounts[i];
+      final targetTool = toolCounts[i];
       final blockSteps = <_TimelineStepData>[];
       while (stepIndex < steps.length) {
         final step = steps[stepIndex];
@@ -2391,10 +2519,64 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     if (trailingText.trim().isNotEmpty) {
       blocks.add(_RenderBlock.text(trailingText.trim()));
     }
-    if (stepIndex < steps.length) {
-      blocks.add(_RenderBlock.thinking(steps.sublist(stepIndex)));
-    }
     return blocks;
+  }
+
+  bool _contentSplitsMatchSteps(
+    List<_TimelineStepData> steps,
+    String visualContent,
+  ) {
+    if (!_hasUsableContentSplits) return false;
+    return contentSplitsMatchTimeline(
+      offsets: widget.contentSplitOffsets!,
+      reasoningCounts: widget.reasoningCountAtSplit!,
+      toolCounts: widget.toolCountAtSplit!,
+      contentLength: visualContent.length,
+      stepReasoningCounts: [for (final step in steps) step.reasoningCountAfter],
+      stepToolCounts: [for (final step in steps) step.toolCountAfter],
+    );
+  }
+
+  List<ReasoningSegment>? _effectiveReasoningSegments(
+    String extractedThinking,
+  ) {
+    final hasProvidedReasoning =
+        (widget.reasoningText != null && widget.reasoningText!.isNotEmpty) ||
+        widget.reasoningLoading;
+    final effectiveReasoningText =
+        (widget.reasoningText != null && widget.reasoningText!.isNotEmpty)
+        ? widget.reasoningText!
+        : extractedThinking;
+    final usingInlineThink =
+        (widget.reasoningText == null || widget.reasoningText!.isEmpty) &&
+        extractedThinking.isNotEmpty;
+    final effectiveExpanded = usingInlineThink
+        ? (_inlineThinkExpanded ?? true)
+        : widget.reasoningExpanded;
+    final effectiveLoading = usingInlineThink
+        ? false
+        : (widget.reasoningFinishedAt == null);
+
+    final provided = widget.reasoningSegments;
+    if (provided != null && provided.isNotEmpty) return provided;
+    if (!hasProvidedReasoning && effectiveReasoningText.isEmpty) {
+      return provided;
+    }
+    return <ReasoningSegment>[
+      ReasoningSegment(
+        text: effectiveReasoningText,
+        expanded: effectiveExpanded,
+        loading: effectiveLoading,
+        startAt: usingInlineThink ? null : widget.reasoningStartAt,
+        finishedAt: usingInlineThink ? null : widget.reasoningFinishedAt,
+        onToggle: usingInlineThink
+            ? () => setState(() {
+                _inlineThinkExpanded = !(_inlineThinkExpanded ?? true);
+                _inlineThinkManuallyToggled = true;
+              })
+            : widget.onToggleReasoning,
+      ),
+    ];
   }
 
   Widget _buildAssistantMessage() {
@@ -2427,9 +2609,21 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
     final searchItems = _allSearchItems();
     final citationIndexLookup = _buildCitationIndexLookup(searchItems);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final effectiveReasoningSegments = _effectiveReasoningSegments(
+      extractedThinking,
+    );
+    final renderFromParts = _shouldRenderAssistantFromParts(
+      visualContent,
+      reasoningSegments: effectiveReasoningSegments,
+    );
     final mediaPreview = _buildAttachmentPreview(
       context,
-      parts: widget.message.parts,
+      parts: renderFromParts
+          ? [
+              for (final part in widget.message.parts)
+                if (part is FilePart) part,
+            ]
+          : widget.message.parts,
       isDark: isDark,
       alignEnd: false,
     );
@@ -2514,51 +2708,6 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
             const SizedBox(height: 8),
           ],
           ...() {
-            final hasProvidedReasoning =
-                (widget.reasoningText != null &&
-                    widget.reasoningText!.isNotEmpty) ||
-                widget.reasoningLoading;
-            final effectiveReasoningText =
-                (widget.reasoningText != null &&
-                    widget.reasoningText!.isNotEmpty)
-                ? widget.reasoningText!
-                : extractedThinking;
-            final usingInlineThink =
-                (widget.reasoningText == null ||
-                    widget.reasoningText!.isEmpty) &&
-                extractedThinking.isNotEmpty;
-            final effectiveExpanded = usingInlineThink
-                ? (_inlineThinkExpanded ?? true)
-                : widget.reasoningExpanded;
-            final effectiveLoading = usingInlineThink
-                ? false
-                : (widget.reasoningFinishedAt == null);
-
-            List<ReasoningSegment>? effectiveReasoningSegments =
-                widget.reasoningSegments;
-            if ((effectiveReasoningSegments == null ||
-                    effectiveReasoningSegments.isEmpty) &&
-                (hasProvidedReasoning || effectiveReasoningText.isNotEmpty)) {
-              effectiveReasoningSegments = <ReasoningSegment>[
-                ReasoningSegment(
-                  text: effectiveReasoningText,
-                  expanded: effectiveExpanded,
-                  loading: effectiveLoading,
-                  startAt: usingInlineThink ? null : widget.reasoningStartAt,
-                  finishedAt: usingInlineThink
-                      ? null
-                      : widget.reasoningFinishedAt,
-                  onToggle: usingInlineThink
-                      ? () => setState(() {
-                          _inlineThinkExpanded =
-                              !(_inlineThinkExpanded ?? true);
-                          _inlineThinkManuallyToggled = true;
-                        })
-                      : widget.onToggleReasoning,
-                ),
-              ];
-            }
-
             final renderBlocks = _buildRenderBlocks(
               visualContent,
               reasoningSegments: effectiveReasoningSegments,
@@ -2751,7 +2900,9 @@ class _ChatMessageWidgetState extends State<ChatMessageWidget> {
                                         style: TextStyle(
                                           fontSize: baseTranslation,
                                           height: 1.4,
-                                          color: cs.onSurface,
+                                          color: _chatSurfacePlainTextColor(
+                                            context,
+                                          ),
                                         ),
                                       );
                                     }
@@ -3322,6 +3473,34 @@ class _AnimatedPopupState extends State<_AnimatedPopup> {
   }
 }
 
+({ChatMessageBackgroundStyle style, ChatBubbleStyleOverrides overrides})
+_chatSurfaceStyleSelection(BuildContext context) {
+  return context.select<
+    SettingsProvider,
+    ({ChatMessageBackgroundStyle style, ChatBubbleStyleOverrides overrides})
+  >(
+    (s) => (
+      style: s.chatMessageBackgroundStyle,
+      overrides: s.chatBubbleStyleOverrides,
+    ),
+  );
+}
+
+Color _chatSurfacePlainTextColor(BuildContext context) {
+  final theme = Theme.of(context);
+  final cs = theme.colorScheme;
+  final selection = _chatSurfaceStyleSelection(context);
+  if (selection.style == ChatMessageBackgroundStyle.defaultStyle) {
+    return cs.onSurface;
+  }
+  return resolveBubbleStyle(
+    cs,
+    theme.brightness,
+    selection.style,
+    selection.overrides,
+  ).text;
+}
+
 Widget _buildSharedChatSurface(
   BuildContext context, {
   required Widget child,
@@ -3332,24 +3511,36 @@ Widget _buildSharedChatSurface(
 }) {
   final theme = Theme.of(context);
   final cs = theme.colorScheme;
-  final style = context.select<SettingsProvider, ChatMessageBackgroundStyle>(
-    (s) => s.chatMessageBackgroundStyle,
-  );
-  final paddedChild = Padding(padding: padding, child: child);
+  final selection = _chatSurfaceStyleSelection(context);
+  final style = selection.style;
+  final overrides = selection.overrides;
+  final resolved = resolveBubbleStyle(cs, theme.brightness, style, overrides);
+  Widget paddedChild = Padding(padding: padding, child: child);
+  if (style != ChatMessageBackgroundStyle.defaultStyle &&
+      overrides.hasTextOverride(theme.brightness)) {
+    paddedChild = DefaultTextStyle.merge(
+      style: TextStyle(color: resolved.text),
+      child: paddedChild,
+    );
+  }
 
   switch (style) {
     case ChatMessageBackgroundStyle.frosted:
+      final radius = BorderRadius.circular(resolved.radius);
       return ClipRRect(
-        borderRadius: borderRadius,
+        borderRadius: radius,
         child: BackdropFilter.grouped(
-          filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          filter: ui.ImageFilter.blur(
+            sigmaX: resolved.blurSigma,
+            sigmaY: resolved.blurSigma,
+          ),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: cs.surfaceContainerHigh.withValues(alpha: 0.66),
-              borderRadius: borderRadius,
+              color: resolved.background,
+              borderRadius: radius,
               border: Border.all(
-                color: cs.outlineVariant.withValues(alpha: 0.14),
-                width: 0.8,
+                color: resolved.border,
+                width: resolved.borderWidth,
               ),
             ),
             child: paddedChild,
@@ -3357,13 +3548,14 @@ Widget _buildSharedChatSurface(
         ),
       );
     case ChatMessageBackgroundStyle.solid:
+      final radius = BorderRadius.circular(resolved.radius);
       return DecoratedBox(
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHigh,
-          borderRadius: borderRadius,
+          color: resolved.background,
+          borderRadius: radius,
           border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: 0.16),
-            width: 0.8,
+            color: resolved.border,
+            width: resolved.borderWidth,
           ),
         ),
         child: paddedChild,
@@ -3408,10 +3600,8 @@ _ChatSurfaceForegroundPalette _chatSurfaceForegroundPalette(
 ) {
   final theme = Theme.of(context);
   final cs = theme.colorScheme;
-  final style = context.select<SettingsProvider, ChatMessageBackgroundStyle>(
-    (s) => s.chatMessageBackgroundStyle,
-  );
-  if (style == ChatMessageBackgroundStyle.defaultStyle) {
+  final selection = _chatSurfaceStyleSelection(context);
+  if (selection.style == ChatMessageBackgroundStyle.defaultStyle) {
     return _ChatSurfaceForegroundPalette(
       strong: cs.secondary,
       medium: cs.secondary.withValues(alpha: 0.9),
@@ -3424,7 +3614,12 @@ _ChatSurfaceForegroundPalette _chatSurfaceForegroundPalette(
     );
   }
 
-  final base = cs.onSurface;
+  final base = resolveBubbleStyle(
+    cs,
+    theme.brightness,
+    selection.style,
+    selection.overrides,
+  ).text;
   final bool isDark = theme.brightness == Brightness.dark;
   return _ChatSurfaceForegroundPalette(
     strong: base.withValues(alpha: isDark ? 0.88 : 0.78),
@@ -3681,6 +3876,31 @@ class _StreamingAssistantMessageMotion extends StatelessWidget {
       clipBehavior: Clip.hardEdge,
       child: child,
     );
+  }
+}
+
+ToolUIPart? toolUiFromPayload(String payloadJson, {int fallbackOrdinal = 0}) {
+  try {
+    final decoded = jsonDecode(payloadJson);
+    if (decoded is! Map) return null;
+    var id = (decoded['id'] ?? '').toString();
+    final name = (decoded['name'] ?? '').toString();
+    if (id.isEmpty) {
+      id = '${name.isEmpty ? 'tool' : name}-$fallbackOrdinal';
+    }
+    final args = decoded['arguments'];
+    final content = decoded['content']?.toString();
+    return ToolUIPart(
+      id: id,
+      toolName: name,
+      arguments: args is Map
+          ? args.cast<String, dynamic>()
+          : const <String, dynamic>{},
+      content: content,
+      loading: content == null || content.isEmpty,
+    );
+  } catch (_) {
+    return null;
   }
 }
 

@@ -259,8 +259,7 @@ void main() {
       const conversationId = 'conversation-malformed-backfill';
       const messageIds = ['a-healthy', 'b-malformed', 'c-healthy'];
       final files = <String, File>{
-        for (final id in messageIds)
-          id: File('${tempDir.path}/upload/$id.txt'),
+        for (final id in messageIds) id: File('${tempDir.path}/upload/$id.txt'),
       };
       for (final file in files.values) {
         await file.parent.create(recursive: true);
@@ -369,10 +368,12 @@ void main() {
         expect(malformedRefs, hasLength(1));
         expect(malformedRefs.single['asset_id'], 'legacy-asset-1');
         expect(
-          verify.select(
-            "SELECT revision_id FROM asset_reference_dirty_rows "
-            'ORDER BY revision_id;',
-          ).map((row) => row['revision_id']),
+          verify
+              .select(
+                "SELECT revision_id FROM asset_reference_dirty_rows "
+                'ORDER BY revision_id;',
+              )
+              .map((row) => row['revision_id']),
           ['b-malformed'],
         );
         expect(
@@ -407,20 +408,19 @@ void main() {
       await first.close();
       services.remove(first);
 
-      final databasePath =
-          '${tempDir.path}/${AppDatabase.databaseFileName}';
+      final databasePath = '${tempDir.path}/${AppDatabase.databaseFileName}';
       final corrupt = sqlite.sqlite3.open(databasePath);
       late final String originalAssetId;
       const secret = '/private/attachment-metadata';
       final malformedPayload =
           '{"uri":"${upload.path}","name":"live.txt","mime":["$secret"]}';
       try {
-        originalAssetId = corrupt
-            .select(
-              'SELECT asset_id FROM message_asset_rows WHERE revision_id = ?;',
-              [message.id],
-            )
-            .single['asset_id'] as String;
+        originalAssetId =
+            corrupt.select(
+                  'SELECT asset_id FROM message_asset_rows WHERE revision_id = ?;',
+                  [message.id],
+                ).single['asset_id']
+                as String;
         corrupt.execute(
           'UPDATE message_part_rows SET payload = ? '
           'WHERE revision_id = ? AND kind = ?;',
@@ -959,6 +959,65 @@ void main() {
       expect(edited.parts[1], isA<TextPart>());
       expect((edited.parts[1] as TextPart).text, 'edited caption');
     });
+
+    test(
+      'temporary content-only append keeps interleaved Text/Tool/Text slots',
+      () async {
+        final service = createService();
+        await service.init();
+        final persistedService = createService();
+        await persistedService.init();
+
+        final temporary = await service.createDraftConversation(
+          title: 'Temporary Chat',
+          temporary: true,
+        );
+        final persisted = await persistedService.createConversation(
+          title: 'Persisted',
+        );
+        const parts = [
+          TextPart('我查一下'),
+          ToolCallPart('{"id":"search","name":"search"}'),
+          TextPart('结果是 X'),
+        ];
+        const editedContent = '我查一下结果是 X';
+
+        final tempOriginal = await service.addMessage(
+          conversationId: temporary.id,
+          role: 'assistant',
+          parts: parts,
+        );
+        final persistedOriginal = await persistedService.addMessage(
+          conversationId: persisted.id,
+          role: 'assistant',
+          parts: parts,
+        );
+
+        final tempEdited = await service.appendMessageVersion(
+          messageId: tempOriginal.id,
+          content: editedContent,
+        );
+        final persistedEdited = await persistedService.appendMessageVersion(
+          messageId: persistedOriginal.id,
+          content: editedContent,
+        );
+
+        expect(tempEdited!.parts.map((part) => part.kind), [
+          'text',
+          'tool_call',
+          'text',
+        ]);
+        expect(persistedEdited!.parts.map((part) => part.kind), [
+          'text',
+          'tool_call',
+          'text',
+        ]);
+        expect((tempEdited.parts[0] as TextPart).text, '我查一下');
+        expect((persistedEdited.parts[0] as TextPart).text, '我查一下');
+        expect((tempEdited.parts[2] as TextPart).text, '结果是 X');
+        expect((persistedEdited.parts[2] as TextPart).text, '结果是 X');
+      },
+    );
   });
 
   group('ChatService fork conversations', () {
@@ -997,6 +1056,174 @@ void main() {
         );
         expect(forkMessages.single.version, 0);
         expect(service.getVersionSelections(fork.id), isEmpty);
+      },
+    );
+
+    test(
+      'preserveVersions copies every version up to the target group',
+      () async {
+        final service = createService();
+        await service.init();
+
+        final source = await service.createConversation(title: 'Source');
+        await service.addMessage(
+          conversationId: source.id,
+          role: 'user',
+          content: 'q1',
+        );
+        final original = await service.addMessage(
+          conversationId: source.id,
+          role: 'assistant',
+          content: 'original answer',
+        );
+        final edited = await service.appendMessageVersion(
+          messageId: original.id,
+          content: 'edited answer',
+        );
+        expect(edited, isNotNull);
+        await service.addMessage(
+          conversationId: source.id,
+          role: 'user',
+          content: 'q2',
+        );
+        await service.addMessage(
+          conversationId: source.id,
+          role: 'assistant',
+          content: 'later answer',
+        );
+
+        final fork = await service.forkConversationAtRevision(
+          sourceConversationId: source.id,
+          sourceRevisionId: original.id,
+          title: 'Fork',
+          preserveVersions: true,
+        );
+
+        expect(fork.title, source.title);
+        expect(service.getMessages(fork.id), isEmpty);
+
+        final timeline = await service.loadActiveTimelineMessages(fork.id);
+        expect(timeline.map((message) => message.content), [
+          'q1',
+          'original answer',
+        ]);
+        expect(timeline.map((message) => message.version), [0, 0]);
+
+        final assistantGroupId = timeline.last.groupId ?? timeline.last.id;
+        final versions = await service.loadMessagesForGroups(fork.id, [
+          assistantGroupId,
+        ]);
+        expect(versions.map((message) => message.version).toSet(), {0, 1});
+        expect(versions.map((message) => message.content).toSet(), {
+          'original answer',
+          'edited answer',
+        });
+        expect(
+          versions.map((message) => message.groupId ?? message.id).toSet(),
+          {assistantGroupId},
+        );
+        expect(service.getVersionSelections(fork.id), {assistantGroupId: 0});
+      },
+    );
+
+    test(
+      'linear fork copies tool events and Gemini signatures onto new ids',
+      () async {
+        final service = createService();
+        await service.init();
+
+        final source = await service.createConversation(title: 'Source');
+        await service.addMessage(
+          conversationId: source.id,
+          role: 'user',
+          content: 'q1',
+        );
+        final assistant = await service.addMessage(
+          conversationId: source.id,
+          role: 'assistant',
+          content: 'answer with tools',
+        );
+        const events = [
+          <String, dynamic>{
+            'id': 'tool-1',
+            'name': 'search',
+            'arguments': <String, dynamic>{'q': 'kelivo'},
+            'content': 'found',
+          },
+        ];
+        await service.setToolEvents(assistant.id, events);
+        await service.setGeminiThoughtSignature(assistant.id, 'sig-source');
+
+        final fork = await service.forkConversationAtRevision(
+          sourceConversationId: source.id,
+          sourceRevisionId: assistant.id,
+          title: 'Fork',
+        );
+
+        final forkMessages = service.getMessages(fork.id);
+        expect(forkMessages, hasLength(2));
+        final forkedAssistant = forkMessages.last;
+        expect(forkedAssistant.id, isNot(assistant.id));
+        expect(service.getToolEvents(forkedAssistant.id), events);
+        expect(
+          service.getGeminiThoughtSignature(forkedAssistant.id),
+          'sig-source',
+        );
+        expect(service.getToolEvents(assistant.id), events);
+        expect(service.getGeminiThoughtSignature(assistant.id), 'sig-source');
+      },
+    );
+
+    test(
+      'forkConversationFromMessages copies tool events and Gemini signatures',
+      () async {
+        final service = createService();
+        await service.init();
+
+        final source = await service.createConversation(title: 'Source');
+        final user = await service.addMessage(
+          conversationId: source.id,
+          role: 'user',
+          content: 'q1',
+        );
+        final assistant = await service.addMessage(
+          conversationId: source.id,
+          role: 'assistant',
+          content: 'answer with tools',
+        );
+        const events = [
+          <String, dynamic>{
+            'id': 'tool-keep',
+            'name': 'lookup',
+            'arguments': <String, dynamic>{},
+            'content': 'ok',
+          },
+        ];
+        await service.setToolEvents(assistant.id, events);
+        await service.setGeminiThoughtSignature(assistant.id, 'sig-keep');
+
+        final summary = ChatMessage(
+          role: 'user',
+          content: 'summary of earlier turns',
+          conversationId: source.id,
+        );
+        final fork = await service.forkConversationFromMessages(
+          title: source.title,
+          assistantId: source.assistantId,
+          sourceMessages: [summary, user, assistant],
+        );
+
+        final forkMessages = service.getMessages(fork.id);
+        expect(forkMessages, hasLength(3));
+        expect(forkMessages.first.content, 'summary of earlier turns');
+        final forkedAssistant = forkMessages.last;
+        expect(forkedAssistant.id, isNot(assistant.id));
+        expect(service.getToolEvents(forkedAssistant.id), events);
+        expect(
+          service.getGeminiThoughtSignature(forkedAssistant.id),
+          'sig-keep',
+        );
+        expect(service.getToolEvents(forkMessages.first.id), isEmpty);
       },
     );
   });
