@@ -2765,6 +2765,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chatInputBarVoiceInputTooltip => '语音输入';
 
   @override
+  String get voiceChatButtonTooltip => '语音聊天';
+
+  @override
   String get chatInputBarVoiceCancelTooltip => '取消录音';
 
   @override
@@ -5409,6 +5412,28 @@ class AppLocalizationsZh extends AppLocalizations {
   String get assistantEditPageMemoryTab => '记忆';
 
   @override
+  String get systemPermissionsPageTitle => '权限管理';
+
+  @override
+  String get systemPermissionsBypassAll => '全部自动允许';
+
+  @override
+  String get systemPermissionsSectionHeader => '系统框架权限策略';
+
+  @override
+  String get systemPermissionsPolicyBypass => 'Bypass';
+
+  @override
+  String get systemPermissionsPolicyAsk => 'Ask';
+
+  @override
+  String get systemPermissionsPolicyDeny => 'Deny';
+
+  @override
+  String get systemPermissionsFooterNote =>
+      '此处权限管理仅作用于系统原生框架工具（如 HealthKit、日历、提醒事项、天气等）。MCP 外部工具的独立审批策略不受影响。';
+
+  @override
   String get assistantEditLocalToolTimeInfoTitle => '时间信息';
 
   @override
@@ -5471,6 +5496,104 @@ class AppLocalizationsZh extends AppLocalizations {
       '在你确认后于本设备创建日历日程，需要授予日历权限。';
 
   @override
+  String get assistantEditLocalToolMcpServersTitle => 'MCP工具管理';
+
+  @override
+  String get assistantEditLocalToolMcpServersSubtitle =>
+      '允许大模型管理（查询、安装、编辑、启用/禁用、删除）MCP服务与工具。';
+
+  @override
+  String get assistantEditLocalToolLocationTitle => '地理位置解析';
+
+  @override
+  String get assistantEditLocalToolLocationSubtitle =>
+      '允许大模型获取当前设备高精度 GPS 坐标、逆地理编码转换街道地址，或查找地址坐标。';
+
+  @override
+  String get assistantEditLocalToolMapKitTitle => '地图导航检索';
+
+  @override
+  String get assistantEditLocalToolMapKitSubtitle =>
+      '允许大模型搜索周边地点、规划道路路线（含逐步骤导航）、估算到达时间，并打开苹果地图进行导航。';
+
+  @override
+  String get assistantEditLocalToolWeatherKitTitle => '天气查询';
+
+  @override
+  String get assistantEditLocalToolWeatherKitSubtitle =>
+      '允许大模型基于 Apple WeatherKit 查询实时天气、未来 48 小时逐小时预报、未来 10 天预报及严重天气预警。';
+
+  @override
+  String get assistantEditLocalToolBleBridgeTitle => 'BLE蓝牙交互';
+
+  @override
+  String get assistantEditLocalToolBleBridgeSubtitle =>
+      '允许大模型基于 CoreBluetooth 扫描附近 BLE 蓝牙外设、建立连接、发现 GATT 服务特征值并读写数据。';
+
+  @override
+  String get assistantEditLocalToolUserNotificationTitle => '本地通知提醒';
+
+  @override
+  String get assistantEditLocalToolUserNotificationSubtitle =>
+      '允许大模型基于 UserNotifications 发送即时/定时推送通知、查看权限状态及管理挂起的提醒请求。';
+
+  @override
+  String get assistantEditLocalToolDeviceInfoTitle => '设备信息';
+
+  @override
+  String get assistantEditLocalToolDeviceInfoSubtitle =>
+      '允许大模型基于 UIKit 查询设备型号代号 (如 iPhone16,1)、iOS 系统版本、电池电量/充电状态、内存与存储空间。';
+
+  @override
+  String get assistantEditLocalToolHealthKitTitle => '健康体征';
+
+  @override
+  String get assistantEditLocalToolHealthKitSubtitle =>
+      '允许大模型基于 HealthKit 读写步数、心率、睡眠分析（深睡/REM/浅睡）、消耗卡路里、体重身高体征与饮水膳食记录。';
+
+  @override
+  String get assistantEditLocalToolCalendarEventTitle => '日历日程管理';
+
+  @override
+  String get assistantEditLocalToolCalendarEventSubtitle =>
+      '允许大模型基于 EventKit 查看近期日程、搜索日程、创建含闹钟提醒的新日程及删除日程。';
+
+  @override
+  String get assistantEditLocalToolReminderTaskTitle => '提醒待办事项';
+
+  @override
+  String get assistantEditLocalToolReminderTaskSubtitle =>
+      '允许大模型基于 EventKit 查看待办事项、新建提醒任务、标记完成/未完成、删除任务及管理提醒清单。';
+
+  @override
+  String get assistantEditLocalToolAlarmTimerTitle => '闹钟倒计时';
+
+  @override
+  String get assistantEditLocalToolAlarmTimerSubtitle =>
+      '允许大模型基于系统级通知与定时器设定特定时间闹钟、启动倒计时定时器、查看挂起列表及一键取消。';
+
+  @override
+  String get assistantEditLocalToolAppleVisionTitle => 'OCR视觉';
+
+  @override
+  String get assistantEditLocalToolAppleVisionSubtitle =>
+      '允许大模型基于 Apple Vision 框架在端侧毫秒级执行图像文字识别 (OCR)、二维码/条码扫描、人脸检测及图像分类。';
+
+  @override
+  String get assistantEditLocalToolSpeechRecognizerTitle => '语音转文字';
+
+  @override
+  String get assistantEditLocalToolSpeechRecognizerSubtitle =>
+      '允许大模型基于 SFSpeechRecognizer 在端侧 100% 离线将录音与音频文件识别转写为精准文本 (STT)。';
+
+  @override
+  String get assistantEditLocalToolSpeechSynthesizerTitle => '文本转语音';
+
+  @override
+  String get assistantEditLocalToolSpeechSynthesizerSubtitle =>
+      '允许大模型基于 AVSpeechSynthesizer 在端侧离线合成高品质语音朗读文本 (TTS)、导出音频文件及查询高级音色。';
+
+  @override
   String get assistantEditLocalToolShortcutAutomationTitle => '快捷指令自动化';
 
   @override
@@ -5484,9 +5607,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get shortcutAutomationListBody => '列出全部快捷指令';
 
   @override
-  String shortcutAutomationExecBody(String shortcut) {
+  String shortcutAutomationExecBody(Object shortcut) {
     return '执行快捷指令：$shortcut';
   }
+
+  @override
+  String get assistantEditMemorySwitchTitle => '使用长期记忆';
 
   @override
   String get assistantEditMemorySwitchDescription => '允许助手主动存储并在对话间引用用户相关信息';
@@ -6729,9 +6855,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get memoryUiAssistantLegacySubtitle => '该助手来自旧版本的记忆';
-
-  @override
-  String get assistantEditMemorySwitchTitle => '使用长期记忆';
 
   @override
   String get assistantEditMemorySwitchSubtitle => '把已保存的记忆注入对话，并允许此助手写入新记忆';
@@ -10416,6 +10539,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get chatInputBarVoiceInputTooltip => '语音输入';
 
   @override
+  String get voiceChatButtonTooltip => '语音聊天';
+
+  @override
   String get chatInputBarVoiceCancelTooltip => '取消录音';
 
   @override
@@ -12986,6 +13112,28 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get assistantEditPageMemoryTab => '记忆';
 
   @override
+  String get systemPermissionsPageTitle => '权限管理';
+
+  @override
+  String get systemPermissionsBypassAll => '全部自动允许';
+
+  @override
+  String get systemPermissionsSectionHeader => '系统框架权限策略';
+
+  @override
+  String get systemPermissionsPolicyBypass => 'Bypass';
+
+  @override
+  String get systemPermissionsPolicyAsk => 'Ask';
+
+  @override
+  String get systemPermissionsPolicyDeny => 'Deny';
+
+  @override
+  String get systemPermissionsFooterNote =>
+      '此处权限管理仅作用于系统原生框架工具（如 HealthKit、日历、提醒事项、天气等）。MCP 外部工具的独立审批策略不受影响。';
+
+  @override
   String get assistantEditLocalToolTimeInfoTitle => '时间信息';
 
   @override
@@ -13048,6 +13196,104 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
       '在你确认后于本设备创建日历日程，需要授予日历权限。';
 
   @override
+  String get assistantEditLocalToolMcpServersTitle => 'MCP工具管理';
+
+  @override
+  String get assistantEditLocalToolMcpServersSubtitle =>
+      '允许大模型管理（查询、安装、编辑、启用/禁用、删除）MCP服务与工具。';
+
+  @override
+  String get assistantEditLocalToolLocationTitle => '地理位置解析';
+
+  @override
+  String get assistantEditLocalToolLocationSubtitle =>
+      '允许大模型获取当前设备高精度 GPS 坐标、逆地理编码转换街道地址，或查找地址坐标。';
+
+  @override
+  String get assistantEditLocalToolMapKitTitle => '地图导航检索';
+
+  @override
+  String get assistantEditLocalToolMapKitSubtitle =>
+      '允许大模型搜索周边地点、规划道路路线（含逐步骤导航）、估算到达时间，并打开苹果地图进行导航。';
+
+  @override
+  String get assistantEditLocalToolWeatherKitTitle => '天气查询';
+
+  @override
+  String get assistantEditLocalToolWeatherKitSubtitle =>
+      '允许大模型基于 Apple WeatherKit 查询实时天气、未来 48 小时逐小时预报、未来 10 天预报及严重天气预警。';
+
+  @override
+  String get assistantEditLocalToolBleBridgeTitle => 'BLE蓝牙交互';
+
+  @override
+  String get assistantEditLocalToolBleBridgeSubtitle =>
+      '允许大模型基于 CoreBluetooth 扫描附近 BLE 蓝牙外设、建立连接、发现 GATT 服务特征值并读写数据。';
+
+  @override
+  String get assistantEditLocalToolUserNotificationTitle => '本地通知提醒';
+
+  @override
+  String get assistantEditLocalToolUserNotificationSubtitle =>
+      '允许大模型基于 UserNotifications 发送即时/定时推送通知、查看权限状态及管理挂起的提醒请求。';
+
+  @override
+  String get assistantEditLocalToolDeviceInfoTitle => '设备信息';
+
+  @override
+  String get assistantEditLocalToolDeviceInfoSubtitle =>
+      '允许大模型基于 UIKit 查询设备型号代号 (如 iPhone16,1)、iOS 系统版本、电池电量/充电状态、内存与存储空间。';
+
+  @override
+  String get assistantEditLocalToolHealthKitTitle => '健康体征';
+
+  @override
+  String get assistantEditLocalToolHealthKitSubtitle =>
+      '允许大模型基于 HealthKit 读写步数、心率、睡眠分析（深睡/REM/浅睡）、消耗卡路里、体重身高体征与饮水膳食记录。';
+
+  @override
+  String get assistantEditLocalToolCalendarEventTitle => '日历日程管理';
+
+  @override
+  String get assistantEditLocalToolCalendarEventSubtitle =>
+      '允许大模型基于 EventKit 查看近期日程、搜索日程、创建含闹钟提醒的新日程及删除日程。';
+
+  @override
+  String get assistantEditLocalToolReminderTaskTitle => '提醒待办事项';
+
+  @override
+  String get assistantEditLocalToolReminderTaskSubtitle =>
+      '允许大模型基于 EventKit 查看待办事项、新建提醒任务、标记完成/未完成、删除任务及管理提醒清单。';
+
+  @override
+  String get assistantEditLocalToolAlarmTimerTitle => '闹钟倒计时';
+
+  @override
+  String get assistantEditLocalToolAlarmTimerSubtitle =>
+      '允许大模型基于系统级通知与定时器设定特定时间闹钟、启动倒计时定时器、查看挂起列表及一键取消。';
+
+  @override
+  String get assistantEditLocalToolAppleVisionTitle => 'OCR视觉';
+
+  @override
+  String get assistantEditLocalToolAppleVisionSubtitle =>
+      '允许大模型基于 Apple Vision 框架在端侧毫秒级执行图像文字识别 (OCR)、二维码/条码扫描、人脸检测及图像分类。';
+
+  @override
+  String get assistantEditLocalToolSpeechRecognizerTitle => '语音转文字';
+
+  @override
+  String get assistantEditLocalToolSpeechRecognizerSubtitle =>
+      '允许大模型基于 SFSpeechRecognizer 在端侧 100% 离线将录音与音频文件识别转写为精准文本 (STT)。';
+
+  @override
+  String get assistantEditLocalToolSpeechSynthesizerTitle => '文本转语音';
+
+  @override
+  String get assistantEditLocalToolSpeechSynthesizerSubtitle =>
+      '允许大模型基于 AVSpeechSynthesizer 在端侧离线合成高品质语音朗读文本 (TTS)、导出音频文件及查询高级音色。';
+
+  @override
   String get assistantEditLocalToolShortcutAutomationTitle => '快捷指令自动化';
 
   @override
@@ -13061,9 +13307,12 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get shortcutAutomationListBody => '列出全部快捷指令';
 
   @override
-  String shortcutAutomationExecBody(String shortcut) {
+  String shortcutAutomationExecBody(Object shortcut) {
     return '执行快捷指令：$shortcut';
   }
+
+  @override
+  String get assistantEditMemorySwitchTitle => '使用长期记忆';
 
   @override
   String get assistantEditMemorySwitchDescription => '允许助手主动存储并在对话间引用用户相关信息';
@@ -14306,9 +14555,6 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get memoryUiAssistantLegacySubtitle => '该助手来自旧版本的记忆';
-
-  @override
-  String get assistantEditMemorySwitchTitle => '使用长期记忆';
 
   @override
   String get assistantEditMemorySwitchSubtitle => '把已保存的记忆注入对话，并允许此助手写入新记忆';
@@ -17992,6 +18238,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get chatInputBarVoiceInputTooltip => '語音輸入';
 
   @override
+  String get voiceChatButtonTooltip => '語音聊天';
+
+  @override
   String get chatInputBarVoiceCancelTooltip => '取消錄音';
 
   @override
@@ -20637,6 +20886,28 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get assistantEditPageMemoryTab => '記憶';
 
   @override
+  String get systemPermissionsPageTitle => '權限管理';
+
+  @override
+  String get systemPermissionsBypassAll => '全部自動允許';
+
+  @override
+  String get systemPermissionsSectionHeader => '系統框架權限策略';
+
+  @override
+  String get systemPermissionsPolicyBypass => 'Bypass';
+
+  @override
+  String get systemPermissionsPolicyAsk => 'Ask';
+
+  @override
+  String get systemPermissionsPolicyDeny => 'Deny';
+
+  @override
+  String get systemPermissionsFooterNote =>
+      '此處權限管理僅作用於系統原生框架工具（如 HealthKit、日曆、提醒事項、天氣等）。MCP 外部工具的獨立審批策略不受影響。';
+
+  @override
   String get assistantEditLocalToolTimeInfoTitle => '時間資訊';
 
   @override
@@ -20699,6 +20970,106 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
       '在你確認後於本裝置建立日曆行程，需要授予日曆權限。';
 
   @override
+  String get assistantEditLocalToolMcpServersTitle => 'MCP 服務與工具管理器';
+
+  @override
+  String get assistantEditLocalToolMcpServersSubtitle =>
+      '允許大型語言模型管理（查詢、安裝、編輯、啟用/禁用、刪除）MCP服務與工具。';
+
+  @override
+  String get assistantEditLocalToolLocationTitle => '地理位置與地址解析';
+
+  @override
+  String get assistantEditLocalToolLocationSubtitle =>
+      '允許大型語言模型獲取當前設備高精度 GPS 坐標、逆地理編碼轉換街道地址，或尋找地址坐標。';
+
+  @override
+  String get assistantEditLocalToolMapKitTitle => '地圖導航與地點檢索';
+
+  @override
+  String get assistantEditLocalToolMapKitSubtitle =>
+      '允許大型語言模型搜尋周邊地點、規劃道路路線（含逐步導航）、估算到達時間，並開啟蘋果地圖進行導航。';
+
+  @override
+  String get assistantEditLocalToolWeatherKitTitle => '天氣查詢與預報';
+
+  @override
+  String get assistantEditLocalToolWeatherKitSubtitle =>
+      '允許大型語言模型基於 Apple WeatherKit 查詢實時天氣、未來 48 小時逐小時預報、未來 10 天預報及嚴重天氣預警。';
+
+  @override
+  String get assistantEditLocalToolBleBridgeTitle => '藍牙 BLE 設備互動';
+
+  @override
+  String get assistantEditLocalToolBleBridgeSubtitle =>
+      '允許大型語言模型基於 CoreBluetooth 掃描附近 BLE 藍牙外設、建立連接、發現 GATT 服務特徵值並讀寫資料。';
+
+  @override
+  String get assistantEditLocalToolUserNotificationTitle => '本地通知與提醒';
+
+  @override
+  String get assistantEditLocalToolUserNotificationSubtitle =>
+      '允許大型語言模型基於 UserNotifications 發送即時/定時推送通知、查看權限狀態及管理掛起的提醒請求。';
+
+  @override
+  String get assistantEditLocalToolDeviceInfoTitle => '設備與硬體狀態';
+
+  @override
+  String get assistantEditLocalToolDeviceInfoSubtitle =>
+      '允許大型語言模型基於 UIKit 查詢設備型號代號 (如 iPhone16,1)、iOS 系統版本、電池電量/充電狀態、記憶體與儲存空間。';
+
+  @override
+  String get assistantEditLocalToolHealthKitTitle => 'HealthKit 健康與體徵';
+
+  @override
+  String get assistantEditLocalToolHealthKitSubtitle =>
+      '允許大型語言模型基於 HealthKit 讀寫步數、心率、睡眠分析（深睡/REM/淺睡）、消耗卡路里、體重身高體徵與飲水膳食記錄。';
+
+  @override
+  String get assistantEditLocalToolCalendarEventTitle => '日曆日程管理';
+
+  @override
+  String get assistantEditLocalToolCalendarEventSubtitle =>
+      '允許大型語言模型基於 EventKit 查看近期日程、搜尋日程、創建含鬧鐘提醒的新日程及刪除日程。';
+
+  @override
+  String get assistantEditLocalToolReminderTaskTitle => '提醒事項與待辦清單';
+
+  @override
+  String get assistantEditLocalToolReminderTaskSubtitle =>
+      '允許大型語言模型基於 EventKit 查看待辦事項、新建提醒任務、標記完成/未完成、刪除任務及管理提醒清單。';
+
+  @override
+  String get assistantEditLocalToolAlarmTimerTitle => '鬧鐘、倒計時與定時器';
+
+  @override
+  String get assistantEditLocalToolAlarmTimerSubtitle =>
+      '允許大型語言模型基於系統級通知與定時器設定特定時間鬧鐘、啟動倒計時定時器、查看掛起列表及一鍵取消。';
+
+  @override
+  String get assistantEditLocalToolAppleVisionTitle => 'Apple Vision 端側視覺分析';
+
+  @override
+  String get assistantEditLocalToolAppleVisionSubtitle =>
+      '允許大型語言模型基於 Apple Vision 框架在端側毫秒級執行圖像文字識別 (OCR)、二維碼/條碼掃描、人臉檢測及圖像分類。';
+
+  @override
+  String get assistantEditLocalToolSpeechRecognizerTitle =>
+      'SFSpeechRecognizer 離線語音識別';
+
+  @override
+  String get assistantEditLocalToolSpeechRecognizerSubtitle =>
+      '允許大型語言模型基於 SFSpeechRecognizer 在端側 100% 離線將錄音與音訊檔案識別轉寫為精準文字 (STT)。';
+
+  @override
+  String get assistantEditLocalToolSpeechSynthesizerTitle =>
+      'AVSpeechSynthesizer 離線語音合成';
+
+  @override
+  String get assistantEditLocalToolSpeechSynthesizerSubtitle =>
+      '允許大型語言模型基於 AVSpeechSynthesizer 在端側離線合成高品質語音朗讀文字 (TTS)、匯出音訊檔案及查詢高級音色。';
+
+  @override
   String get assistantEditLocalToolShortcutAutomationTitle => '快捷指令自動化';
 
   @override
@@ -20712,9 +21083,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get shortcutAutomationListBody => '列出全部快捷指令';
 
   @override
-  String shortcutAutomationExecBody(String shortcut) {
+  String shortcutAutomationExecBody(Object shortcut) {
     return '執行快捷指令：$shortcut';
   }
+
+  @override
+  String get assistantEditMemorySwitchTitle => '使用長期記憶';
 
   @override
   String get assistantEditMemorySwitchDescription => '允許助理主動儲存並在對話間引用使用者相關資訊';
@@ -21957,9 +22331,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get memoryUiAssistantLegacySubtitle => '該助手來自舊版本的記憶';
-
-  @override
-  String get assistantEditMemorySwitchTitle => '使用長期記憶';
 
   @override
   String get assistantEditMemorySwitchSubtitle => '把已儲存的記憶注入對話，並允許此助手寫入新記憶';

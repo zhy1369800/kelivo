@@ -2865,6 +2865,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chatInputBarVoiceInputTooltip => 'Voice input';
 
   @override
+  String get voiceChatButtonTooltip => 'Voice chat';
+
+  @override
   String get chatInputBarVoiceCancelTooltip => 'Discard recording';
 
   @override
@@ -5633,6 +5636,28 @@ class AppLocalizationsEn extends AppLocalizations {
   String get assistantEditPageMemoryTab => 'Memory';
 
   @override
+  String get systemPermissionsPageTitle => 'Permissions';
+
+  @override
+  String get systemPermissionsBypassAll => 'Bypass All';
+
+  @override
+  String get systemPermissionsSectionHeader => 'System Framework Permissions';
+
+  @override
+  String get systemPermissionsPolicyBypass => 'Bypass';
+
+  @override
+  String get systemPermissionsPolicyAsk => 'Ask';
+
+  @override
+  String get systemPermissionsPolicyDeny => 'Deny';
+
+  @override
+  String get systemPermissionsFooterNote =>
+      'These permissions apply strictly to iOS system framework native tools (HealthKit, Calendar, Reminders, Weather, etc.). Independent approval policies for external MCP tools remain unchanged.';
+
+  @override
   String get assistantEditLocalToolTimeInfoTitle => 'Time Info';
 
   @override
@@ -5696,6 +5721,112 @@ class AppLocalizationsEn extends AppLocalizations {
       'Create calendar events on this device with your confirmation, requires the calendar permission.';
 
   @override
+  String get assistantEditLocalToolMcpServersTitle => 'MCP Manager';
+
+  @override
+  String get assistantEditLocalToolMcpServersSubtitle =>
+      'Allow the assistant to list, install, edit, toggle, and remove MCP servers.';
+
+  @override
+  String get assistantEditLocalToolLocationTitle => 'Location & Geocoding';
+
+  @override
+  String get assistantEditLocalToolLocationSubtitle =>
+      'Allow the assistant to get current device GPS coordinates, reverse-geocode address, or forward-geocode addresses.';
+
+  @override
+  String get assistantEditLocalToolMapKitTitle => 'MapKit Navigation';
+
+  @override
+  String get assistantEditLocalToolMapKitSubtitle =>
+      'Allow the assistant to search places, plan road routes with steps, estimate ETA, and open Apple Maps for navigation.';
+
+  @override
+  String get assistantEditLocalToolWeatherKitTitle => 'WeatherKit Forecast';
+
+  @override
+  String get assistantEditLocalToolWeatherKitSubtitle =>
+      'Allow the assistant to query real-time weather, 48-hour hourly forecasts, 10-day daily forecasts, and severe weather alerts via Apple WeatherKit.';
+
+  @override
+  String get assistantEditLocalToolBleBridgeTitle => 'Bluetooth BLE Bridge';
+
+  @override
+  String get assistantEditLocalToolBleBridgeSubtitle =>
+      'Allow the assistant to scan nearby BLE devices, connect to peripherals, discover GATT services, read, and write characteristic data.';
+
+  @override
+  String get assistantEditLocalToolUserNotificationTitle =>
+      'Local Notifications & Reminders';
+
+  @override
+  String get assistantEditLocalToolUserNotificationSubtitle =>
+      'Allow the assistant to send immediate or scheduled local notifications, check permission status, and manage pending reminders.';
+
+  @override
+  String get assistantEditLocalToolDeviceInfoTitle =>
+      'Device & Hardware Status';
+
+  @override
+  String get assistantEditLocalToolDeviceInfoSubtitle =>
+      'Allow the assistant to query device model (e.g. iPhone16,1), iOS system version, battery level/state, RAM, and disk storage space.';
+
+  @override
+  String get assistantEditLocalToolHealthKitTitle => 'HealthKit Health Data';
+
+  @override
+  String get assistantEditLocalToolHealthKitSubtitle =>
+      'Allow the assistant to query and log step count, heart rate, sleep analysis, active/basal calories, body weight/height/BMI, and nutrition.';
+
+  @override
+  String get assistantEditLocalToolCalendarEventTitle =>
+      'Calendar Events & Schedule';
+
+  @override
+  String get assistantEditLocalToolCalendarEventSubtitle =>
+      'Allow the assistant to list upcoming events, search schedules, create new calendar entries with alarms, and delete events.';
+
+  @override
+  String get assistantEditLocalToolReminderTaskTitle =>
+      'Reminders & Task Lists';
+
+  @override
+  String get assistantEditLocalToolReminderTaskSubtitle =>
+      'Allow the assistant to list reminders, create to-do tasks, mark items complete/incomplete, delete items, and manage reminder lists.';
+
+  @override
+  String get assistantEditLocalToolAlarmTimerTitle =>
+      'Alarms, Timers & Countdown';
+
+  @override
+  String get assistantEditLocalToolAlarmTimerSubtitle =>
+      'Allow the assistant to set alarms for specific times, start countdown timers, list active timers, and cancel pending alarms.';
+
+  @override
+  String get assistantEditLocalToolAppleVisionTitle =>
+      'Apple Vision Computer Vision';
+
+  @override
+  String get assistantEditLocalToolAppleVisionSubtitle =>
+      'Allow the assistant to perform fast on-device OCR text recognition, QR/barcode scanning, face detection, and image classification via Apple Vision.';
+
+  @override
+  String get assistantEditLocalToolSpeechRecognizerTitle =>
+      'SpeechRecognizer Offline STT';
+
+  @override
+  String get assistantEditLocalToolSpeechRecognizerSubtitle =>
+      'Allow the assistant to perform fast 100% on-device offline speech-to-text transcription of audio files via Apple SFSpeechRecognizer.';
+
+  @override
+  String get assistantEditLocalToolSpeechSynthesizerTitle =>
+      'SpeechSynthesizer Offline TTS';
+
+  @override
+  String get assistantEditLocalToolSpeechSynthesizerSubtitle =>
+      'Allow the assistant to perform fast on-device offline text-to-speech playback and audio file synthesis via Apple AVSpeechSynthesizer.';
+
+  @override
   String get assistantEditLocalToolShortcutAutomationTitle =>
       'Shortcuts Automation';
 
@@ -5710,9 +5841,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get shortcutAutomationListBody => 'List all shortcuts';
 
   @override
-  String shortcutAutomationExecBody(String shortcut) {
+  String shortcutAutomationExecBody(Object shortcut) {
     return 'Execute shortcut: $shortcut';
   }
+
+  @override
+  String get assistantEditMemorySwitchTitle => 'Use long-term memory';
 
   @override
   String get assistantEditMemorySwitchDescription =>
@@ -7014,9 +7148,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get memoryUiAssistantLegacySubtitle =>
       'Old memories of this assistant from previous versions';
-
-  @override
-  String get assistantEditMemorySwitchTitle => 'Use long-term memory';
 
   @override
   String get assistantEditMemorySwitchSubtitle =>

@@ -502,7 +502,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                                       '选择绑定的桌面 Agent 节点',
                                       style: TextStyle(
                                         fontSize: 16,
-                                        fontWeight: AppFontWeights.bold,
+                                        fontWeight: FontWeight.bold,
                                         color: cs.onSurface,
                                       ),
                                     ),
@@ -569,7 +569,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                           child: Row(
                             children: [
                               Icon(
-                                currentEp != null ? Lucide.Terminal : Lucide.Cpu,
+                                currentEp != null ? Lucide.Terminal : Lucide.Box,
                                 size: 20,
                                 color: currentEp != null ? cs.primary : cs.outline,
                               ),

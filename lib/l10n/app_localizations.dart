@@ -5332,6 +5332,12 @@ abstract class AppLocalizations {
   /// **'Voice input'**
   String get chatInputBarVoiceInputTooltip;
 
+  /// No description provided for @voiceChatButtonTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice chat'**
+  String get voiceChatButtonTooltip;
+
   /// No description provided for @chatInputBarVoiceCancelTooltip.
   ///
   /// In en, this message translates to:
@@ -10363,6 +10369,48 @@ abstract class AppLocalizations {
   /// **'Memory'**
   String get assistantEditPageMemoryTab;
 
+  /// No description provided for @systemPermissionsPageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Permissions'**
+  String get systemPermissionsPageTitle;
+
+  /// No description provided for @systemPermissionsBypassAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Bypass All'**
+  String get systemPermissionsBypassAll;
+
+  /// No description provided for @systemPermissionsSectionHeader.
+  ///
+  /// In en, this message translates to:
+  /// **'System Framework Permissions'**
+  String get systemPermissionsSectionHeader;
+
+  /// No description provided for @systemPermissionsPolicyBypass.
+  ///
+  /// In en, this message translates to:
+  /// **'Bypass'**
+  String get systemPermissionsPolicyBypass;
+
+  /// No description provided for @systemPermissionsPolicyAsk.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask'**
+  String get systemPermissionsPolicyAsk;
+
+  /// No description provided for @systemPermissionsPolicyDeny.
+  ///
+  /// In en, this message translates to:
+  /// **'Deny'**
+  String get systemPermissionsPolicyDeny;
+
+  /// No description provided for @systemPermissionsFooterNote.
+  ///
+  /// In en, this message translates to:
+  /// **'These permissions apply strictly to iOS system framework native tools (HealthKit, Calendar, Reminders, Weather, etc.). Independent approval policies for external MCP tools remain unchanged.'**
+  String get systemPermissionsFooterNote;
+
   /// No description provided for @assistantEditLocalToolTimeInfoTitle.
   ///
   /// In en, this message translates to:
@@ -10471,20 +10519,209 @@ abstract class AppLocalizations {
   /// **'Create calendar events on this device with your confirmation, requires the calendar permission.'**
   String get assistantEditLocalToolCalendarCreateSubtitle;
 
+  /// No description provided for @assistantEditLocalToolMcpServersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'MCP Manager'**
+  String get assistantEditLocalToolMcpServersTitle;
+
+  /// No description provided for @assistantEditLocalToolMcpServersSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to list, install, edit, toggle, and remove MCP servers.'**
+  String get assistantEditLocalToolMcpServersSubtitle;
+
+  /// No description provided for @assistantEditLocalToolLocationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Location & Geocoding'**
+  String get assistantEditLocalToolLocationTitle;
+
+  /// No description provided for @assistantEditLocalToolLocationSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to get current device GPS coordinates, reverse-geocode address, or forward-geocode addresses.'**
+  String get assistantEditLocalToolLocationSubtitle;
+
+  /// No description provided for @assistantEditLocalToolMapKitTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'MapKit Navigation'**
+  String get assistantEditLocalToolMapKitTitle;
+
+  /// No description provided for @assistantEditLocalToolMapKitSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to search places, plan road routes with steps, estimate ETA, and open Apple Maps for navigation.'**
+  String get assistantEditLocalToolMapKitSubtitle;
+
+  /// No description provided for @assistantEditLocalToolWeatherKitTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'WeatherKit Forecast'**
+  String get assistantEditLocalToolWeatherKitTitle;
+
+  /// No description provided for @assistantEditLocalToolWeatherKitSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to query real-time weather, 48-hour hourly forecasts, 10-day daily forecasts, and severe weather alerts via Apple WeatherKit.'**
+  String get assistantEditLocalToolWeatherKitSubtitle;
+
+  /// No description provided for @assistantEditLocalToolBleBridgeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Bluetooth BLE Bridge'**
+  String get assistantEditLocalToolBleBridgeTitle;
+
+  /// No description provided for @assistantEditLocalToolBleBridgeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to scan nearby BLE devices, connect to peripherals, discover GATT services, read, and write characteristic data.'**
+  String get assistantEditLocalToolBleBridgeSubtitle;
+
+  /// No description provided for @assistantEditLocalToolUserNotificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Local Notifications & Reminders'**
+  String get assistantEditLocalToolUserNotificationTitle;
+
+  /// No description provided for @assistantEditLocalToolUserNotificationSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to send immediate or scheduled local notifications, check permission status, and manage pending reminders.'**
+  String get assistantEditLocalToolUserNotificationSubtitle;
+
+  /// No description provided for @assistantEditLocalToolDeviceInfoTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Device & Hardware Status'**
+  String get assistantEditLocalToolDeviceInfoTitle;
+
+  /// No description provided for @assistantEditLocalToolDeviceInfoSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to query device model (e.g. iPhone16,1), iOS system version, battery level/state, RAM, and disk storage space.'**
+  String get assistantEditLocalToolDeviceInfoSubtitle;
+
+  /// No description provided for @assistantEditLocalToolHealthKitTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'HealthKit Health Data'**
+  String get assistantEditLocalToolHealthKitTitle;
+
+  /// No description provided for @assistantEditLocalToolHealthKitSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to query and log step count, heart rate, sleep analysis, active/basal calories, body weight/height/BMI, and nutrition.'**
+  String get assistantEditLocalToolHealthKitSubtitle;
+
+  /// No description provided for @assistantEditLocalToolCalendarEventTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Calendar Events & Schedule'**
+  String get assistantEditLocalToolCalendarEventTitle;
+
+  /// No description provided for @assistantEditLocalToolCalendarEventSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to list upcoming events, search schedules, create new calendar entries with alarms, and delete events.'**
+  String get assistantEditLocalToolCalendarEventSubtitle;
+
+  /// No description provided for @assistantEditLocalToolReminderTaskTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reminders & Task Lists'**
+  String get assistantEditLocalToolReminderTaskTitle;
+
+  /// No description provided for @assistantEditLocalToolReminderTaskSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to list reminders, create to-do tasks, mark items complete/incomplete, delete items, and manage reminder lists.'**
+  String get assistantEditLocalToolReminderTaskSubtitle;
+
+  /// No description provided for @assistantEditLocalToolAlarmTimerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Alarms, Timers & Countdown'**
+  String get assistantEditLocalToolAlarmTimerTitle;
+
+  /// No description provided for @assistantEditLocalToolAlarmTimerSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to set alarms for specific times, start countdown timers, list active timers, and cancel pending alarms.'**
+  String get assistantEditLocalToolAlarmTimerSubtitle;
+
+  /// No description provided for @assistantEditLocalToolAppleVisionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Apple Vision Computer Vision'**
+  String get assistantEditLocalToolAppleVisionTitle;
+
+  /// No description provided for @assistantEditLocalToolAppleVisionSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to perform fast on-device OCR text recognition, QR/barcode scanning, face detection, and image classification via Apple Vision.'**
+  String get assistantEditLocalToolAppleVisionSubtitle;
+
+  /// No description provided for @assistantEditLocalToolSpeechRecognizerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'SpeechRecognizer Offline STT'**
+  String get assistantEditLocalToolSpeechRecognizerTitle;
+
+  /// No description provided for @assistantEditLocalToolSpeechRecognizerSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to perform fast 100% on-device offline speech-to-text transcription of audio files via Apple SFSpeechRecognizer.'**
+  String get assistantEditLocalToolSpeechRecognizerSubtitle;
+
+  /// No description provided for @assistantEditLocalToolSpeechSynthesizerTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'SpeechSynthesizer Offline TTS'**
+  String get assistantEditLocalToolSpeechSynthesizerTitle;
+
+  /// No description provided for @assistantEditLocalToolSpeechSynthesizerSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow the assistant to perform fast on-device offline text-to-speech playback and audio file synthesis via Apple AVSpeechSynthesizer.'**
+  String get assistantEditLocalToolSpeechSynthesizerSubtitle;
+
   /// No description provided for @assistantEditLocalToolShortcutAutomationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shortcuts Automation'**
   String get assistantEditLocalToolShortcutAutomationTitle;
 
   /// No description provided for @assistantEditLocalToolShortcutAutomationSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Trigger iOS Shortcuts automations via local notifications and receive JSON result files.'**
   String get assistantEditLocalToolShortcutAutomationSubtitle;
 
   /// No description provided for @shortcutAutomationNotificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Automation Task'**
   String get shortcutAutomationNotificationTitle;
 
   /// No description provided for @shortcutAutomationListBody.
+  ///
+  /// In en, this message translates to:
+  /// **'List all shortcuts'**
   String get shortcutAutomationListBody;
 
   /// No description provided for @shortcutAutomationExecBody.
-  String shortcutAutomationExecBody(String shortcut);
+  ///
+  /// In en, this message translates to:
+  /// **'Execute shortcut: {shortcut}'**
+  String shortcutAutomationExecBody(Object shortcut);
+
+  /// No description provided for @assistantEditMemorySwitchTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Use long-term memory'**
+  String get assistantEditMemorySwitchTitle;
 
   /// No description provided for @assistantEditMemorySwitchDescription.
   ///
@@ -12801,12 +13038,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Old memories of this assistant from previous versions'**
   String get memoryUiAssistantLegacySubtitle;
-
-  /// No description provided for @assistantEditMemorySwitchTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Use long-term memory'**
-  String get assistantEditMemorySwitchTitle;
 
   /// No description provided for @assistantEditMemorySwitchSubtitle.
   ///

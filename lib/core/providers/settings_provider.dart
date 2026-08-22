@@ -756,6 +756,8 @@ class SettingsProvider extends ChangeNotifier {
           return true;
         }());
       }
+    }
+
     // load remote bridge endpoints
     try {
       final endpointsStr = prefs.getString(_remoteBridgeEndpointsKey) ?? '';
@@ -5426,6 +5428,38 @@ Requirements:
         .map((k, v) => MapEntry(k, v.toStorageString())));
     await _preferences.setString(_systemPermissionPoliciesKey, encoded);
   }
+
+  // ===== Remote Desktop Agent (cc-connect) Bridge Management =====
+
+  RemoteBridgeEndpoint? getRemoteBridgeEndpoint(String id) {
+    try {
+      return _remoteBridgeEndpoints.firstWhere((e) => e.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveRemoteBridgeEndpoints(List<RemoteBridgeEndpoint> list) async {
+    _remoteBridgeEndpoints = List.from(list);
+    final jsonList = _remoteBridgeEndpoints.map((e) => e.toJson()).toList();
+    await _preferences.setString(_remoteBridgeEndpointsKey, jsonEncode(jsonList));
+    notifyListeners();
+  }
+
+  Future<void> addRemoteBridgeEndpoint(RemoteBridgeEndpoint endpoint) async {
+    final updated = List<RemoteBridgeEndpoint>.from(_remoteBridgeEndpoints)..add(endpoint);
+    await saveRemoteBridgeEndpoints(updated);
+  }
+
+  Future<void> updateRemoteBridgeEndpoint(RemoteBridgeEndpoint endpoint) async {
+    final updated = _remoteBridgeEndpoints.map((e) => e.id == endpoint.id ? endpoint : e).toList();
+    await saveRemoteBridgeEndpoints(updated);
+  }
+
+  Future<void> removeRemoteBridgeEndpoint(String id) async {
+    final updated = _remoteBridgeEndpoints.where((e) => e.id != id).toList();
+    await saveRemoteBridgeEndpoints(updated);
+  }
 }
 
 String _nonEmptyOr(String? value, String fallback) {
@@ -6242,37 +6276,5 @@ class ProviderConfig {
         k.contains('vercel') ||
         k.contains('silicon') ||
         RegExp(r'kimi|moonshot|月之暗面').hasMatch(k);
-  }
-
-  // ===== Remote Desktop Agent (cc-connect) Bridge Management =====
-
-  RemoteBridgeEndpoint? getRemoteBridgeEndpoint(String id) {
-    try {
-      return _remoteBridgeEndpoints.firstWhere((e) => e.id == id);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> saveRemoteBridgeEndpoints(List<RemoteBridgeEndpoint> list) async {
-    _remoteBridgeEndpoints = List.from(list);
-    final jsonList = _remoteBridgeEndpoints.map((e) => e.toJson()).toList();
-    await _preferences.setString(_remoteBridgeEndpointsKey, jsonEncode(jsonList));
-    notifyListeners();
-  }
-
-  Future<void> addRemoteBridgeEndpoint(RemoteBridgeEndpoint endpoint) async {
-    final updated = List<RemoteBridgeEndpoint>.from(_remoteBridgeEndpoints)..add(endpoint);
-    await saveRemoteBridgeEndpoints(updated);
-  }
-
-  Future<void> updateRemoteBridgeEndpoint(RemoteBridgeEndpoint endpoint) async {
-    final updated = _remoteBridgeEndpoints.map((e) => e.id == endpoint.id ? endpoint : e).toList();
-    await saveRemoteBridgeEndpoints(updated);
-  }
-
-  Future<void> removeRemoteBridgeEndpoint(String id) async {
-    final updated = _remoteBridgeEndpoints.where((e) => e.id != id).toList();
-    await saveRemoteBridgeEndpoints(updated);
   }
 }

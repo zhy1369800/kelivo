@@ -5,7 +5,6 @@ import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/remote_bridge/cc_connect_bridge_service.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../theme/app_font_weights.dart';
-import '../../../theme/app_semantic_colors.dart';
 
 class RemoteBridgeSettingsPage extends StatefulWidget {
   const RemoteBridgeSettingsPage({super.key});
@@ -76,8 +75,6 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (dialogCtx, setDialogState) {
-            final cs = Theme.of(dialogCtx).colorScheme;
-
             Future<void> doTest() async {
               setDialogState(() {
                 isTesting = true;
@@ -221,7 +218,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                       await settings.updateRemoteBridgeEndpoint(updated);
                     }
 
-                    if (mounted) Navigator.of(dialogCtx).pop();
+                    if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
                   },
                   child: const Text('保存'),
                 ),
@@ -264,7 +261,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Lucide.Info, size: 20, color: cs.primary),
+                Icon(Lucide.BadgeInfo, size: 20, color: cs.primary),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -303,7 +300,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
               child: Center(
                 child: Column(
                   children: [
-                    Icon(Lucide.ServerOff, size: 48, color: cs.outline),
+                    Icon(Lucide.Server, size: 48, color: cs.outline),
                     const SizedBox(height: 12),
                     Text(
                       '暂无已配置的桌面 Agent 节点',
@@ -395,7 +392,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                               latency > 0 ? '${latency}ms' : '连接失败',
                               style: TextStyle(
                                 fontSize: 11,
-                                fontWeight: AppFontWeights.bold,
+                                fontWeight: FontWeight.bold,
                                 color: latency > 0 ? Colors.green : Colors.red,
                               ),
                             ),

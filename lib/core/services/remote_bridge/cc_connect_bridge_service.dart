@@ -595,8 +595,7 @@ class CcConnectBridgeService {
       );
 
       if (!success) {
-        yield StreamError(Exception('Failed to send message to cc-connect daemon.'));
-        return;
+        throw Exception('Failed to send message to cc-connect daemon.');
       }
 
       await for (final event in events) {
@@ -655,7 +654,7 @@ class CcConnectBridgeService {
               yield TextDelta(id: textChunkId, text: delta);
             }
             yield TextEnd(textChunkId);
-            yield const StreamDone();
+            yield const Finish();
             break;
           }
         }
