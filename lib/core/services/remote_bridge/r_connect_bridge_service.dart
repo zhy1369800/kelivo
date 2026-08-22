@@ -15,7 +15,7 @@ enum BridgeConnectionState {
   error,
 }
 
-/// Abstract base event received from cc-connect bridge.
+/// Abstract base event received from R-Connect bridge.
 sealed class BridgeEvent {
   const BridgeEvent();
 }
@@ -120,8 +120,8 @@ class BridgeCardEvent extends BridgeEvent {
   });
 }
 
-/// Client service managing a WebSocket session to a cc-connect desktop daemon.
-class CcConnectBridgeService {
+/// Client service managing a WebSocket session to an R-Connect remote agent bridge.
+class RConnectBridgeService {
   RemoteBridgeEndpoint? _endpoint;
   WebSocket? _ws;
   Timer? _pingTimer;
@@ -169,7 +169,7 @@ class CcConnectBridgeService {
       _sendRegisterHandshake();
       _startPingLoop();
     } catch (e) {
-      debugPrint('[CcConnectBridgeService] Connection error: $e');
+      debugPrint('[RConnectBridgeService] Connection error: $e');
       _updateState(
         BridgeConnectionState.error,
         message: 'Failed to connect: $e',
@@ -217,7 +217,7 @@ class CcConnectBridgeService {
     return _sendJson(payload);
   }
 
-  /// Send an interactive card action (such as "perm:allow" or button click) back to cc-connect.
+  /// Send an interactive card action (such as "perm:allow" or button click) back to the bridge.
   Future<bool> sendCardAction({
     required String sessionKey,
     required String action,
@@ -238,7 +238,7 @@ class CcConnectBridgeService {
     return _sendJson(payload);
   }
 
-  /// Send preview acknowledgement back to cc-connect.
+  /// Send preview acknowledgement back to the bridge.
   Future<bool> sendPreviewAck({
     required String refId,
     required String previewHandle,
@@ -282,7 +282,7 @@ class CcConnectBridgeService {
         }
       },
       onError: (error) {
-        debugPrint('[CcConnectBridgeService] WebSocket error: $error');
+        debugPrint('[RConnectBridgeService] WebSocket error: $error');
         _updateState(
           BridgeConnectionState.error,
           message: error.toString(),
@@ -290,7 +290,7 @@ class CcConnectBridgeService {
         _scheduleReconnect();
       },
       onDone: () {
-        debugPrint('[CcConnectBridgeService] WebSocket closed');
+        debugPrint('[RConnectBridgeService] WebSocket closed');
         if (!_manuallyDisconnected) {
           _updateState(BridgeConnectionState.disconnected);
           _scheduleReconnect();
@@ -408,10 +408,10 @@ class CcConnectBridgeService {
           break;
 
         default:
-          debugPrint('[CcConnectBridgeService] Unhandled message type: $type');
+          debugPrint('[RConnectBridgeService] Unhandled message type: $type');
       }
     } catch (e) {
-      debugPrint('[CcConnectBridgeService] JSON parse error: $e');
+      debugPrint('[RConnectBridgeService] JSON parse error: $e');
     }
   }
 
@@ -448,7 +448,7 @@ class CcConnectBridgeService {
       _ws!.add(jsonEncode(data));
       return true;
     } catch (e) {
-      debugPrint('[CcConnectBridgeService] send error: $e');
+      debugPrint('[RConnectBridgeService] send error: $e');
       return false;
     }
   }
@@ -486,7 +486,7 @@ class CcConnectBridgeService {
   // Static Helper Methods (Connection test & REST endpoints)
   // =========================================================================
 
-  /// Test connectivity to a bridge endpoint. Returns latency in milliseconds, or throws error.
+  /// Test connectivity to an R-Connect bridge endpoint. Returns latency in milliseconds, or throws error.
   static Future<int> testConnection(RemoteBridgeEndpoint endpoint) async {
     final start = DateTime.now().millisecondsSinceEpoch;
     final uri = Uri.parse(endpoint.url);
@@ -578,7 +578,7 @@ class CcConnectBridgeService {
 
       if (event is BridgeStatusEvent && event.state == BridgeConnectionState.error) {
         if (!completer.isCompleted) {
-          completer.completeError(Exception(event.message ?? 'Bridge connection error'));
+          completer.completeError(Exception(event.message ?? 'R-Connect bridge connection error'));
         }
       }
     });
@@ -595,7 +595,7 @@ class CcConnectBridgeService {
       );
 
       if (!success) {
-        throw Exception('Failed to send message to cc-connect daemon.');
+        throw Exception('Failed to send message to R-Connect bridge daemon.');
       }
 
       await for (final event in events) {
@@ -665,18 +665,18 @@ class CcConnectBridgeService {
   }
 }
 
-/// Global manager caching active CcConnectBridgeService instances by endpoint ID.
-class CcConnectBridgeManager {
-  CcConnectBridgeManager._();
-  static final CcConnectBridgeManager instance = CcConnectBridgeManager._();
+/// Global manager caching active RConnectBridgeService instances by endpoint ID.
+class RConnectBridgeManager {
+  RConnectBridgeManager._();
+  static final RConnectBridgeManager instance = RConnectBridgeManager._();
 
-  final Map<String, CcConnectBridgeService> _services = {};
+  final Map<String, RConnectBridgeService> _services = {};
 
   /// Get or create a connected bridge service for the specified endpoint.
-  Future<CcConnectBridgeService> getService(RemoteBridgeEndpoint endpoint) async {
+  Future<RConnectBridgeService> getService(RemoteBridgeEndpoint endpoint) async {
     var service = _services[endpoint.id];
     if (service == null) {
-      service = CcConnectBridgeService();
+      service = RConnectBridgeService();
       _services[endpoint.id] = service;
       await service.connect(endpoint);
     } else if (service.state == BridgeConnectionState.disconnected ||

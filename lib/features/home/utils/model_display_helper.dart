@@ -51,14 +51,14 @@ ModelDisplayInfo getModelDisplayInfo(
   SettingsProvider settings, {
   Assistant? assistant,
 }) {
-  // If assistant is bound to a remote cc-connect desktop agent
+  // If assistant is bound to a remote R-Connect desktop agent
   if (assistant?.remoteBridgeEndpointId != null) {
     final ep = settings.getRemoteBridgeEndpoint(assistant!.remoteBridgeEndpointId!);
     if (ep != null) {
       return ModelDisplayInfo(
-        providerName: 'cc-connect',
+        providerName: 'R-Connect',
         modelDisplay: '${ep.name} (${ep.project})',
-        providerKey: 'cc_connect',
+        providerKey: 'r_connect',
         modelId: ep.name,
       );
     }
@@ -111,7 +111,7 @@ ModelDisplayInfo getModelDisplayInfo(
     final ep = settings.getRemoteBridgeEndpoint(assistant!.remoteBridgeEndpointId!);
     if (ep != null) {
       return (
-        providerKey: 'cc_connect',
+        providerKey: 'r_connect',
         modelId: '${ep.name} (${ep.project})',
       );
     }

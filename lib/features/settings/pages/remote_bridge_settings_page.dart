@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/remote_bridge_endpoint.dart';
 import '../../../core/providers/settings_provider.dart';
-import '../../../core/services/remote_bridge/cc_connect_bridge_service.dart';
+import '../../../core/services/remote_bridge/r_connect_bridge_service.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../theme/app_font_weights.dart';
 
@@ -25,7 +25,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
     });
 
     try {
-      final latency = await CcConnectBridgeService.testConnection(endpoint);
+      final latency = await RConnectBridgeService.testConnection(endpoint);
       if (mounted) {
         setState(() {
           _latencies[endpoint.id] = latency;
@@ -94,7 +94,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
 
               try {
                 final latency =
-                    await CcConnectBridgeService.testConnection(tempEp);
+                    await RConnectBridgeService.testConnection(tempEp);
                 setDialogState(() {
                   isTesting = false;
                   testResult = '✓ 连接成功 (${latency}ms)';
@@ -108,7 +108,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
             }
 
             return AlertDialog(
-              title: Text(isNew ? '添加桌面 Agent (cc-connect)' : '编辑节点'),
+              title: Text(isNew ? '添加桌面 Agent (R-Connect)' : '编辑节点'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -118,7 +118,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                       controller: nameController,
                       decoration: const InputDecoration(
                         labelText: '节点名称',
-                        hintText: '如: 工位 Mac (Claude Code)',
+                        hintText: '如: 工位 Mac',
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -135,7 +135,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                       controller: tokenController,
                       decoration: const InputDecoration(
                         labelText: 'Bridge Token (必填)',
-                        hintText: 'cc-connect config.toml 中的 token',
+                        hintText: 'R-Connect 配置文件中的 token',
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -238,7 +238,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('远程桌面 Agent (cc-connect)'),
+        title: const Text('远程桌面 Agent (R-Connect)'),
         actions: [
           IconButton(
             icon: const Icon(Lucide.Plus),
@@ -277,7 +277,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '1. 电脑端启动 cc-connect（开启 [bridge] 监听 :9810）\n'
+                        '1. 电脑端启动 R-Connect 网关（监听端口如 :9810）\n'
                         '2. 填入电脑的局域网 IP、Tailscale 组网 IP 或穿透域名\n'
                         '3. 在“助手”设置中选择绑定的桌面 Agent，即可在移动端随时操控 Claude Code、Antigravity、Codex 等！',
                         style: TextStyle(

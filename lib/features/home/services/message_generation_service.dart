@@ -509,7 +509,7 @@ class MessageGenerationService {
       final ep = settings.getRemoteBridgeEndpoint(assistant!.remoteBridgeEndpointId!);
       if (ep != null) {
         return (
-          providerKey: 'cc_connect',
+          providerKey: 'r_connect',
           modelId: '${ep.name} (${ep.project})',
         );
       }

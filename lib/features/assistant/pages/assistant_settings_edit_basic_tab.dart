@@ -431,7 +431,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '远程桌面 Agent (cc-connect)',
+                        '远程桌面 Agent (R-Connect)',
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: AppFontWeights.semibold,
@@ -458,7 +458,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '绑定后，该助手将直接连接桌面端 cc-connect 驱动 Claude Code / Antigravity / Codex 等。',
+                  '绑定后，该助手将直接连接桌面端 R-Connect 驱动 Claude Code / Antigravity / Codex 等。',
                   style: TextStyle(
                     fontSize: 12,
                     color: cs.onSurface.withValues(alpha: 0.7),

@@ -14,7 +14,7 @@ import '../../../core/models/token_usage.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
-import '../../../core/services/remote_bridge/cc_connect_bridge_service.dart';
+import '../../../core/services/remote_bridge/r_connect_bridge_service.dart';
 import '../../../core/services/api/stream/stream_chunk.dart';
 import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/ios_background_generation.dart';
@@ -1954,7 +1954,7 @@ class ChatActions {
         );
         if (endpoint != null) {
           final bridgeService =
-              await CcConnectBridgeManager.instance.getService(endpoint);
+              await RConnectBridgeManager.instance.getService(endpoint);
           final lastUserMsg = ctx.apiMessages.lastWhere(
             (m) => m['role'] == 'user',
             orElse: () => {'content': ''},
