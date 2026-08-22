@@ -1021,7 +1021,9 @@ class LocalToolsService {
               },
               'image_path': {
                 'type': 'string',
-                'description': 'Absolute local file path to the image file to analyze. Required.',
+                'description':
+                    'Absolute local file path or internal URI link (supports special protocols like file://, app-file://, asset://, etc.). '
+                    'All internal links and URI protocols are fully accessible by this tool. Required.',
               },
               'languages': {
                 'type': 'array',
