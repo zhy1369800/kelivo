@@ -14730,6 +14730,204 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Thinking'**
   String get messageStyleSettingsPagePreviewThinking;
+
+  /// No description provided for @settingsPageRemoteAgent.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote Agent'**
+  String get settingsPageRemoteAgent;
+
+  /// No description provided for @remoteAgentSettingsPageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote Agent'**
+  String get remoteAgentSettingsPageTitle;
+
+  /// No description provided for @remoteAgentAddNode.
+  ///
+  /// In en, this message translates to:
+  /// **'Add Remote Agent'**
+  String get remoteAgentAddNode;
+
+  /// No description provided for @remoteAgentEditNode.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Node'**
+  String get remoteAgentEditNode;
+
+  /// No description provided for @remoteAgentNodeName.
+  ///
+  /// In en, this message translates to:
+  /// **'Node Name'**
+  String get remoteAgentNodeName;
+
+  /// No description provided for @remoteAgentNodeNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Work Mac'**
+  String get remoteAgentNodeNameHint;
+
+  /// No description provided for @remoteAgentWsUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'WebSocket URL'**
+  String get remoteAgentWsUrl;
+
+  /// No description provided for @remoteAgentWsUrlHint.
+  ///
+  /// In en, this message translates to:
+  /// **'ws://192.168.1.5:9810/bridge/ws'**
+  String get remoteAgentWsUrlHint;
+
+  /// No description provided for @remoteAgentWsUrlHelper.
+  ///
+  /// In en, this message translates to:
+  /// **'Supports LAN IP / Tailscale IP / domain'**
+  String get remoteAgentWsUrlHelper;
+
+  /// No description provided for @remoteAgentToken.
+  ///
+  /// In en, this message translates to:
+  /// **'Bridge Token'**
+  String get remoteAgentToken;
+
+  /// No description provided for @remoteAgentTokenHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Token in daemon config'**
+  String get remoteAgentTokenHint;
+
+  /// No description provided for @remoteAgentProject.
+  ///
+  /// In en, this message translates to:
+  /// **'Project'**
+  String get remoteAgentProject;
+
+  /// No description provided for @remoteAgentTestConnection.
+  ///
+  /// In en, this message translates to:
+  /// **'Test Connection'**
+  String get remoteAgentTestConnection;
+
+  /// No description provided for @remoteAgentTesting.
+  ///
+  /// In en, this message translates to:
+  /// **'Testing…'**
+  String get remoteAgentTesting;
+
+  /// No description provided for @remoteAgentTestSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected ({latency}ms)'**
+  String remoteAgentTestSuccess(int latency);
+
+  /// No description provided for @remoteAgentTestFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Connection failed: {error}'**
+  String remoteAgentTestFailed(String error);
+
+  /// No description provided for @remoteAgentHowToConnectTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How to connect desktop AI Agents?'**
+  String get remoteAgentHowToConnectTitle;
+
+  /// No description provided for @remoteAgentHowToConnectDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'1. Start R-Connect daemon on your computer (listening on :9810)\n2. Enter your LAN IP, Tailscale IP, or tunnel domain\n3. Bind the Remote Agent in Assistant settings to control Claude Code, Antigravity, Codex from mobile!'**
+  String get remoteAgentHowToConnectDesc;
+
+  /// No description provided for @remoteAgentEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No Remote Agent configured'**
+  String get remoteAgentEmpty;
+
+  /// No description provided for @remoteAgentAddFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'Add First Node'**
+  String get remoteAgentAddFirst;
+
+  /// No description provided for @remoteAgentAssistantCardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remote Agent'**
+  String get remoteAgentAssistantCardTitle;
+
+  /// No description provided for @remoteAgentAssistantCardDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'When bound, this assistant will directly connect to your desktop Agent (Claude Code / Antigravity / Codex).'**
+  String get remoteAgentAssistantCardDesc;
+
+  /// No description provided for @remoteAgentSelectDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Select Remote Agent Node'**
+  String get remoteAgentSelectDialogTitle;
+
+  /// No description provided for @remoteAgentUnboundOption.
+  ///
+  /// In en, this message translates to:
+  /// **'Not bound (Use regular API model)'**
+  String get remoteAgentUnboundOption;
+
+  /// No description provided for @remoteAgentUnboundDisplay.
+  ///
+  /// In en, this message translates to:
+  /// **'Not bound (Use model above)'**
+  String get remoteAgentUnboundDisplay;
+
+  /// No description provided for @remoteAgentUnbindTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Unbind (Restore to regular API model)'**
+  String get remoteAgentUnbindTooltip;
+
+  /// No description provided for @remoteAgentDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Are you sure you want to delete node \"{name}\"?'**
+  String remoteAgentDeleteConfirm(String name);
+
+  /// No description provided for @remoteAgentLatencyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get remoteAgentLatencyFailed;
+
+  /// No description provided for @remoteAgentCancel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get remoteAgentCancel;
+
+  /// No description provided for @remoteAgentSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get remoteAgentSave;
+
+  /// No description provided for @remoteAgentDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get remoteAgentDelete;
+
+  /// No description provided for @remoteAgentEdit.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit'**
+  String get remoteAgentEdit;
+
+  /// No description provided for @remoteAgentFillRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Please fill in node name, URL, and Token'**
+  String get remoteAgentFillRequired;
 }
 
 class _AppLocalizationsDelegate

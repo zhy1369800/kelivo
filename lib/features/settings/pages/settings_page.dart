@@ -256,7 +256,7 @@ class SettingsPage extends StatelessWidget {
               _iosNavRow(
                 context,
                 icon: Lucide.Server,
-                label: '远程桌面 Agent (R-Connect)',
+                label: l10n.settingsPageRemoteAgent,
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(

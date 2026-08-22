@@ -7776,6 +7776,113 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get messageStyleSettingsPagePreviewThinking => '思考中';
+
+  @override
+  String get settingsPageRemoteAgent => '远程Agent';
+
+  @override
+  String get remoteAgentSettingsPageTitle => '远程Agent';
+
+  @override
+  String get remoteAgentAddNode => '添加远程Agent';
+
+  @override
+  String get remoteAgentEditNode => '编辑节点';
+
+  @override
+  String get remoteAgentNodeName => '节点名称';
+
+  @override
+  String get remoteAgentNodeNameHint => '如: 工位 Mac';
+
+  @override
+  String get remoteAgentWsUrl => 'WebSocket 连接地址';
+
+  @override
+  String get remoteAgentWsUrlHint => 'ws://192.168.1.5:9810/bridge/ws';
+
+  @override
+  String get remoteAgentWsUrlHelper => '支持局域网 IP / Tailscale IP / 穿透域名';
+
+  @override
+  String get remoteAgentToken => 'Bridge Token (必填)';
+
+  @override
+  String get remoteAgentTokenHint => '守护进程配置文件中的安全 Token';
+
+  @override
+  String get remoteAgentProject => '目标项目 (Project)';
+
+  @override
+  String get remoteAgentTestConnection => '测试连接';
+
+  @override
+  String get remoteAgentTesting => '测试中…';
+
+  @override
+  String remoteAgentTestSuccess(int latency) {
+    return '连接成功 (${latency}ms)';
+  }
+
+  @override
+  String remoteAgentTestFailed(String error) {
+    return '连接失败: $error';
+  }
+
+  @override
+  String get remoteAgentHowToConnectTitle => '如何连接桌面端 AI Agent？';
+
+  @override
+  String get remoteAgentHowToConnectDesc =>
+      '1. 电脑端启动 R-Connect 网关（监听端口如 :9810）\n2. 填入电脑的局域网 IP、Tailscale 组网 IP 或穿透域名\n3. 在“助手”设置中选择绑定的远程Agent，即可在移动端随时操控 Claude Code、Antigravity、Codex 等！';
+
+  @override
+  String get remoteAgentEmpty => '暂无已配置的远程Agent节点';
+
+  @override
+  String get remoteAgentAddFirst => '添加第一个节点';
+
+  @override
+  String get remoteAgentAssistantCardTitle => '远程Agent';
+
+  @override
+  String get remoteAgentAssistantCardDesc =>
+      '绑定后，该助手将直接连接桌面端远程Agent驱动 Claude Code / Antigravity / Codex 等。';
+
+  @override
+  String get remoteAgentSelectDialogTitle => '选择绑定的远程Agent节点';
+
+  @override
+  String get remoteAgentUnboundOption => '不绑定 (使用普通 API 模型)';
+
+  @override
+  String get remoteAgentUnboundDisplay => '未绑定 (使用上方普通模型)';
+
+  @override
+  String get remoteAgentUnbindTooltip => '解除绑定 (恢复为普通模型API)';
+
+  @override
+  String remoteAgentDeleteConfirm(String name) {
+    return '确定删除节点 \"$name\" 吗？';
+  }
+
+  @override
+  String get remoteAgentLatencyFailed => '连接失败';
+
+  @override
+  String get remoteAgentCancel => '取消';
+
+  @override
+  String get remoteAgentSave => '保存';
+
+  @override
+  String get remoteAgentDelete => '删除';
+
+  @override
+  String get remoteAgentEdit => '编辑';
+
+  @override
+  String get remoteAgentFillRequired => '请填写完整的名称、地址与 Token';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -15476,6 +15583,113 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get messageStyleSettingsPagePreviewThinking => '思考中';
+
+  @override
+  String get settingsPageRemoteAgent => '远程Agent';
+
+  @override
+  String get remoteAgentSettingsPageTitle => '远程Agent';
+
+  @override
+  String get remoteAgentAddNode => '添加远程Agent';
+
+  @override
+  String get remoteAgentEditNode => '编辑节点';
+
+  @override
+  String get remoteAgentNodeName => '节点名称';
+
+  @override
+  String get remoteAgentNodeNameHint => '如: 工位 Mac';
+
+  @override
+  String get remoteAgentWsUrl => 'WebSocket 连接地址';
+
+  @override
+  String get remoteAgentWsUrlHint => 'ws://192.168.1.5:9810/bridge/ws';
+
+  @override
+  String get remoteAgentWsUrlHelper => '支持局域网 IP / Tailscale IP / 穿透域名';
+
+  @override
+  String get remoteAgentToken => 'Bridge Token (必填)';
+
+  @override
+  String get remoteAgentTokenHint => '守护进程配置文件中的安全 Token';
+
+  @override
+  String get remoteAgentProject => '目标项目 (Project)';
+
+  @override
+  String get remoteAgentTestConnection => '测试连接';
+
+  @override
+  String get remoteAgentTesting => '测试中…';
+
+  @override
+  String remoteAgentTestSuccess(int latency) {
+    return '连接成功 (${latency}ms)';
+  }
+
+  @override
+  String remoteAgentTestFailed(String error) {
+    return '连接失败: $error';
+  }
+
+  @override
+  String get remoteAgentHowToConnectTitle => '如何连接桌面端 AI Agent？';
+
+  @override
+  String get remoteAgentHowToConnectDesc =>
+      '1. 电脑端启动 R-Connect 网关（监听端口如 :9810）\n2. 填入电脑的局域网 IP、Tailscale 组网 IP 或穿透域名\n3. 在“助手”设置中选择绑定的远程Agent，即可在移动端随时操控 Claude Code、Antigravity、Codex 等！';
+
+  @override
+  String get remoteAgentEmpty => '暂无已配置的远程Agent节点';
+
+  @override
+  String get remoteAgentAddFirst => '添加第一个节点';
+
+  @override
+  String get remoteAgentAssistantCardTitle => '远程Agent';
+
+  @override
+  String get remoteAgentAssistantCardDesc =>
+      '绑定后，该助手将直接连接桌面端远程Agent驱动 Claude Code / Antigravity / Codex 等。';
+
+  @override
+  String get remoteAgentSelectDialogTitle => '选择绑定的远程Agent节点';
+
+  @override
+  String get remoteAgentUnboundOption => '不绑定 (使用普通 API 模型)';
+
+  @override
+  String get remoteAgentUnboundDisplay => '未绑定 (使用上方普通模型)';
+
+  @override
+  String get remoteAgentUnbindTooltip => '解除绑定 (恢复为普通模型API)';
+
+  @override
+  String remoteAgentDeleteConfirm(String name) {
+    return '确定删除节点 \"$name\" 吗？';
+  }
+
+  @override
+  String get remoteAgentLatencyFailed => '连接失败';
+
+  @override
+  String get remoteAgentCancel => '取消';
+
+  @override
+  String get remoteAgentSave => '保存';
+
+  @override
+  String get remoteAgentDelete => '删除';
+
+  @override
+  String get remoteAgentEdit => '编辑';
+
+  @override
+  String get remoteAgentFillRequired => '请填写完整的名称、地址与 Token';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -23252,4 +23466,111 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get messageStyleSettingsPagePreviewThinking => '思考中';
+
+  @override
+  String get settingsPageRemoteAgent => '遠端Agent';
+
+  @override
+  String get remoteAgentSettingsPageTitle => '遠端Agent';
+
+  @override
+  String get remoteAgentAddNode => '新增遠端Agent';
+
+  @override
+  String get remoteAgentEditNode => '編輯節點';
+
+  @override
+  String get remoteAgentNodeName => '節點名稱';
+
+  @override
+  String get remoteAgentNodeNameHint => '如: 工位 Mac';
+
+  @override
+  String get remoteAgentWsUrl => 'WebSocket 連線位址';
+
+  @override
+  String get remoteAgentWsUrlHint => 'ws://192.168.1.5:9810/bridge/ws';
+
+  @override
+  String get remoteAgentWsUrlHelper => '支援區域網路 IP / Tailscale IP / 穿透網域名稱';
+
+  @override
+  String get remoteAgentToken => 'Bridge Token (必填)';
+
+  @override
+  String get remoteAgentTokenHint => '常駐程式設定檔中的安全 Token';
+
+  @override
+  String get remoteAgentProject => '目標專案 (Project)';
+
+  @override
+  String get remoteAgentTestConnection => '測試連線';
+
+  @override
+  String get remoteAgentTesting => '測試中…';
+
+  @override
+  String remoteAgentTestSuccess(int latency) {
+    return '連線成功 (${latency}ms)';
+  }
+
+  @override
+  String remoteAgentTestFailed(String error) {
+    return '連線失敗: $error';
+  }
+
+  @override
+  String get remoteAgentHowToConnectTitle => '如何連線桌面端 AI Agent？';
+
+  @override
+  String get remoteAgentHowToConnectDesc =>
+      '1. 電腦端啟動 R-Connect 閘道（監聽連接埠如 :9810）\n2. 填入電腦的區域網路 IP、Tailscale 組網 IP 或穿透網域名稱\n3. 在「助手」設定中選擇繫結的遠端Agent，即可在行動端隨時操控 Claude Code、Antigravity、Codex 等！';
+
+  @override
+  String get remoteAgentEmpty => '暫無已設定的遠端Agent節點';
+
+  @override
+  String get remoteAgentAddFirst => '新增第一個節點';
+
+  @override
+  String get remoteAgentAssistantCardTitle => '遠端Agent';
+
+  @override
+  String get remoteAgentAssistantCardDesc =>
+      '繫結後，該助手將直接連線桌面端遠端Agent驅動 Claude Code / Antigravity / Codex 等。';
+
+  @override
+  String get remoteAgentSelectDialogTitle => '選擇繫結的遠端Agent節點';
+
+  @override
+  String get remoteAgentUnboundOption => '不繫結 (使用一般 API 模型)';
+
+  @override
+  String get remoteAgentUnboundDisplay => '未繫結 (使用上方一般模型)';
+
+  @override
+  String get remoteAgentUnbindTooltip => '解除繫結 (恢復為一般模型API)';
+
+  @override
+  String remoteAgentDeleteConfirm(String name) {
+    return '確定刪除節點 \"$name\" 嗎？';
+  }
+
+  @override
+  String get remoteAgentLatencyFailed => '連線失敗';
+
+  @override
+  String get remoteAgentCancel => '取消';
+
+  @override
+  String get remoteAgentSave => '儲存';
+
+  @override
+  String get remoteAgentDelete => '刪除';
+
+  @override
+  String get remoteAgentEdit => '編輯';
+
+  @override
+  String get remoteAgentFillRequired => '請填寫完整的名稱、位址與 Token';
 }

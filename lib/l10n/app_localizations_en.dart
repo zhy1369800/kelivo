@@ -8114,4 +8114,115 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get messageStyleSettingsPagePreviewThinking => 'Thinking';
+
+  @override
+  String get settingsPageRemoteAgent => 'Remote Agent';
+
+  @override
+  String get remoteAgentSettingsPageTitle => 'Remote Agent';
+
+  @override
+  String get remoteAgentAddNode => 'Add Remote Agent';
+
+  @override
+  String get remoteAgentEditNode => 'Edit Node';
+
+  @override
+  String get remoteAgentNodeName => 'Node Name';
+
+  @override
+  String get remoteAgentNodeNameHint => 'e.g. Work Mac';
+
+  @override
+  String get remoteAgentWsUrl => 'WebSocket URL';
+
+  @override
+  String get remoteAgentWsUrlHint => 'ws://192.168.1.5:9810/bridge/ws';
+
+  @override
+  String get remoteAgentWsUrlHelper =>
+      'Supports LAN IP / Tailscale IP / domain';
+
+  @override
+  String get remoteAgentToken => 'Bridge Token';
+
+  @override
+  String get remoteAgentTokenHint => 'Token in daemon config';
+
+  @override
+  String get remoteAgentProject => 'Project';
+
+  @override
+  String get remoteAgentTestConnection => 'Test Connection';
+
+  @override
+  String get remoteAgentTesting => 'Testing…';
+
+  @override
+  String remoteAgentTestSuccess(int latency) {
+    return 'Connected (${latency}ms)';
+  }
+
+  @override
+  String remoteAgentTestFailed(String error) {
+    return 'Connection failed: $error';
+  }
+
+  @override
+  String get remoteAgentHowToConnectTitle =>
+      'How to connect desktop AI Agents?';
+
+  @override
+  String get remoteAgentHowToConnectDesc =>
+      '1. Start R-Connect daemon on your computer (listening on :9810)\n2. Enter your LAN IP, Tailscale IP, or tunnel domain\n3. Bind the Remote Agent in Assistant settings to control Claude Code, Antigravity, Codex from mobile!';
+
+  @override
+  String get remoteAgentEmpty => 'No Remote Agent configured';
+
+  @override
+  String get remoteAgentAddFirst => 'Add First Node';
+
+  @override
+  String get remoteAgentAssistantCardTitle => 'Remote Agent';
+
+  @override
+  String get remoteAgentAssistantCardDesc =>
+      'When bound, this assistant will directly connect to your desktop Agent (Claude Code / Antigravity / Codex).';
+
+  @override
+  String get remoteAgentSelectDialogTitle => 'Select Remote Agent Node';
+
+  @override
+  String get remoteAgentUnboundOption => 'Not bound (Use regular API model)';
+
+  @override
+  String get remoteAgentUnboundDisplay => 'Not bound (Use model above)';
+
+  @override
+  String get remoteAgentUnbindTooltip =>
+      'Unbind (Restore to regular API model)';
+
+  @override
+  String remoteAgentDeleteConfirm(String name) {
+    return 'Are you sure you want to delete node \"$name\"?';
+  }
+
+  @override
+  String get remoteAgentLatencyFailed => 'Failed';
+
+  @override
+  String get remoteAgentCancel => 'Cancel';
+
+  @override
+  String get remoteAgentSave => 'Save';
+
+  @override
+  String get remoteAgentDelete => 'Delete';
+
+  @override
+  String get remoteAgentEdit => 'Edit';
+
+  @override
+  String get remoteAgentFillRequired =>
+      'Please fill in node name, URL, and Token';
 }

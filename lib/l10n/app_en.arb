@@ -3464,5 +3464,59 @@
   "messageStyleSettingsPageCornerRadius": "Corner Radius",
   "messageStyleSettingsPagePreviewUser": "This is a user message",
   "messageStyleSettingsPagePreviewAssistant": "This is an assistant reply.",
-  "messageStyleSettingsPagePreviewThinking": "Thinking"
+  "messageStyleSettingsPagePreviewThinking": "Thinking",
+  "settingsPageRemoteAgent": "Remote Agent",
+  "remoteAgentSettingsPageTitle": "Remote Agent",
+  "remoteAgentAddNode": "Add Remote Agent",
+  "remoteAgentEditNode": "Edit Node",
+  "remoteAgentNodeName": "Node Name",
+  "remoteAgentNodeNameHint": "e.g. Work Mac",
+  "remoteAgentWsUrl": "WebSocket URL",
+  "remoteAgentWsUrlHint": "ws://192.168.1.5:9810/bridge/ws",
+  "remoteAgentWsUrlHelper": "Supports LAN IP / Tailscale IP / domain",
+  "remoteAgentToken": "Bridge Token",
+  "remoteAgentTokenHint": "Token in daemon config",
+  "remoteAgentProject": "Project",
+  "remoteAgentTestConnection": "Test Connection",
+  "remoteAgentTesting": "Testing…",
+  "remoteAgentTestSuccess": "Connected ({latency}ms)",
+  "@remoteAgentTestSuccess": {
+    "placeholders": {
+      "latency": {
+        "type": "int"
+      }
+    }
+  },
+  "remoteAgentTestFailed": "Connection failed: {error}",
+  "@remoteAgentTestFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "remoteAgentHowToConnectTitle": "How to connect desktop AI Agents?",
+  "remoteAgentHowToConnectDesc": "1. Start R-Connect daemon on your computer (listening on :9810)\n2. Enter your LAN IP, Tailscale IP, or tunnel domain\n3. Bind the Remote Agent in Assistant settings to control Claude Code, Antigravity, Codex from mobile!",
+  "remoteAgentEmpty": "No Remote Agent configured",
+  "remoteAgentAddFirst": "Add First Node",
+  "remoteAgentAssistantCardTitle": "Remote Agent",
+  "remoteAgentAssistantCardDesc": "When bound, this assistant will directly connect to your desktop Agent (Claude Code / Antigravity / Codex).",
+  "remoteAgentSelectDialogTitle": "Select Remote Agent Node",
+  "remoteAgentUnboundOption": "Not bound (Use regular API model)",
+  "remoteAgentUnboundDisplay": "Not bound (Use model above)",
+  "remoteAgentUnbindTooltip": "Unbind (Restore to regular API model)",
+  "remoteAgentDeleteConfirm": "Are you sure you want to delete node \"{name}\"?",
+  "@remoteAgentDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "remoteAgentLatencyFailed": "Failed",
+  "remoteAgentCancel": "Cancel",
+  "remoteAgentSave": "Save",
+  "remoteAgentDelete": "Delete",
+  "remoteAgentEdit": "Edit",
+  "remoteAgentFillRequired": "Please fill in node name, URL, and Token"
 }

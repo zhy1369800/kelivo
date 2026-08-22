@@ -431,7 +431,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '远程桌面 Agent (R-Connect)',
+                        l10n.remoteAgentAssistantCardTitle,
                         style: TextStyle(
                           fontSize: 15,
                           fontWeight: AppFontWeights.semibold,
@@ -440,7 +440,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                     ),
                     if (a.remoteBridgeEndpointId != null)
                       Tooltip(
-                        message: '解除绑定 (恢复为普通模型API)',
+                        message: l10n.remoteAgentUnbindTooltip,
                         child: _TactileIconButton(
                           icon: Lucide.RotateCcw,
                           color: cs.onSurface,
@@ -458,7 +458,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '绑定后，该助手将直接连接桌面端 R-Connect 驱动 Claude Code / Antigravity / Codex 等。',
+                  l10n.remoteAgentAssistantCardDesc,
                   style: TextStyle(
                     fontSize: 12,
                     color: cs.onSurface.withValues(alpha: 0.7),
@@ -477,8 +477,8 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                       onTap: () async {
                         if (endpoints.isEmpty) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('请先在“设置 -> 远程桌面 Agent”中添加节点'),
+                            SnackBar(
+                              content: Text(l10n.remoteAgentEmpty),
                             ),
                           );
                           return;
@@ -499,7 +499,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                                   Padding(
                                     padding: const EdgeInsets.all(16),
                                     child: Text(
-                                      '选择绑定的桌面 Agent 节点',
+                                      l10n.remoteAgentSelectDialogTitle,
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
@@ -510,14 +510,14 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                                   const Divider(height: 1),
                                   ListTile(
                                     leading: const Icon(Lucide.Ban),
-                                    title: const Text('不绑定 (使用普通 API 模型)'),
+                                    title: Text(l10n.remoteAgentUnboundOption),
                                     onTap: () => Navigator.pop(sheetCtx, 'NONE'),
                                   ),
                                   ...endpoints.map(
                                     (ep) => ListTile(
                                       leading: const Icon(Lucide.Server),
                                       title: Text(ep.name),
-                                      subtitle: Text('${ep.url} (项目: ${ep.project})'),
+                                      subtitle: Text('${ep.url} (${l10n.remoteAgentProject}: ${ep.project})'),
                                       trailing: a.remoteBridgeEndpointId == ep.id
                                           ? Icon(Lucide.Check, color: cs.primary)
                                           : null,
@@ -553,7 +553,7 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                         final pressedBg = Color.alphaBlend(overlay, bg);
                         final display = currentEp != null
                             ? '${currentEp.name} (${currentEp.project})'
-                            : '未绑定 (使用上方普通模型)';
+                            : l10n.remoteAgentUnboundDisplay;
 
                         return AnimatedContainer(
                           duration: const Duration(milliseconds: 160),

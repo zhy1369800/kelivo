@@ -4,6 +4,7 @@ import '../../../core/models/remote_bridge_endpoint.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/remote_bridge/r_connect_bridge_service.dart';
 import '../../../icons/lucide_adapter.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../../theme/app_font_weights.dart';
 
 class RemoteBridgeSettingsPage extends StatefulWidget {
@@ -19,6 +20,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
   final Map<String, bool> _testing = {};
 
   Future<void> _testEndpoint(RemoteBridgeEndpoint endpoint) async {
+    final l10n = AppLocalizations.of(context)!;
     setState(() {
       _testing[endpoint.id] = true;
       _latencies[endpoint.id] = null;
@@ -33,7 +35,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('连接成功！延迟: ${latency}ms'),
+            content: Text(l10n.remoteAgentTestSuccess(latency)),
             backgroundColor: Colors.green,
             duration: const Duration(seconds: 2),
           ),
@@ -47,7 +49,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('连接失败: $e'),
+            content: Text(l10n.remoteAgentTestFailed(e.toString())),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
@@ -57,14 +59,13 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
   }
 
   void _showEditDialog({RemoteBridgeEndpoint? endpoint}) {
+    final l10n = AppLocalizations.of(context)!;
     final isNew = endpoint == null;
-    final nameController =
-        TextEditingController(text: endpoint?.name ?? '');
+    final nameController = TextEditingController(text: endpoint?.name ?? '');
     final urlController = TextEditingController(
       text: endpoint?.url ?? 'ws://127.0.0.1:9810/bridge/ws',
     );
-    final tokenController =
-        TextEditingController(text: endpoint?.token ?? '');
+    final tokenController = TextEditingController(text: endpoint?.token ?? '');
     final projectController =
         TextEditingController(text: endpoint?.project ?? 'default');
     bool isTesting = false;
@@ -97,18 +98,22 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                     await RConnectBridgeService.testConnection(tempEp);
                 setDialogState(() {
                   isTesting = false;
-                  testResult = '✓ 连接成功 (${latency}ms)';
+                  testResult = '✓ ${l10n.remoteAgentTestSuccess(latency)}';
                 });
               } catch (e) {
                 setDialogState(() {
                   isTesting = false;
-                  testResult = '✗ 连接失败: $e';
+                  testResult = '✗ ${l10n.remoteAgentTestFailed(e.toString())}';
                 });
               }
             }
 
             return AlertDialog(
-              title: Text(isNew ? '添加桌面 Agent (R-Connect)' : '编辑节点'),
+              title: Text(
+                isNew
+                    ? l10n.remoteAgentAddNode
+                    : l10n.remoteAgentEditNode,
+              ),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -116,33 +121,33 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                   children: [
                     TextField(
                       controller: nameController,
-                      decoration: const InputDecoration(
-                        labelText: '节点名称',
-                        hintText: '如: 工位 Mac',
+                      decoration: InputDecoration(
+                        labelText: l10n.remoteAgentNodeName,
+                        hintText: l10n.remoteAgentNodeNameHint,
                       ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: urlController,
-                      decoration: const InputDecoration(
-                        labelText: 'WebSocket 连接地址',
-                        hintText: 'ws://192.168.1.5:9810/bridge/ws',
-                        helperText: '支持局域网 IP / Tailscale IP / 域名',
+                      decoration: InputDecoration(
+                        labelText: l10n.remoteAgentWsUrl,
+                        hintText: l10n.remoteAgentWsUrlHint,
+                        helperText: l10n.remoteAgentWsUrlHelper,
                       ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: tokenController,
-                      decoration: const InputDecoration(
-                        labelText: 'Bridge Token (必填)',
-                        hintText: 'R-Connect 配置文件中的 token',
+                      decoration: InputDecoration(
+                        labelText: l10n.remoteAgentToken,
+                        hintText: l10n.remoteAgentTokenHint,
                       ),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: projectController,
-                      decoration: const InputDecoration(
-                        labelText: '目标项目 (Project)',
+                      decoration: InputDecoration(
+                        labelText: l10n.remoteAgentProject,
                         hintText: 'default',
                       ),
                     ),
@@ -155,10 +160,16 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                               ? const SizedBox(
                                   width: 14,
                                   height: 14,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Icon(Lucide.Activity, size: 16),
-                          label: const Text('测试连接'),
+                          label: Text(
+                            isTesting
+                                ? l10n.remoteAgentTesting
+                                : l10n.remoteAgentTestConnection,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         if (testResult != null)
@@ -183,7 +194,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(dialogCtx).pop(),
-                  child: const Text('取消'),
+                  child: Text(l10n.remoteAgentCancel),
                 ),
                 FilledButton(
                   onPressed: () async {
@@ -194,7 +205,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
 
                     if (name.isEmpty || url.isEmpty || token.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('请填写完整的名称、地址与 Token')),
+                        SnackBar(content: Text(l10n.remoteAgentFillRequired)),
                       );
                       return;
                     }
@@ -220,7 +231,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
 
                     if (dialogCtx.mounted) Navigator.of(dialogCtx).pop();
                   },
-                  child: const Text('保存'),
+                  child: Text(l10n.remoteAgentSave),
                 ),
               ],
             );
@@ -232,17 +243,18 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
     final settings = context.watch<SettingsProvider>();
     final endpoints = settings.remoteBridgeEndpoints;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('远程桌面 Agent (R-Connect)'),
+        title: Text(l10n.remoteAgentSettingsPageTitle),
         actions: [
           IconButton(
             icon: const Icon(Lucide.Plus),
-            tooltip: '添加节点',
+            tooltip: l10n.remoteAgentAddNode,
             onPressed: () => _showEditDialog(),
           ),
         ],
@@ -256,7 +268,9 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
             decoration: BoxDecoration(
               color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+              border: Border.all(
+                color: cs.outlineVariant.withValues(alpha: 0.5),
+              ),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -268,7 +282,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '如何连接桌面端 AI Agent？',
+                        l10n.remoteAgentHowToConnectTitle,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: AppFontWeights.semibold,
@@ -277,9 +291,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '1. 电脑端启动 R-Connect 网关（监听端口如 :9810）\n'
-                        '2. 填入电脑的局域网 IP、Tailscale 组网 IP 或穿透域名\n'
-                        '3. 在“助手”设置中选择绑定的桌面 Agent，即可在移动端随时操控 Claude Code、Antigravity、Codex 等！',
+                        l10n.remoteAgentHowToConnectDesc,
                         style: TextStyle(
                           fontSize: 12,
                           color: cs.onSurfaceVariant,
@@ -303,14 +315,14 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                     Icon(Lucide.Server, size: 48, color: cs.outline),
                     const SizedBox(height: 12),
                     Text(
-                      '暂无已配置的桌面 Agent 节点',
+                      l10n.remoteAgentEmpty,
                       style: TextStyle(color: cs.outline),
                     ),
                     const SizedBox(height: 12),
                     FilledButton.icon(
                       onPressed: () => _showEditDialog(),
                       icon: const Icon(Lucide.Plus, size: 18),
-                      label: const Text('添加第一个节点'),
+                      label: Text(l10n.remoteAgentAddFirst),
                     ),
                   ],
                 ),
@@ -320,7 +332,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
             Padding(
               padding: const EdgeInsets.only(left: 4, bottom: 8),
               child: Text(
-                '已配置节点 (${endpoints.length})',
+                '${l10n.remoteAgentSettingsPageTitle} (${endpoints.length})',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: AppFontWeights.semibold,
@@ -333,7 +345,9 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
               color: cs.surfaceContainerLow,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
-                side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4)),
+                side: BorderSide(
+                  color: cs.outlineVariant.withValues(alpha: 0.4),
+                ),
               ),
               child: ListView.separated(
                 shrinkWrap: true,
@@ -351,8 +365,10 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                   final isTesting = _testing[ep.id] ?? false;
 
                   return ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
                     leading: CircleAvatar(
                       backgroundColor: cs.primaryContainer,
                       foregroundColor: cs.onPrimaryContainer,
@@ -374,7 +390,9 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                           const SizedBox(
                             width: 14,
                             height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
                           )
                         else if (latency != null)
                           Container(
@@ -389,11 +407,15 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              latency > 0 ? '${latency}ms' : '连接失败',
+                              latency > 0
+                                  ? '${latency}ms'
+                                  : l10n.remoteAgentLatencyFailed,
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
-                                color: latency > 0 ? Colors.green : Colors.red,
+                                color: latency > 0
+                                    ? Colors.green
+                                    : Colors.red,
                               ),
                             ),
                           ),
@@ -413,7 +435,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          '项目: ${ep.project}',
+                          '${l10n.remoteAgentProject}: ${ep.project}',
                           style: TextStyle(
                             fontSize: 11,
                             color: cs.outline,
@@ -426,7 +448,7 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                       children: [
                         IconButton(
                           icon: const Icon(Lucide.Activity, size: 18),
-                          tooltip: '测试连接',
+                          tooltip: l10n.remoteAgentTestConnection,
                           onPressed: isTesting ? null : () => _testEndpoint(ep),
                         ),
                         PopupMenuButton<String>(
@@ -438,43 +460,60 @@ class _RemoteBridgeSettingsPageState extends State<RemoteBridgeSettingsPage> {
                               final confirm = await showDialog<bool>(
                                 context: context,
                                 builder: (c) => AlertDialog(
-                                  title: const Text('删除节点'),
-                                  content: Text('确定要删除节点 "${ep.name}" 吗？'),
+                                  title: Text(l10n.remoteAgentDelete),
+                                  content: Text(
+                                    l10n.remoteAgentDeleteConfirm(ep.name),
+                                  ),
                                   actions: [
                                     TextButton(
-                                      onPressed: () => Navigator.pop(c, false),
-                                      child: const Text('取消'),
+                                      onPressed: () =>
+                                          Navigator.pop(c, false),
+                                      child: Text(l10n.remoteAgentCancel),
                                     ),
                                     FilledButton(
-                                      onPressed: () => Navigator.pop(c, true),
-                                      child: const Text('删除'),
+                                      onPressed: () =>
+                                          Navigator.pop(c, true),
+                                      child: Text(
+                                        l10n.remoteAgentDelete,
+                                      ),
                                     ),
                                   ],
                                 ),
                               );
                               if (confirm == true) {
-                                await settings.removeRemoteBridgeEndpoint(ep.id);
+                                await settings.removeRemoteBridgeEndpoint(
+                                  ep.id,
+                                );
                               }
                             }
                           },
                           itemBuilder: (c) => [
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'edit',
                               child: Row(
                                 children: [
-                                  Icon(Lucide.Edit2, size: 16),
-                                  SizedBox(width: 8),
-                                  Text('编辑'),
+                                  const Icon(Lucide.Pencil, size: 16),
+                                  const SizedBox(width: 8),
+                                  Text(l10n.remoteAgentEdit),
                                 ],
                               ),
                             ),
-                            const PopupMenuItem(
+                            PopupMenuItem(
                               value: 'delete',
                               child: Row(
                                 children: [
-                                  Icon(Lucide.Trash2, size: 16, color: Colors.red),
-                                  SizedBox(width: 8),
-                                  Text('删除', style: TextStyle(color: Colors.red)),
+                                  const Icon(
+                                    Lucide.Trash2,
+                                    size: 16,
+                                    color: Colors.red,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    l10n.remoteAgentDelete,
+                                    style: const TextStyle(
+                                      color: Colors.red,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
