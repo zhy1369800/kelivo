@@ -14928,6 +14928,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Please fill in node name, URL, and Token'**
   String get remoteAgentFillRequired;
+
+  /// No description provided for @remoteAgentInjectContextTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Inject Mobile Memory & Tools'**
+  String get remoteAgentInjectContextTitle;
+
+  /// No description provided for @remoteAgentInjectContextSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Attach user persona memories and allow the remote Agent to call mobile MCP & search tools.'**
+  String get remoteAgentInjectContextSubtitle;
+
+  /// No description provided for @remoteAgentExecutingMobileTool.
+  ///
+  /// In en, this message translates to:
+  /// **'Executing mobile tool: {name}…'**
+  String remoteAgentExecutingMobileTool(String name);
 }
 
 class _AppLocalizationsDelegate

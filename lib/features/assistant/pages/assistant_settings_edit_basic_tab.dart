@@ -595,6 +595,37 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
                     );
                   },
                 ),
+                if (a.remoteBridgeEndpointId != null) ...[
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 8),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: a.remoteBridgeInjectContext,
+                    title: Text(
+                      l10n.remoteAgentInjectContextTitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: AppFontWeights.medium,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    subtitle: Text(
+                      l10n.remoteAgentInjectContextSubtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    onChanged: (v) async {
+                      await context
+                          .read<AssistantProvider>()
+                          .updateAssistant(
+                            a.copyWith(remoteBridgeInjectContext: v),
+                          );
+                    },
+                  ),
+                ],
               ],
             ),
           ),

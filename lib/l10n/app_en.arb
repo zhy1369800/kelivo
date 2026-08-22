@@ -3518,5 +3518,15 @@
   "remoteAgentSave": "Save",
   "remoteAgentDelete": "Delete",
   "remoteAgentEdit": "Edit",
-  "remoteAgentFillRequired": "Please fill in node name, URL, and Token"
+  "remoteAgentFillRequired": "Please fill in node name, URL, and Token",
+  "remoteAgentInjectContextTitle": "Inject Mobile Memory & Tools",
+  "remoteAgentInjectContextSubtitle": "Attach user persona memories and allow the remote Agent to call mobile MCP & search tools.",
+  "remoteAgentExecutingMobileTool": "Executing mobile tool: {name}…",
+  "@remoteAgentExecutingMobileTool": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  }
 }

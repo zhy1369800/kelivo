@@ -8225,4 +8225,16 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get remoteAgentFillRequired =>
       'Please fill in node name, URL, and Token';
+
+  @override
+  String get remoteAgentInjectContextTitle => 'Inject Mobile Memory & Tools';
+
+  @override
+  String get remoteAgentInjectContextSubtitle =>
+      'Attach user persona memories and allow the remote Agent to call mobile MCP & search tools.';
+
+  @override
+  String remoteAgentExecutingMobileTool(String name) {
+    return 'Executing mobile tool: $name…';
+  }
 }

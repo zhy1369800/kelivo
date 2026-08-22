@@ -67,8 +67,9 @@ class Assistant {
   final bool appendCurrentTimeToUserMessage;
   // Preset conversation messages (ordered)
   final List<PresetMessage> presetMessages;
-  // Remote Desktop Agent (cc-connect) endpoint binding
+  // Remote Desktop Agent (R-Connect) endpoint binding
   final String? remoteBridgeEndpointId;
+  final bool remoteBridgeInjectContext;
   // Regex replacement rules
   final List<AssistantRegex> regexRules;
 
@@ -81,6 +82,7 @@ class Assistant {
     this.chatModelProvider,
     this.chatModelId,
     this.remoteBridgeEndpointId,
+    this.remoteBridgeInjectContext = false,
     this.temperature,
     this.topP,
     this.contextMessageSize = 64,
@@ -118,6 +120,7 @@ class Assistant {
     String? chatModelProvider,
     String? chatModelId,
     String? remoteBridgeEndpointId,
+    bool? remoteBridgeInjectContext,
     bool clearRemoteBridgeEndpointId = false,
     double? temperature,
     double? topP,
@@ -166,6 +169,8 @@ class Assistant {
       remoteBridgeEndpointId: clearRemoteBridgeEndpointId
           ? null
           : (remoteBridgeEndpointId ?? this.remoteBridgeEndpointId),
+      remoteBridgeInjectContext:
+          remoteBridgeInjectContext ?? this.remoteBridgeInjectContext,
       temperature: clearTemperature ? null : (temperature ?? this.temperature),
       topP: clearTopP ? null : (topP ?? this.topP),
       contextMessageSize: contextMessageSize ?? this.contextMessageSize,
@@ -212,6 +217,7 @@ class Assistant {
     'chatModelId': chatModelId,
     if (remoteBridgeEndpointId != null)
       'remoteBridgeEndpointId': remoteBridgeEndpointId,
+    'remoteBridgeInjectContext': remoteBridgeInjectContext,
     'temperature': temperature,
     'topP': topP,
     'contextMessageSize': contextMessageSize,
@@ -249,6 +255,8 @@ class Assistant {
     chatModelProvider: json['chatModelProvider'] as String?,
     chatModelId: json['chatModelId'] as String?,
     remoteBridgeEndpointId: json['remoteBridgeEndpointId'] as String?,
+    remoteBridgeInjectContext:
+        json['remoteBridgeInjectContext'] as bool? ?? false,
     temperature: (json['temperature'] as num?)?.toDouble(),
     topP: (json['topP'] as num?)?.toDouble(),
     contextMessageSize: (json['contextMessageSize'] as num?)?.toInt() ?? 64,

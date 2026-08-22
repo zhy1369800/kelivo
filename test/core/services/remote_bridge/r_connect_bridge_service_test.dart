@@ -74,4 +74,25 @@ void main() {
       expect(btn.style, 'primary');
     });
   });
+
+  group('Mobile Tool Call Protocol', () {
+    test('extracts call_mobile_tool tag and arguments properly', () {
+      final responseText = '''
+Here is my preliminary thoughts.
+I need to check current weather first.
+<call_mobile_tool name="mcp_weather">
+{"city": "Beijing", "units": "celsius"}
+</call_mobile_tool>
+''';
+
+      final regex = RegExp(
+        r'<call_mobile_tool\s+name="([^"]+)">\s*([\s\S]*?)\s*<\/call_mobile_tool>',
+      );
+      final match = regex.firstMatch(responseText);
+
+      expect(match, isNotNull);
+      expect(match!.group(1), 'mcp_weather');
+      expect(match.group(2)!.contains('"city": "Beijing"'), isTrue);
+    });
+  });
 }

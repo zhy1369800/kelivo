@@ -7883,6 +7883,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get remoteAgentFillRequired => '请填写完整的名称、地址与 Token';
+
+  @override
+  String get remoteAgentInjectContextTitle => '注入移动端记忆与扩展工具';
+
+  @override
+  String get remoteAgentInjectContextSubtitle =>
+      '附带用户偏好记忆，并允许远端 Agent 调用手机端配置的 MCP 与搜索工具。';
+
+  @override
+  String remoteAgentExecutingMobileTool(String name) {
+    return '正在执行手机端工具: $name…';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -15690,6 +15702,18 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get remoteAgentFillRequired => '请填写完整的名称、地址与 Token';
+
+  @override
+  String get remoteAgentInjectContextTitle => '注入移动端记忆与扩展工具';
+
+  @override
+  String get remoteAgentInjectContextSubtitle =>
+      '附带用户偏好记忆，并允许远端 Agent 调用手机端配置的 MCP 与搜索工具。';
+
+  @override
+  String remoteAgentExecutingMobileTool(String name) {
+    return '正在执行手机端工具: $name…';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -23573,4 +23597,16 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get remoteAgentFillRequired => '請填寫完整的名稱、位址與 Token';
+
+  @override
+  String get remoteAgentInjectContextTitle => '注入行動端記憶與擴充工具';
+
+  @override
+  String get remoteAgentInjectContextSubtitle =>
+      '附帶使用者偏好記憶，並允許遠端 Agent 呼叫手機端設定的 MCP 與搜尋工具。';
+
+  @override
+  String remoteAgentExecutingMobileTool(String name) {
+    return '正在執行手機端工具: $name…';
+  }
 }

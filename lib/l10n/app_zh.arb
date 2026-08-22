@@ -2969,5 +2969,8 @@
   "remoteAgentSave": "保存",
   "remoteAgentDelete": "删除",
   "remoteAgentEdit": "编辑",
-  "remoteAgentFillRequired": "请填写完整的名称、地址与 Token"
+  "remoteAgentFillRequired": "请填写完整的名称、地址与 Token",
+  "remoteAgentInjectContextTitle": "注入移动端记忆与扩展工具",
+  "remoteAgentInjectContextSubtitle": "附带用户偏好记忆，并允许远端 Agent 调用手机端配置的 MCP 与搜索工具。",
+  "remoteAgentExecutingMobileTool": "正在执行手机端工具: {name}…"
 }

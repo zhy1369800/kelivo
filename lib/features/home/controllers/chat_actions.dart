@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import '../../../core/database/generation_run.dart';
 import '../../../core/models/assistant.dart';
+import '../../../core/models/remote_bridge_endpoint.dart';
 import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/message_part.dart';
@@ -1953,25 +1955,7 @@ class ChatActions {
           assistant!.remoteBridgeEndpointId!,
         );
         if (endpoint != null) {
-          final bridgeService =
-              await RConnectBridgeManager.instance.getService(endpoint);
-          final lastUserMsg = ctx.apiMessages.lastWhere(
-            (m) => m['role'] == 'user',
-            orElse: () => {'content': ''},
-          );
-          final content = (lastUserMsg['content'] ?? '').toString();
-          final stream = bridgeService.executeStream(
-            sessionKey: 'kelivo:$conversationId',
-            content: content,
-          );
-
-          final sub = listenSequentiallyToStream<StreamChunk>(
-            stream: stream,
-            onData: (chunk) => _handleStreamChunk(chunk, state),
-            onError: (error, stackTrace) => _handleStreamError(error, state),
-            onDone: () => _handleStreamDone(state),
-          );
-          _conversationStreams[conversationId] = sub;
+          await _executeRemoteBridgeGeneration(state, endpoint);
           return;
         }
       }
@@ -2005,6 +1989,142 @@ class ChatActions {
     } catch (e) {
       await _handleStreamError(e, state);
     }
+  }
+
+  /// Builds prompt for Remote Bridge with optional persona memory and tool environment.
+  String _buildRemoteBridgePrompt({
+    required String rawContent,
+    required stream_ctrl.GenerationContext ctx,
+  }) {
+    final assistant = ctx.assistant;
+    if (assistant == null || !assistant.remoteBridgeInjectContext) {
+      return rawContent;
+    }
+
+    final buffer = StringBuffer();
+
+    // 1. Extract memory snapshot from apiMessages if available
+    String? memoryText;
+    for (final msg in ctx.apiMessages) {
+      final content = msg['content'];
+      if (content is String && content.contains('<memory>')) {
+        final start = content.indexOf('<memory>');
+        final end = content.indexOf('</memory>');
+        if (start >= 0 && end > start) {
+          memoryText = content.substring(start + 8, end).trim();
+          break;
+        }
+      }
+    }
+
+    if (memoryText != null && memoryText.isNotEmpty) {
+      buffer.writeln('[用户偏好与记忆上下文]');
+      buffer.writeln(memoryText);
+      buffer.writeln('--------------------------------------------------\n');
+    }
+
+    buffer.writeln(rawContent);
+
+    // 2. Inject mobile tools environment schema if tools are available
+    if (ctx.toolDefs.isNotEmpty) {
+      buffer.writeln('\n--------------------------------------------------');
+      buffer.writeln('<mobile_tools_environment>');
+      buffer.writeln('你还可以选择调用以下手机移动端提供的扩展工具。');
+      buffer.writeln('【重要说明】：');
+      buffer.writeln('1. 仅当明确需要使用下述手机端扩展工具时，才在最终回复末尾输出特定的调用标签；');
+      buffer.writeln('2. 执行日常电脑本地任务（Shell 终端命令、读写电脑文件、Git 操作等）时，请直接使用你自带的本地工具，切勿输出此标签。');
+      buffer.writeln('\n可用手机端工具列表：');
+      for (final t in ctx.toolDefs) {
+        final f = t['function'] as Map<String, dynamic>? ?? t;
+        final name = f['name'] ?? '';
+        final desc = f['description'] ?? '';
+        final params = f['parameters'] ?? {};
+        buffer.writeln('- $name: $desc. 参数 Schema: ${jsonEncode(params)}');
+      }
+      buffer.writeln('\n【手机工具调用协议格式】：');
+      buffer.writeln('若需调用上述手机端工具，请严格输出以下格式块并等待客户端返回结果：');
+      buffer.writeln('<call_mobile_tool name="工具名称">');
+      buffer.writeln('{"参数名": "参数值"}');
+      buffer.writeln('</call_mobile_tool>');
+      buffer.writeln('</mobile_tools_environment>');
+    }
+
+    return buffer.toString();
+  }
+
+  /// Executes generation against an R-Connect remote bridge endpoint with tool loop support.
+  Future<void> _executeRemoteBridgeGeneration(
+    stream_ctrl.StreamingState state,
+    RemoteBridgeEndpoint endpoint,
+  ) async {
+    final ctx = state.ctx;
+    final conversationId = state.conversationId;
+    final bridgeService =
+        await RConnectBridgeManager.instance.getService(endpoint);
+
+    final lastUserMsg = ctx.apiMessages.lastWhere(
+      (m) => m['role'] == 'user',
+      orElse: () => {'content': ''},
+    );
+    final rawContent = (lastUserMsg['content'] ?? '').toString();
+    final initialContent = _buildRemoteBridgePrompt(
+      rawContent: rawContent,
+      ctx: ctx,
+    );
+
+    Future<void> runLoop(String sendContent, {int round = 0}) async {
+      if (round > 5) {
+        await _handleStreamFinish(state);
+        return;
+      }
+
+      final stream = bridgeService.executeStream(
+        sessionKey: 'kelivo:$conversationId',
+        content: sendContent,
+      );
+
+      final sub = listenSequentiallyToStream<StreamChunk>(
+        stream: stream,
+        onData: (chunk) => _handleStreamChunk(chunk, state),
+        onError: (error, stackTrace) => _handleStreamError(error, state),
+        onDone: () async {
+          // Check if remote agent requested a mobile tool execution
+          final regex = RegExp(
+            r'<call_mobile_tool\s+name="([^"]+)">\s*([\s\S]*?)\s*<\/call_mobile_tool>',
+          );
+          final match = regex.firstMatch(state.fullContentRaw);
+
+          if (match != null && ctx.onToolCall != null) {
+            final toolName = match.group(1)!.trim();
+            final rawArgs = match.group(2)!.trim();
+            Map<String, dynamic> args = {};
+            try {
+              args = jsonDecode(rawArgs) as Map<String, dynamic>;
+            } catch (_) {}
+
+            try {
+              final toolResult = await ctx.onToolCall!(
+                toolName,
+                args,
+                toolCallId: 'call_${DateTime.now().millisecondsSinceEpoch}',
+              );
+              final nextPrompt = '[手机端工具 $toolName 执行结果]:\n$toolResult';
+              await runLoop(nextPrompt, round: round + 1);
+              return;
+            } catch (err) {
+              final nextPrompt = '[手机端工具 $toolName 执行出错]:\n$err';
+              await runLoop(nextPrompt, round: round + 1);
+              return;
+            }
+          }
+
+          await _handleStreamDone(state);
+        },
+      );
+      _conversationStreams[conversationId] = sub;
+    }
+
+    await runLoop(initialContent);
   }
 
   // ============================================================================
