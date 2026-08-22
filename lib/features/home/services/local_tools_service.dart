@@ -274,6 +274,7 @@ class LocalToolsService {
           },
         },
       });
+    }
     if (DeviceLocalTools.screenTimeSupported &&
          assistant.localToolIds.contains(LocalToolNames.screenTime)) {
        tools.add({
