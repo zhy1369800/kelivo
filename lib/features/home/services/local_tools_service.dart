@@ -801,7 +801,9 @@ class LocalToolsService {
         'function': {
           'name': LocalToolNames.reminderTask,
           'description':
-              'ReminderTask tool for querying, creating, completing, and deleting iOS EventKit reminders and task lists.',
+              'ReminderTask tool for querying, creating, updating, completing, and deleting iOS EventKit reminders. '
+              'Supports time-based alarms (due_date), location-based geofence alarms (arrive/leave a place), '
+              'and repeating reminders (daily/weekly/monthly/yearly).',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -814,42 +816,123 @@ class LocalToolsService {
                   'complete_reminder',
                   'delete_reminder',
                   'list_lists',
-                  'request_permission'
+                  'request_permission',
+                  'request_location_permission'
                 ],
                 'description':
-                    'The operation to perform: "list_reminders" (default, query to-do items), "create_reminder" (create a new reminder with optional due_date alarm), "update_reminder" (update title, due_date, list, priority, or notes of existing reminder), "complete_reminder" (mark a reminder as complete or incomplete), "delete_reminder" (delete a reminder by ID), "list_lists" (list reminder categories/lists), "request_permission" (request Reminders access).',
+                    '"list_reminders" – query to-do items; '
+                    '"create_reminder" – create a reminder with optional due_date alarm, geofence, and/or recurrence; '
+                    '"update_reminder" – update fields of an existing reminder; '
+                    '"complete_reminder" – mark complete/incomplete; '
+                    '"delete_reminder" – delete by ID; '
+                    '"list_lists" – list reminder categories; '
+                    '"request_permission" – request Reminders access; '
+                    '"request_location_permission" – request Location access (required for geofence reminders).',
               },
+              // ── List / Common ──────────────────────────────────────────
               'list_name': {
                 'type': 'string',
-                'description': 'Reminder list name for filtering in list_reminders or targeting in create_reminder/update_reminder.',
+                'description': 'Reminder list name for filtering in list_reminders or targeting in create/update.',
               },
               'include_completed': {
                 'type': 'boolean',
                 'description': 'Whether to include completed items in list_reminders. Default: false.',
               },
+              'limit': {
+                'type': 'number',
+                'description': 'Maximum number of results to return in list_reminders. Default: 100.',
+              },
+              // ── Create / Update fields ─────────────────────────────────
               'title': {
                 'type': 'string',
-                'description': 'Title for create_reminder or update_reminder.',
+                'description': 'Reminder title. Required for create_reminder.',
+              },
+              'parent_id': {
+                'type': 'string',
+                'description': 'Parent reminder ID for subtasks. (Note: iOS EventKit does not support subtasks; passing this returns an explicit error).',
               },
               'due_date': {
                 'type': 'string',
-                'description': 'Due date in ISO 8601 format (e.g. 2026-08-10T18:00:00Z) for create_reminder or update_reminder. Automatically sets system alarm at due time.',
+                'description':
+                    'Due date in ISO 8601 format (e.g. "2026-08-25T09:00:00+08:00") for create/update. '
+                    'Automatically sets a system time alarm at the due time. '
+                    'Required when using recur.',
               },
               'priority': {
                 'type': 'number',
-                'description': 'Priority (0: none, 1-4: high/medium/low) for create_reminder or update_reminder.',
+                'description': 'Priority (0: none, 1: high, 5: medium, 9: low) for create/update.',
               },
               'notes': {
                 'type': 'string',
-                'description': 'Notes or description for create_reminder or update_reminder.',
+                'description': 'Notes or description for create/update.',
               },
               'id': {
                 'type': 'string',
-                'description': 'Reminder ID for update_reminder, complete_reminder, or delete_reminder. Required for update_reminder, complete_reminder, delete_reminder.',
+                'description': 'Reminder ID. Required for update_reminder, complete_reminder, delete_reminder.',
               },
               'completed': {
                 'type': 'boolean',
                 'description': 'Completion status for complete_reminder or update_reminder.',
+              },
+              // ── Geofence (location alarm) ──────────────────────────────
+              'lat': {
+                'type': 'number',
+                'description':
+                    'Latitude (WGS-84 decimal degrees, e.g. 22.6099) for a geofence reminder. '
+                    'Requires lng. Tip: use apple_location_tool forward to get coordinates.',
+              },
+              'lng': {
+                'type': 'number',
+                'description': 'Longitude (WGS-84 decimal degrees) for a geofence reminder. Requires lat.',
+              },
+              'location_name': {
+                'type': 'string',
+                'description': 'Label shown for the place (default: "lat,lng").',
+              },
+              'radius': {
+                'type': 'number',
+                'description': 'Geofence radius in meters. Omit to use the system default.',
+              },
+              'proximity': {
+                'type': 'string',
+                'enum': ['enter', 'leave'],
+                'description': '"enter" (default) = alert on arrival; "leave" = alert on departure.',
+              },
+              'clear_location': {
+                'type': 'boolean',
+                'description': 'update_reminder only: set true to remove an existing geofence alarm.',
+              },
+              // ── Recurrence ─────────────────────────────────────────────
+              'recur': {
+                'type': 'string',
+                'enum': ['daily', 'weekly', 'monthly', 'yearly'],
+                'description':
+                    'Repeat frequency for create/update. Requires due_date. '
+                    'Use recur_interval/recur_days/recur_count/recur_until to refine.',
+              },
+              'recur_interval': {
+                'type': 'number',
+                'description': 'Repeat every N periods (default 1; 2 = every other week).',
+              },
+              'recur_days': {
+                'type': 'string',
+                'description':
+                    'Weekdays for weekly/monthly/yearly rules, comma-separated '
+                    '(e.g. "fri" or "mon,wed,fri"). Not valid with recur=daily.',
+              },
+              'recur_count': {
+                'type': 'number',
+                'description': 'Stop after N occurrences. Mutually exclusive with recur_until.',
+              },
+              'recur_until': {
+                'type': 'string',
+                'description':
+                    'Repeat until this ISO 8601 date (e.g. "2026-12-31T23:59:00+08:00"). '
+                    'Mutually exclusive with recur_count.',
+              },
+              'clear_recur': {
+                'type': 'boolean',
+                'description': 'update_reminder only: set true to make the reminder non-repeating.',
               },
             },
             'required': ['action'],

@@ -2506,9 +2506,11 @@ class ToolHandlerService {
         case 'list_reminders':
           final listName = args['list_name']?.toString();
           final includeCompleted = (args['include_completed'] as bool?) ?? false;
+          final limit = (args['limit'] as num?)?.toInt();
           final data = await NativeReminderTaskService.listReminders(
             listName: listName,
             includeCompleted: includeCompleted,
+            limit: limit,
           );
           return jsonEncode({'success': true, 'action': action, ...data});
 
@@ -2525,6 +2527,21 @@ class ToolHandlerService {
           final dueDate = args['due_date']?.toString();
           final priority = (args['priority'] as num?)?.toInt() ?? 0;
           final notes = args['notes']?.toString();
+          final parentId = args['parent_id']?.toString();
+
+          // Geofence
+          final lat = (args['lat'] as num?)?.toDouble();
+          final lng = (args['lng'] as num?)?.toDouble();
+          final locationName = args['location_name']?.toString();
+          final radius = (args['radius'] as num?)?.toDouble();
+          final proximity = args['proximity']?.toString();
+
+          // Recurrence
+          final recur = args['recur']?.toString();
+          final recurInterval = (args['recur_interval'] as num?)?.toInt();
+          final recurDays = args['recur_days']?.toString();
+          final recurCount = (args['recur_count'] as num?)?.toInt();
+          final recurUntil = args['recur_until']?.toString();
 
           final data = await NativeReminderTaskService.createReminder(
             title: title,
@@ -2532,6 +2549,17 @@ class ToolHandlerService {
             dueDate: dueDate,
             priority: priority,
             notes: notes,
+            parentId: parentId,
+            lat: lat,
+            lng: lng,
+            locationName: locationName,
+            radius: radius,
+            proximity: proximity,
+            recur: recur,
+            recurInterval: recurInterval,
+            recurDays: recurDays,
+            recurCount: recurCount,
+            recurUntil: recurUntil,
           );
           return jsonEncode({'success': true, 'action': action, ...data});
 
@@ -2551,6 +2579,22 @@ class ToolHandlerService {
           final notes = args['notes']?.toString();
           final completed = args['completed'] as bool?;
 
+          // Geofence
+          final lat = (args['lat'] as num?)?.toDouble();
+          final lng = (args['lng'] as num?)?.toDouble();
+          final locationName = args['location_name']?.toString();
+          final radius = (args['radius'] as num?)?.toDouble();
+          final proximity = args['proximity']?.toString();
+          final clearLocation = (args['clear_location'] as bool?) ?? false;
+
+          // Recurrence
+          final recur = args['recur']?.toString();
+          final recurInterval = (args['recur_interval'] as num?)?.toInt();
+          final recurDays = args['recur_days']?.toString();
+          final recurCount = (args['recur_count'] as num?)?.toInt();
+          final recurUntil = args['recur_until']?.toString();
+          final clearRecur = (args['clear_recur'] as bool?) ?? false;
+
           final data = await NativeReminderTaskService.updateReminder(
             id: id,
             title: title,
@@ -2559,6 +2603,18 @@ class ToolHandlerService {
             priority: priority,
             notes: notes,
             completed: completed,
+            lat: lat,
+            lng: lng,
+            locationName: locationName,
+            radius: radius,
+            proximity: proximity,
+            clearLocation: clearLocation,
+            recur: recur,
+            recurInterval: recurInterval,
+            recurDays: recurDays,
+            recurCount: recurCount,
+            recurUntil: recurUntil,
+            clearRecur: clearRecur,
           );
           return jsonEncode({'success': true, 'action': action, ...data});
 
@@ -2598,11 +2654,15 @@ class ToolHandlerService {
           final data = await NativeReminderTaskService.requestPermission();
           return jsonEncode({'success': true, 'action': action, ...data});
 
+        case 'request_location_permission':
+          final data = await NativeReminderTaskService.requestLocationPermission();
+          return jsonEncode({'success': true, 'action': action, ...data});
+
         default:
           return _toolError(
             error: 'invalid_action',
             message:
-                'Unknown action "$action". Valid: list_reminders, create_reminder, complete_reminder, delete_reminder, list_lists, request_permission.',
+                'Unknown action "$action". Valid: list_reminders, create_reminder, update_reminder, complete_reminder, delete_reminder, list_lists, request_permission, request_location_permission.',
             tool: LocalToolNames.reminderTask,
           );
       }
