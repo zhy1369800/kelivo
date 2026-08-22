@@ -373,7 +373,9 @@ final class ReminderTaskHandler: NSObject {
     return d
   }
 
-  // MARK: - List Reminders  private func listReminders(args: [String: Any], result: @escaping FlutterResult) {
+  // MARK: - List Reminders
+
+  private func listReminders(args: [String: Any], result: @escaping FlutterResult) {
     let includeCompleted = (args["include_completed"] as? Bool) ?? false
     let listName = (args["list_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     let limit = (args["limit"] as? NSNumber)?.intValue ?? 100
@@ -433,7 +435,7 @@ final class ReminderTaskHandler: NSObject {
         details: nil
       ))
       return
-    } }
+    }
 
     let reminder = EKReminder(eventStore: eventStore)
     reminder.title = title
