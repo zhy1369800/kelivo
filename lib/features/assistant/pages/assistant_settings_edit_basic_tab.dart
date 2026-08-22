@@ -410,6 +410,197 @@ class _BasicSettingsTabState extends State<_BasicSettingsTab> {
         ),
         const SizedBox(height: 16),
 
+        // Remote Desktop Agent (cc-connect) binding
+        Container(
+          decoration: BoxDecoration(
+            color: context.appColors.surfaceCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
+              width: 0.6,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Lucide.Server, size: 18, color: cs.onSurface),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '远程桌面 Agent (cc-connect)',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: AppFontWeights.semibold,
+                        ),
+                      ),
+                    ),
+                    if (a.remoteBridgeEndpointId != null)
+                      Tooltip(
+                        message: '解除绑定 (恢复为普通模型API)',
+                        child: _TactileIconButton(
+                          icon: Lucide.RotateCcw,
+                          color: cs.onSurface,
+                          size: 20,
+                          onTap: () async {
+                            await context
+                                .read<AssistantProvider>()
+                                .updateAssistant(
+                                  a.copyWith(clearRemoteBridgeEndpointId: true),
+                                );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '绑定后，该助手将直接连接桌面端 cc-connect 驱动 Claude Code / Antigravity / Codex 等。',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: cs.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Builder(
+                  builder: (ctx) {
+                    final settings = ctx.watch<SettingsProvider>();
+                    final endpoints = settings.remoteBridgeEndpoints;
+                    final currentEp = a.remoteBridgeEndpointId != null
+                        ? settings.getRemoteBridgeEndpoint(a.remoteBridgeEndpointId!)
+                        : null;
+
+                    return _TactileRow(
+                      onTap: () async {
+                        if (endpoints.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('请先在“设置 -> 远程桌面 Agent”中添加节点'),
+                            ),
+                          );
+                          return;
+                        }
+
+                        final chosenId = await showModalBottomSheet<String?>(
+                          context: context,
+                          backgroundColor: cs.surface,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius:
+                                BorderRadius.vertical(top: Radius.circular(16)),
+                          ),
+                          builder: (sheetCtx) {
+                            return SafeArea(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Text(
+                                      '选择绑定的桌面 Agent 节点',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: AppFontWeights.bold,
+                                        color: cs.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                                  const Divider(height: 1),
+                                  ListTile(
+                                    leading: const Icon(Lucide.Ban),
+                                    title: const Text('不绑定 (使用普通 API 模型)'),
+                                    onTap: () => Navigator.pop(sheetCtx, 'NONE'),
+                                  ),
+                                  ...endpoints.map(
+                                    (ep) => ListTile(
+                                      leading: const Icon(Lucide.Server),
+                                      title: Text(ep.name),
+                                      subtitle: Text('${ep.url} (项目: ${ep.project})'),
+                                      trailing: a.remoteBridgeEndpointId == ep.id
+                                          ? Icon(Lucide.Check, color: cs.primary)
+                                          : null,
+                                      onTap: () => Navigator.pop(sheetCtx, ep.id),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+
+                        if (chosenId != null && context.mounted) {
+                          final ap = context.read<AssistantProvider>();
+                          if (chosenId == 'NONE') {
+                            await ap.updateAssistant(
+                              a.copyWith(clearRemoteBridgeEndpointId: true),
+                            );
+                          } else {
+                            await ap.updateAssistant(
+                              a.copyWith(remoteBridgeEndpointId: chosenId),
+                            );
+                          }
+                        }
+                      },
+                      pressedScale: 0.98,
+                      builder: (pressed) {
+                        final bg = context.appColors.surfaceFill;
+                        final overlay = cs.onSurface.withValues(
+                          alpha: isDark ? 0.06 : 0.05,
+                        );
+                        final pressedBg = Color.alphaBlend(overlay, bg);
+                        final display = currentEp != null
+                            ? '${currentEp.name} (${currentEp.project})'
+                            : '未绑定 (使用上方普通模型)';
+
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          curve: Curves.easeOutCubic,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: pressed ? pressedBg : bg,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                currentEp != null ? Lucide.Terminal : Lucide.Cpu,
+                                size: 20,
+                                color: currentEp != null ? cs.primary : cs.outline,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  display,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: AppFontWeights.semibold,
+                                    color: currentEp != null
+                                        ? cs.primary
+                                        : cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+
         // Chat background (separate iOS card)
         Container(
           decoration: BoxDecoration(

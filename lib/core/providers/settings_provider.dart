@@ -17,6 +17,7 @@ import '../services/network/request_logger.dart';
 import '../services/logging/context_logger.dart';
 import '../services/logging/flutter_logger.dart';
 import '../services/learning_mode_store.dart';
+import '../models/remote_bridge_endpoint.dart';
 import '../models/system_permission_policy.dart';
 import '../models/api_keys.dart';
 import '../models/backup.dart';
@@ -480,6 +481,12 @@ class SettingsProvider extends ChangeNotifier {
     return null;
   }
 
+  // Remote Desktop Agent (cc-connect) Bridge Endpoints
+  static const String _remoteBridgeEndpointsKey = 'remote_bridge_endpoints_v1';
+  List<RemoteBridgeEndpoint> _remoteBridgeEndpoints = [];
+  List<RemoteBridgeEndpoint> get remoteBridgeEndpoints =>
+      List.unmodifiable(_remoteBridgeEndpoints);
+
   // When enabled, force pure white/black backgrounds regardless of theme color
   bool _usePureBackground = false;
   bool get usePureBackground => _usePureBackground;
@@ -749,6 +756,22 @@ class SettingsProvider extends ChangeNotifier {
           return true;
         }());
       }
+    // load remote bridge endpoints
+    try {
+      final endpointsStr = prefs.getString(_remoteBridgeEndpointsKey) ?? '';
+      if (endpointsStr.isNotEmpty) {
+        final list = jsonDecode(endpointsStr) as List<dynamic>;
+        _remoteBridgeEndpoints = list
+            .map(
+              (e) =>
+                  RemoteBridgeEndpoint.fromJson(e as Map<String, dynamic>),
+            )
+            .toList();
+      } else {
+        _remoteBridgeEndpoints = [];
+      }
+    } catch (_) {
+      _remoteBridgeEndpoints = [];
     }
 
     // load provider grouping
@@ -6219,5 +6242,37 @@ class ProviderConfig {
         k.contains('vercel') ||
         k.contains('silicon') ||
         RegExp(r'kimi|moonshot|月之暗面').hasMatch(k);
+  }
+
+  // ===== Remote Desktop Agent (cc-connect) Bridge Management =====
+
+  RemoteBridgeEndpoint? getRemoteBridgeEndpoint(String id) {
+    try {
+      return _remoteBridgeEndpoints.firstWhere((e) => e.id == id);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveRemoteBridgeEndpoints(List<RemoteBridgeEndpoint> list) async {
+    _remoteBridgeEndpoints = List.from(list);
+    final jsonList = _remoteBridgeEndpoints.map((e) => e.toJson()).toList();
+    await _preferences.setString(_remoteBridgeEndpointsKey, jsonEncode(jsonList));
+    notifyListeners();
+  }
+
+  Future<void> addRemoteBridgeEndpoint(RemoteBridgeEndpoint endpoint) async {
+    final updated = List<RemoteBridgeEndpoint>.from(_remoteBridgeEndpoints)..add(endpoint);
+    await saveRemoteBridgeEndpoints(updated);
+  }
+
+  Future<void> updateRemoteBridgeEndpoint(RemoteBridgeEndpoint endpoint) async {
+    final updated = _remoteBridgeEndpoints.map((e) => e.id == endpoint.id ? endpoint : e).toList();
+    await saveRemoteBridgeEndpoints(updated);
+  }
+
+  Future<void> removeRemoteBridgeEndpoint(String id) async {
+    final updated = _remoteBridgeEndpoints.where((e) => e.id != id).toList();
+    await saveRemoteBridgeEndpoints(updated);
   }
 }

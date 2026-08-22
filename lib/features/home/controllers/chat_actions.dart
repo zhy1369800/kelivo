@@ -14,6 +14,7 @@ import '../../../core/models/token_usage.dart';
 import '../../../core/providers/assistant_provider.dart';
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/services/api/chat_api_service.dart';
+import '../../../core/services/remote_bridge/cc_connect_bridge_service.dart';
 import '../../../core/services/api/stream/stream_chunk.dart';
 import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/ios_background_generation.dart';
@@ -1945,6 +1946,34 @@ class ChatActions {
           await _handleStreamError(e, state);
         }
         return;
+      }
+
+      if (assistant?.remoteBridgeEndpointId != null) {
+        final endpoint = ctx.settings.getRemoteBridgeEndpoint(
+          assistant!.remoteBridgeEndpointId!,
+        );
+        if (endpoint != null) {
+          final bridgeService =
+              await CcConnectBridgeManager.instance.getService(endpoint);
+          final lastUserMsg = ctx.apiMessages.lastWhere(
+            (m) => m['role'] == 'user',
+            orElse: () => {'content': ''},
+          );
+          final content = (lastUserMsg['content'] ?? '').toString();
+          final stream = bridgeService.executeStream(
+            sessionKey: 'kelivo:$conversationId',
+            content: content,
+          );
+
+          final sub = listenSequentiallyToStream<StreamChunk>(
+            stream: stream,
+            onData: (chunk) => _handleStreamChunk(chunk, state),
+            onError: (error, stackTrace) => _handleStreamError(error, state),
+            onDone: () => _handleStreamDone(state),
+          );
+          _conversationStreams[conversationId] = sub;
+          return;
+        }
       }
 
       final stream = ChatApiService.sendMessageStream(

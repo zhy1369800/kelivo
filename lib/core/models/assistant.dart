@@ -67,6 +67,8 @@ class Assistant {
   final bool appendCurrentTimeToUserMessage;
   // Preset conversation messages (ordered)
   final List<PresetMessage> presetMessages;
+  // Remote Desktop Agent (cc-connect) endpoint binding
+  final String? remoteBridgeEndpointId;
   // Regex replacement rules
   final List<AssistantRegex> regexRules;
 
@@ -78,6 +80,7 @@ class Assistant {
     this.useAssistantName = false,
     this.chatModelProvider,
     this.chatModelId,
+    this.remoteBridgeEndpointId,
     this.temperature,
     this.topP,
     this.contextMessageSize = 64,
@@ -114,6 +117,8 @@ class Assistant {
     bool? useAssistantName,
     String? chatModelProvider,
     String? chatModelId,
+    String? remoteBridgeEndpointId,
+    bool clearRemoteBridgeEndpointId = false,
     double? temperature,
     double? topP,
     int? contextMessageSize,
@@ -158,6 +163,9 @@ class Assistant {
           ? null
           : (chatModelProvider ?? this.chatModelProvider),
       chatModelId: clearChatModel ? null : (chatModelId ?? this.chatModelId),
+      remoteBridgeEndpointId: clearRemoteBridgeEndpointId
+          ? null
+          : (remoteBridgeEndpointId ?? this.remoteBridgeEndpointId),
       temperature: clearTemperature ? null : (temperature ?? this.temperature),
       topP: clearTopP ? null : (topP ?? this.topP),
       contextMessageSize: contextMessageSize ?? this.contextMessageSize,
@@ -202,6 +210,8 @@ class Assistant {
     'useAssistantName': useAssistantName,
     'chatModelProvider': chatModelProvider,
     'chatModelId': chatModelId,
+    if (remoteBridgeEndpointId != null)
+      'remoteBridgeEndpointId': remoteBridgeEndpointId,
     'temperature': temperature,
     'topP': topP,
     'contextMessageSize': contextMessageSize,
@@ -238,6 +248,7 @@ class Assistant {
     useAssistantName: json['useAssistantName'] as bool? ?? false,
     chatModelProvider: json['chatModelProvider'] as String?,
     chatModelId: json['chatModelId'] as String?,
+    remoteBridgeEndpointId: json['remoteBridgeEndpointId'] as String?,
     temperature: (json['temperature'] as num?)?.toDouble(),
     topP: (json['topP'] as num?)?.toDouble(),
     contextMessageSize: (json['contextMessageSize'] as num?)?.toInt() ?? 64,
