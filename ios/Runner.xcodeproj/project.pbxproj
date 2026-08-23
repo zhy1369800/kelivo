@@ -20,6 +20,15 @@
 		A10000000000000000000087 /* CalendarEventHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000086 /* CalendarEventHandler.swift */; };
 		A10000000000000000000085 /* ReminderTaskHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000084 /* ReminderTaskHandler.swift */; };
 		A10000000000000000000083 /* AlarmTimerHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000082 /* AlarmTimerHandler.swift */; };
+		B10000000000000000000002 /* BackgroundAudioKeepAlive.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* BackgroundAudioKeepAlive.swift */; };
+		B10000000000000000000004 /* NativeDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* NativeDataStore.swift */; };
+		B10000000000000000000006 /* AssistantEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* AssistantEntity.swift */; };
+		B10000000000000000000008 /* SessionEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* SessionEntity.swift */; };
+		B1000000000000000000000A /* ModelSelectionEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* ModelSelectionEntity.swift */; };
+		B1000000000000000000000C /* NativeNotificationHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000B /* NativeNotificationHelper.swift */; };
+		B1000000000000000000000E /* IntentFlutterBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000D /* IntentFlutterBridge.swift */; };
+		B10000000000000000000010 /* AskAIIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* AskAIIntent.swift */; };
+		B10000000000000000000012 /* KelivoShortcutsProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* KelivoShortcutsProvider.swift */; };
 		A10000000000000000000002 /* KelivoGenerationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */; };
 		A10000000000000000000003 /* GenerationActivityExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* GenerationActivityExtension.swift */; };
 		A10000000000000000000004 /* GenerationActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* GenerationActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -89,6 +98,15 @@
 		A10000000000000000000086 /* CalendarEventHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarEventHandler.swift; sourceTree = "<group>"; };
 		A10000000000000000000084 /* ReminderTaskHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderTaskHandler.swift; sourceTree = "<group>"; };
 		A10000000000000000000082 /* AlarmTimerHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmTimerHandler.swift; sourceTree = "<group>"; };
+		B10000000000000000000001 /* BackgroundAudioKeepAlive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundAudioKeepAlive.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* NativeDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeDataStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* AssistantEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantEntity.swift; sourceTree = "<group>"; };
+		B10000000000000000000007 /* SessionEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntity.swift; sourceTree = "<group>"; };
+		B10000000000000000000009 /* ModelSelectionEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelSelectionEntity.swift; sourceTree = "<group>"; };
+		B1000000000000000000000B /* NativeNotificationHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationHelper.swift; sourceTree = "<group>"; };
+		B1000000000000000000000D /* IntentFlutterBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentFlutterBridge.swift; sourceTree = "<group>"; };
+		B1000000000000000000000F /* AskAIIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskAIIntent.swift; sourceTree = "<group>"; };
+		B10000000000000000000011 /* KelivoShortcutsProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KelivoShortcutsProvider.swift; sourceTree = "<group>"; };
 		A10000000000000000000011 /* GenerationActivityExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenerationActivityExtension.swift; sourceTree = "<group>"; };
 		A10000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000000000013 /* GenerationActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = GenerationActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -223,6 +241,15 @@
 				A10000000000000000000086 /* CalendarEventHandler.swift */,
 				A10000000000000000000084 /* ReminderTaskHandler.swift */,
 				A10000000000000000000082 /* AlarmTimerHandler.swift */,
+				B10000000000000000000001 /* BackgroundAudioKeepAlive.swift */,
+				B10000000000000000000003 /* NativeDataStore.swift */,
+				B10000000000000000000005 /* AssistantEntity.swift */,
+				B10000000000000000000007 /* SessionEntity.swift */,
+				B10000000000000000000009 /* ModelSelectionEntity.swift */,
+				B1000000000000000000000B /* NativeNotificationHelper.swift */,
+				B1000000000000000000000D /* IntentFlutterBridge.swift */,
+				B1000000000000000000000F /* AskAIIntent.swift */,
+				B10000000000000000000011 /* KelivoShortcutsProvider.swift */,
 				A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
@@ -536,6 +563,15 @@
 				A10000000000000000000087 /* CalendarEventHandler.swift in Sources */,
 				A10000000000000000000085 /* ReminderTaskHandler.swift in Sources */,
 				A10000000000000000000083 /* AlarmTimerHandler.swift in Sources */,
+				B10000000000000000000002 /* BackgroundAudioKeepAlive.swift in Sources */,
+				B10000000000000000000004 /* NativeDataStore.swift in Sources */,
+				B10000000000000000000006 /* AssistantEntity.swift in Sources */,
+				B10000000000000000000008 /* SessionEntity.swift in Sources */,
+				B1000000000000000000000A /* ModelSelectionEntity.swift in Sources */,
+				B1000000000000000000000C /* NativeNotificationHelper.swift in Sources */,
+				B1000000000000000000000E /* IntentFlutterBridge.swift in Sources */,
+				B10000000000000000000010 /* AskAIIntent.swift in Sources */,
+				B10000000000000000000012 /* KelivoShortcutsProvider.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
