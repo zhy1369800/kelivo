@@ -248,6 +248,24 @@ class _ChatInputBarState extends State<ChatInputBar>
   String? _imageModeModelKey;
   String? _lastImageModeModelKey;
   String? _dismissedImageModeModelKey;
+  FocusNode? _internalFocusNode;
+
+  FocusNode get _effectiveFocusNode =>
+      widget.focusNode ?? (_internalFocusNode ??= FocusNode());
+
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _isCollapsed =>
+      !_effectiveFocusNode.hasFocus &&
+      _controller.text.trim().isEmpty &&
+      _images.isEmpty &&
+      _docs.isEmpty &&
+      !widget.loading &&
+      !_ownsVoiceSession &&
+      !widget.moreOpen &&
+      !widget.hasQueuedInput;
 
   bool get _composerLocked => widget.hasQueuedInput;
 
@@ -529,6 +547,7 @@ class _ChatInputBarState extends State<ChatInputBar>
   void initState() {
     super.initState();
     _controller = widget.controller ?? TextEditingController();
+    _effectiveFocusNode.addListener(_onFocusChanged);
     widget.mediaController?._bind(this);
     widget.asrProvider?.addListener(_handleAsrChanged);
     WidgetsBinding.instance.addObserver(this);
@@ -541,7 +560,7 @@ class _ChatInputBarState extends State<ChatInputBar>
     if (state == AppLifecycleState.resumed) {
       _suppressContextMenu = true;
       // Also unfocus to reset any stuck toolbar state
-      widget.focusNode?.unfocus();
+      _effectiveFocusNode.unfocus();
       // Re-enable context menu after a short delay
       Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted) {
@@ -552,7 +571,7 @@ class _ChatInputBarState extends State<ChatInputBar>
         state == AppLifecycleState.paused) {
       // When going to background, hide any open toolbar
       _suppressContextMenu = true;
-      widget.focusNode?.unfocus();
+      _effectiveFocusNode.unfocus();
       if (_ownsVoiceSession) unawaited(_cancelVoiceInput());
     }
   }
@@ -560,6 +579,8 @@ class _ChatInputBarState extends State<ChatInputBar>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    (widget.focusNode ?? _internalFocusNode)?.removeListener(_onFocusChanged);
+    _internalFocusNode?.dispose();
     _stopVoiceLevelSampling();
     final asr = widget.asrProvider;
     asr?.removeListener(_handleAsrChanged);
@@ -587,6 +608,10 @@ class _ChatInputBarState extends State<ChatInputBar>
   @override
   void didUpdateWidget(covariant ChatInputBar oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusNode != widget.focusNode) {
+      (oldWidget.focusNode ?? _internalFocusNode)?.removeListener(_onFocusChanged);
+      _effectiveFocusNode.addListener(_onFocusChanged);
+    }
     if (!identical(oldWidget.asrProvider, widget.asrProvider)) {
       _stopVoiceLevelSampling();
       oldWidget.asrProvider?.removeListener(_handleAsrChanged);
@@ -2479,6 +2504,108 @@ class _ChatInputBarState extends State<ChatInputBar>
     );
   }
 
+  Widget _buildTextField({
+    required BuildContext context,
+    required ThemeData theme,
+    bool isCollapsed = false,
+  }) {
+    final enterToSend =
+        context.watch<SettingsProvider>().enterToSendOnMobile;
+    return GestureDetector(
+      behavior: HitTestBehavior.deferToChild,
+      child: TextField(
+        controller: _controller,
+        focusNode: _effectiveFocusNode,
+        onChanged: _onTextChanged,
+        contentInsertionConfiguration: ContentInsertionConfiguration(
+          onContentInserted: _handleInsertedContent,
+          allowedMimeTypes: const [
+            'image/png',
+            'image/jpeg',
+            'image/jpg',
+            'image/gif',
+            'image/webp',
+          ],
+        ),
+        readOnly: _composerLocked || _ownsVoiceSession,
+        minLines: 1,
+        maxLines: isCollapsed ? 1 : (_isExpanded ? 25 : 5),
+        keyboardType: TextInputType.multiline,
+        textInputAction: enterToSend
+            ? TextInputAction.send
+            : TextInputAction.newline,
+        onSubmitted: enterToSend ? (_) => unawaited(_handleSend()) : null,
+        contextMenuBuilder: _buildContextMenu,
+        autofocus: false,
+        decoration: InputDecoration(
+          hintText: _hint(context),
+          hintStyle: TextStyle(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
+          ),
+          border: InputBorder.none,
+          isDense: isCollapsed,
+          contentPadding: EdgeInsets.symmetric(
+            vertical: isCollapsed ? 7 : 2,
+          ),
+        ),
+        style: TextStyle(
+          color: theme.colorScheme.onSurface,
+          fontSize: (Platform.isWindows ||
+                  Platform.isLinux ||
+                  Platform.isMacOS)
+              ? 14
+              : 15,
+        ),
+        cursorColor: theme.colorScheme.primary,
+      ),
+    );
+  }
+
+  Widget _buildTrailingAction(
+    BuildContext context,
+    ThemeData theme, {
+    required bool hasText,
+    required bool hasImages,
+    required bool hasDocs,
+  }) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      transitionBuilder: (child, anim) => ScaleTransition(
+        scale: Tween<double>(begin: 0.75, end: 1.0).animate(
+          CurvedAnimation(
+            parent: anim,
+            curve: Curves.easeOutBack,
+          ),
+        ),
+        child: FadeTransition(
+          opacity: anim,
+          child: child,
+        ),
+      ),
+      child: (hasText || hasImages || hasDocs || widget.loading)
+          ? _CompactSendButton(
+              key: const ValueKey('send'),
+              enabled: (hasText || hasImages || hasDocs) &&
+                  !_hasUnreadyImages &&
+                  !widget.loading,
+              loading: widget.loading,
+              onSend: _handleSend,
+              onStop: widget.loading ? widget.onStop : null,
+              color: theme.colorScheme.primary,
+              icon: Lucide.ArrowUp,
+              tooltip: widget.sendButtonTooltip,
+            )
+          : _CompactIconButton(
+              key: const ValueKey('voice_chat'),
+              icon: Lucide.Mic,
+              tooltip: AppLocalizations.of(
+                context,
+              )!.voiceChatButtonTooltip,
+              onTap: _composerLocked ? null : widget.onVoiceChatTap,
+            ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -2582,372 +2709,250 @@ class _ChatInputBarState extends State<ChatInputBar>
                           width: 1,
                         ),
                       ),
-                      child: Column(
-                        children: [
-                          if (hasDocs || hasImages)
-                            _buildInlineAttachmentPreviews(context, isDark),
-                          // Input field with expand/collapse button
-                          Stack(
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  AppSpacing.md,
-                                  AppSpacing.xxs,
-                                  AppSpacing.md,
-                                  AppSpacing.xs,
+                      child: AnimatedSize(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeInOutCubic,
+                        alignment: Alignment.topCenter,
+                        child: _isCollapsed
+                            ? KeyedSubtree(
+                                key: const ValueKey('collapsed_input'),
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => _effectiveFocusNode.requestFocus(),
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      AppSpacing.md,
+                                      AppSpacing.xxs,
+                                      AppSpacing.xs,
+                                      AppSpacing.xxs,
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        Expanded(
+                                          child: Focus(
+                                            onKeyEvent: _handleKeyEvent,
+                                            child: _buildTextField(
+                                              context: context,
+                                              theme: theme,
+                                              isCollapsed: true,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: AppSpacing.xs),
+                                        _buildTrailingAction(
+                                          context,
+                                          theme,
+                                          hasText: hasText,
+                                          hasImages: hasImages,
+                                          hasDocs: hasDocs,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                                child: ConstrainedBox(
-                                  constraints: textFieldConstraints,
-                                  child: Focus(
-                                    onKeyEvent: _handleKeyEvent,
-                                    child: Builder(
-                                      builder: (ctx) {
-                                        // Desktop: show a right-click context menu with paste/cut/copy/select all
-                                        // Future<void> _showDesktopContextMenu(Offset globalPos) async {
-                                        //   bool isDesktop = false;
-                                        //   try { isDesktop = Platform.isMacOS || Platform.isWindows || Platform.isLinux; } catch (_) {}
-                                        //   if (!isDesktop) return;
-                                        //   // Ensure input has focus so operations apply correctly
-                                        //   try { widget.focusNode?.requestFocus(); } catch (_) {}
-                                        //
-                                        //   final sel = _controller.selection;
-                                        //   final hasSelection = sel.isValid && !sel.isCollapsed;
-                                        //   final hasText = _controller.text.isNotEmpty;
-                                        //
-                                        //   final l10n = MaterialLocalizations.of(ctx);
-                                        //   await showDesktopContextMenuAt(
-                                        //     ctx,
-                                        //     globalPosition: globalPos,
-                                        //     items: [
-                                        //       DesktopContextMenuItem(
-                                        //         icon: Lucide.Clipboard,
-                                        //         label: l10n.pasteButtonLabel,
-                                        //         onTap: () async {
-                                        //           await _handlePasteFromClipboard();
-                                        //         },
-                                        //       ),
-                                        //       DesktopContextMenuItem(
-                                        //         icon: Lucide.Cut,
-                                        //         label: l10n.cutButtonLabel,
-                                        //         onTap: () async {
-                                        //           final s = _controller.selection;
-                                        //           if (s.isValid && !s.isCollapsed) {
-                                        //             final text = _controller.text.substring(s.start, s.end);
-                                        //             try { await Clipboard.setData(ClipboardData(text: text)); } catch (_) {}
-                                        //             final newText = _controller.text.replaceRange(s.start, s.end, '');
-                                        //             _controller.value = TextEditingValue(
-                                        //               text: newText,
-                                        //               selection: TextSelection.collapsed(offset: s.start),
-                                        //             );
-                                        //             setState(() {});
-                                        //           }
-                                        //         },
-                                        //       ),
-                                        //       DesktopContextMenuItem(
-                                        //         icon: Lucide.Copy,
-                                        //         label: l10n.copyButtonLabel,
-                                        //         onTap: () async {
-                                        //           final s2 = _controller.selection;
-                                        //           if (s2.isValid && !s2.isCollapsed) {
-                                        //             final text = _controller.text.substring(s2.start, s2.end);
-                                        //             try { await Clipboard.setData(ClipboardData(text: text)); } catch (_) {}
-                                        //           }
-                                        //         },
-                                        //       ),
-                                        //       // DesktopContextMenuItem(
-                                        //       //   // icon: Lucide.TextSelect,
-                                        //       //   label: l10n.selectAllButtonLabel,
-                                        //       //   onTap: () {
-                                        //       //     if (hasText) {
-                                        //       //       _controller.selection = TextSelection(baseOffset: 0, extentOffset: _controller.text.length);
-                                        //       //       setState(() {});
-                                        //       //     }
-                                        //       //   },
-                                        //       // ),
-                                        //     ],
-                                        //   );
-                                        // }
-
-                                        final enterToSend = context
-                                            .watch<SettingsProvider>()
-                                            .enterToSendOnMobile;
-                                        return GestureDetector(
-                                          behavior:
-                                              HitTestBehavior.deferToChild,
-                                          // onSecondaryTapDown: (details) {
-                                          //   // _showDesktopContextMenu(details.globalPosition);
-                                          // },
-                                          child: TextField(
-                                            controller: _controller,
-                                            focusNode: widget.focusNode,
-                                            onChanged: _onTextChanged,
-                                            contentInsertionConfiguration:
-                                                ContentInsertionConfiguration(
-                                                  onContentInserted:
-                                                      _handleInsertedContent,
-                                                  allowedMimeTypes: const [
-                                                    'image/png',
-                                                    'image/jpeg',
-                                                    'image/jpg',
-                                                    'image/gif',
-                                                    'image/webp',
-                                                  ],
-                                                ),
-                                            readOnly:
-                                                _composerLocked ||
-                                                _ownsVoiceSession,
-                                            minLines: 1,
-                                            maxLines: _isExpanded ? 25 : 5,
-                                            // On mobile, optionally show "Send" on the return key and submit on tap.
-                                            // Still keep multiline so pasted text preserves line breaks.
-                                            keyboardType:
-                                                TextInputType.multiline,
-                                            textInputAction: enterToSend
-                                                ? TextInputAction.send
-                                                : TextInputAction.newline,
-                                            onSubmitted: enterToSend
-                                                ? (_) =>
-                                                      unawaited(_handleSend())
-                                                : null,
-                                            // Custom context menu: use instance method to avoid flickering
-                                            // caused by recreating the callback on every build.
-                                            // See: https://github.com/flutter/flutter/issues/150551
-                                            contextMenuBuilder:
-                                                _buildContextMenu,
-                                            autofocus: false,
-                                            decoration: InputDecoration(
-                                              hintText: _hint(context),
-                                              hintStyle: TextStyle(
+                              )
+                            : KeyedSubtree(
+                                key: const ValueKey('expanded_input'),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (hasDocs || hasImages)
+                                      _buildInlineAttachmentPreviews(
+                                        context,
+                                        isDark,
+                                      ),
+                                    // Input field with expand/collapse button
+                                    Stack(
+                                      children: [
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            AppSpacing.md,
+                                            AppSpacing.xxs,
+                                            AppSpacing.md,
+                                            AppSpacing.xs,
+                                          ),
+                                          child: ConstrainedBox(
+                                            constraints: textFieldConstraints,
+                                            child: Focus(
+                                              onKeyEvent: _handleKeyEvent,
+                                              child: _buildTextField(
+                                                context: context,
+                                                theme: theme,
+                                                isCollapsed: false,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        // Expand/Collapse icon button (only shown when 3+ lines)
+                                        if (_showExpandButton)
+                                          Positioned(
+                                            top: 10,
+                                            right: 12,
+                                            child: GestureDetector(
+                                              onTap: () {
+                                                setState(
+                                                  () => _isExpanded =
+                                                      !_isExpanded,
+                                                );
+                                                _ensureCaretVisible();
+                                              },
+                                              child: Icon(
+                                                _isExpanded
+                                                    ? Lucide.ChevronsDownUp
+                                                    : Lucide.ChevronsUpDown,
+                                                size: 16,
                                                 color: theme
                                                     .colorScheme
                                                     .onSurface
                                                     .withValues(alpha: 0.45),
                                               ),
-                                              border: InputBorder.none,
-                                              contentPadding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 2,
-                                                  ),
                                             ),
-                                            style: TextStyle(
-                                              color:
-                                                  theme.colorScheme.onSurface,
-                                              fontSize:
-                                                  (Platform.isWindows ||
-                                                      Platform.isLinux ||
-                                                      Platform.isMacOS)
-                                                  ? 14
-                                                  : 15,
-                                            ),
-                                            cursorColor:
-                                                theme.colorScheme.primary,
                                           ),
-                                        );
-                                      },
+                                      ],
                                     ),
-                                  ),
-                                ),
-                              ),
-                              // Expand/Collapse icon button (only shown when 3+ lines)
-                              if (_showExpandButton)
-                                Positioned(
-                                  top: 10,
-                                  right: 12,
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      setState(
-                                        () => _isExpanded = !_isExpanded,
-                                      );
-                                      _ensureCaretVisible();
-                                    },
-                                    child: Icon(
-                                      _isExpanded
-                                          ? Lucide.ChevronsDownUp
-                                          : Lucide.ChevronsUpDown,
-                                      size: 16,
-                                      color: theme.colorScheme.onSurface
-                                          .withValues(alpha: 0.45),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          // Bottom buttons row (no divider)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(
-                              AppSpacing.xs,
-                              0,
-                              AppSpacing.xs,
-                              AppSpacing.xs,
-                            ),
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 260),
-                              switchInCurve: Curves.easeOutCubic,
-                              switchOutCurve: Curves.easeInCubic,
-                              transitionBuilder: (child, anim) =>
-                                  FadeTransition(
-                                    opacity: anim,
-                                    child: SlideTransition(
-                                      position: Tween<Offset>(
-                                        begin: const Offset(0, 0.35),
-                                        end: Offset.zero,
-                                      ).animate(anim),
-                                      child: child,
-                                    ),
-                                  ),
-                              child: _ownsVoiceSession
-                                  ? _buildVoiceRecordingRow(context, theme)
-                                  : Row(
-                                      key: const ValueKey('actions'),
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        // Responsive left action bar that overflows into a + menu on desktop
-                                        Expanded(
-                                          child: _buildResponsiveLeftActions(
-                                            context,
-                                          ),
+                                    // Bottom buttons row (no divider)
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        AppSpacing.xs,
+                                        0,
+                                        AppSpacing.xs,
+                                        AppSpacing.xs,
+                                      ),
+                                      child: AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 260,
                                         ),
-                                        Row(
-                                          children: [
-                                            if (widget.showMoreButton) ...[
-                                              _CompactIconButton(
-                                                tooltip: AppLocalizations.of(
-                                                  context,
-                                                )!.chatInputBarMoreTooltip,
-                                                icon: Lucide.Plus,
-                                                active: widget.moreOpen,
-                                                onTap: _composerLocked
-                                                    ? null
-                                                    : widget.onMore,
-                                                childBuilder: (c) =>
-                                                    AnimatedSwitcher(
-                                                      duration: const Duration(
-                                                        milliseconds: 200,
-                                                      ),
-                                                      transitionBuilder:
-                                                          (
-                                                            child,
-                                                            anim,
-                                                          ) => RotationTransition(
-                                                            turns:
-                                                                Tween<double>(
-                                                                  begin: 0.85,
-                                                                  end: 1,
-                                                                ).animate(anim),
-                                                            child:
-                                                                FadeTransition(
-                                                                  opacity: anim,
-                                                                  child: child,
-                                                                ),
-                                                          ),
-                                                      child: Icon(
-                                                        widget.moreOpen
-                                                            ? Lucide.X
-                                                            : Lucide.Plus,
-                                                        key: ValueKey(
-                                                          widget.moreOpen
-                                                              ? 'close'
-                                                              : 'add',
+                                        switchInCurve: Curves.easeOutCubic,
+                                        switchOutCurve: Curves.easeInCubic,
+                                        transitionBuilder: (child, anim) =>
+                                            FadeTransition(
+                                              opacity: anim,
+                                              child: SlideTransition(
+                                                position: Tween<Offset>(
+                                                  begin: const Offset(0, 0.35),
+                                                  end: Offset.zero,
+                                                ).animate(anim),
+                                                child: child,
+                                              ),
+                                            ),
+                                        child: _ownsVoiceSession
+                                            ? _buildVoiceRecordingRow(
+                                                context,
+                                                theme,
+                                              )
+                                            : Row(
+                                                key: const ValueKey('actions'),
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  // Responsive left action bar that overflows into a + menu on desktop
+                                                  Expanded(
+                                                    child:
+                                                        _buildResponsiveLeftActions(
+                                                          context,
                                                         ),
-                                                        size: 20,
-                                                        color: c,
-                                                      ),
-                                                    ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                            ],
-                                            if (showVoiceInput) ...[
-                                              _CompactIconButton(
-                                                tooltip: AppLocalizations.of(
-                                                  context,
-                                                )!.chatInputBarVoiceInputTooltip,
-                                                icon: Lucide.Mic,
-                                                onTap:
-                                                    _composerLocked ||
-                                                        widget.loading
-                                                    ? null
-                                                    : () => unawaited(
-                                                        _startVoiceInput(),
-                                                      ),
-                                              ),
-                                              const SizedBox(width: 8),
-                                            ],
-                                            AnimatedSwitcher(
-                                              duration: const Duration(
-                                                milliseconds: 200,
-                                              ),
-                                              transitionBuilder: (
-                                                child,
-                                                anim,
-                                              ) =>
-                                                  ScaleTransition(
-                                                    scale: Tween<double>(
-                                                      begin: 0.75,
-                                                      end: 1.0,
-                                                    ).animate(
-                                                      CurvedAnimation(
-                                                        parent: anim,
-                                                        curve:
-                                                            Curves.easeOutBack,
-                                                      ),
-                                                    ),
-                                                    child: FadeTransition(
-                                                      opacity: anim,
-                                                      child: child,
-                                                    ),
                                                   ),
-                                              child:
-                                                  (hasText ||
-                                                          hasImages ||
-                                                          hasDocs ||
-                                                          widget.loading)
-                                                      ? _CompactSendButton(
-                                                          key: const ValueKey(
-                                                            'send',
-                                                          ),
-                                                          enabled:
-                                                              (hasText ||
-                                                                  hasImages ||
-                                                                  hasDocs) &&
-                                                              !_hasUnreadyImages &&
-                                                              !widget.loading,
-                                                          loading:
-                                                              widget.loading,
-                                                          onSend: _handleSend,
-                                                          onStop: widget.loading
-                                                              ? widget.onStop
-                                                              : null,
-                                                          color: theme
-                                                              .colorScheme
-                                                              .primary,
-                                                          icon: Lucide.ArrowUp,
-                                                          tooltip: widget
-                                                              .sendButtonTooltip,
-                                                        )
-                                                      : _CompactIconButton(
-                                                          key: const ValueKey(
-                                                            'voice_chat',
-                                                          ),
-                                                          icon: Lucide.Mic,
+                                                  Row(
+                                                    children: [
+                                                      if (widget.showMoreButton) ...[
+                                                        _CompactIconButton(
                                                           tooltip:
                                                               AppLocalizations.of(
                                                                 context,
-                                                              )!.voiceChatButtonTooltip,
-                                                          onTap:
-                                                              _composerLocked
-                                                                  ? null
-                                                                  : widget
-                                                                        .onVoiceChatTap,
+                                                              )!.chatInputBarMoreTooltip,
+                                                          icon: Lucide.Plus,
+                                                          active:
+                                                              widget.moreOpen,
+                                                          onTap: _composerLocked
+                                                              ? null
+                                                              : widget.onMore,
+                                                          childBuilder: (c) =>
+                                                              AnimatedSwitcher(
+                                                                duration:
+                                                                    const Duration(
+                                                                      milliseconds:
+                                                                          200,
+                                                                    ),
+                                                                transitionBuilder:
+                                                                    (
+                                                                      child,
+                                                                      anim,
+                                                                    ) =>
+                                                                        RotationTransition(
+                                                                      turns:
+                                                                          Tween<double>(
+                                                                            begin:
+                                                                                0.85,
+                                                                            end:
+                                                                                1,
+                                                                          ).animate(
+                                                                            anim,
+                                                                          ),
+                                                                      child:
+                                                                          FadeTransition(
+                                                                            opacity:
+                                                                                anim,
+                                                                            child:
+                                                                                child,
+                                                                          ),
+                                                                    ),
+                                                                child: Icon(
+                                                                  widget.moreOpen
+                                                                      ? Lucide.X
+                                                                      : Lucide
+                                                                            .Plus,
+                                                                  key: ValueKey(
+                                                                    widget.moreOpen
+                                                                        ? 'close'
+                                                                        : 'add',
+                                                                  ),
+                                                                  size: 20,
+                                                                  color: c,
+                                                                ),
+                                                              ),
                                                         ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+                                                        const SizedBox(
+                                                          width: 8,
+                                                        ),
+                                                      ],
+                                                      if (showVoiceInput) ...[
+                                                        _CompactIconButton(
+                                                          tooltip:
+                                                              AppLocalizations.of(
+                                                                context,
+                                                              )!.chatInputBarVoiceInputTooltip,
+                                                          icon: Lucide.Mic,
+                                                          onTap:
+                                                              _composerLocked ||
+                                                                  widget.loading
+                                                              ? null
+                                                              : () => unawaited(
+                                                                  _startVoiceInput(),
+                                                                ),
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 8,
+                                                        ),
+                                                      ],
+                                                      _buildTrailingAction(
+                                                        context,
+                                                        theme,
+                                                        hasText: hasText,
+                                                        hasImages: hasImages,
+                                                        hasDocs: hasDocs,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                      ),
                                     ),
-                            ),
-                          ),
-                        ],
+                                  ],
+                                ),
+                              ),
                       ),
                     ),
                   ),
