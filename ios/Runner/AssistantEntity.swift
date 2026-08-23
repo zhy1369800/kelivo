@@ -24,12 +24,12 @@ struct AssistantEntity: AppEntity {
 @available(iOS 16.0, *)
 struct AssistantEntityQuery: EntityQuery, EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [AssistantEntity] {
-        let all = suggestedEntities()
+        let all = try await suggestedEntities()
         return all.filter { identifiers.contains($0.id) }
     }
 
     func entities(matching string: String) async throws -> [AssistantEntity] {
-        let all = suggestedEntities()
+        let all = try await suggestedEntities()
         if string.isEmpty { return all }
         return all.filter {
             $0.displayName.localizedCaseInsensitiveContains(string) ||
@@ -37,7 +37,7 @@ struct AssistantEntityQuery: EntityQuery, EntityStringQuery {
         }
     }
 
-    func suggestedEntities() -> [AssistantEntity] {
+    func suggestedEntities() async throws -> [AssistantEntity] {
         let records = NativeDataStore.shared.fetchAssistants()
         if records.isEmpty {
             return [

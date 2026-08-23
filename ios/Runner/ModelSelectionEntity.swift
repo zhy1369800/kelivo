@@ -24,12 +24,12 @@ struct ModelSelectionEntity: AppEntity {
 @available(iOS 16.0, *)
 struct ModelSelectionEntityQuery: EntityQuery, EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [ModelSelectionEntity] {
-        let all = suggestedEntities()
+        let all = try await suggestedEntities()
         return all.filter { identifiers.contains($0.id) }
     }
 
     func entities(matching string: String) async throws -> [ModelSelectionEntity] {
-        let all = suggestedEntities()
+        let all = try await suggestedEntities()
         if string.isEmpty { return all }
         return all.filter {
             $0.displayName.localizedCaseInsensitiveContains(string) ||
@@ -37,7 +37,7 @@ struct ModelSelectionEntityQuery: EntityQuery, EntityStringQuery {
         }
     }
 
-    func suggestedEntities() -> [ModelSelectionEntity] {
+    func suggestedEntities() async throws -> [ModelSelectionEntity] {
         let records = NativeDataStore.shared.fetchConfiguredModels()
         if records.isEmpty {
             return [

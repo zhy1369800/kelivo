@@ -31,19 +31,19 @@ struct SessionEntityQuery: EntityQuery, EntityStringQuery {
     }()
 
     func entities(for identifiers: [String]) async throws -> [SessionEntity] {
-        let all = suggestedEntities()
+        let all = try await suggestedEntities()
         return all.filter { identifiers.contains($0.id) }
     }
 
     func entities(matching string: String) async throws -> [SessionEntity] {
-        let all = suggestedEntities()
+        let all = try await suggestedEntities()
         if string.isEmpty { return all }
         return all.filter {
             $0.title.localizedCaseInsensitiveContains(string)
         }
     }
 
-    func suggestedEntities() -> [SessionEntity] {
+    func suggestedEntities() async throws -> [SessionEntity] {
         let records = NativeDataStore.shared.fetchRecentSessions()
         return records.map {
             let timeStr = dateFormatter.string(from: $0.updatedAt)
