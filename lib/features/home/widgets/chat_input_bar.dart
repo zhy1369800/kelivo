@@ -2713,246 +2713,195 @@ class _ChatInputBarState extends State<ChatInputBar>
                         duration: const Duration(milliseconds: 220),
                         curve: Curves.easeInOutCubic,
                         alignment: Alignment.topCenter,
-                        child: _isCollapsed
-                            ? KeyedSubtree(
-                                key: const ValueKey('collapsed_input'),
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () => _effectiveFocusNode.requestFocus(),
-                                  child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      AppSpacing.md,
-                                      AppSpacing.xxs,
-                                      AppSpacing.xs,
-                                      AppSpacing.xxs,
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        Expanded(
-                                          child: Focus(
-                                            onKeyEvent: _handleKeyEvent,
-                                            child: _buildTextField(
-                                              context: context,
-                                              theme: theme,
-                                              isCollapsed: true,
-                                            ),
-                                          ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if ((hasDocs || hasImages) && !_isCollapsed)
+                              _buildInlineAttachmentPreviews(context, isDark),
+                            Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                AppSpacing.md,
+                                AppSpacing.xxs,
+                                _isCollapsed ? AppSpacing.xs : AppSpacing.md,
+                                _isCollapsed ? AppSpacing.xxs : AppSpacing.xs,
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: ConstrainedBox(
+                                      constraints: _isCollapsed
+                                          ? const BoxConstraints()
+                                          : textFieldConstraints,
+                                      child: Focus(
+                                        onKeyEvent: _handleKeyEvent,
+                                        child: _buildTextField(
+                                          context: context,
+                                          theme: theme,
+                                          isCollapsed: _isCollapsed,
                                         ),
-                                        const SizedBox(width: AppSpacing.xs),
-                                        _buildTrailingAction(
-                                          context,
-                                          theme,
-                                          hasText: hasText,
-                                          hasImages: hasImages,
-                                          hasDocs: hasDocs,
-                                        ),
-                                      ],
+                                      ),
                                     ),
                                   ),
-                                ),
-                              )
-                            : KeyedSubtree(
-                                key: const ValueKey('expanded_input'),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (hasDocs || hasImages)
-                                      _buildInlineAttachmentPreviews(
-                                        context,
-                                        isDark,
-                                      ),
-                                    // Input field with expand/collapse button
-                                    Stack(
-                                      children: [
-                                        Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                            AppSpacing.md,
-                                            AppSpacing.xxs,
-                                            AppSpacing.md,
-                                            AppSpacing.xs,
-                                          ),
-                                          child: ConstrainedBox(
-                                            constraints: textFieldConstraints,
-                                            child: Focus(
-                                              onKeyEvent: _handleKeyEvent,
-                                              child: _buildTextField(
-                                                context: context,
-                                                theme: theme,
-                                                isCollapsed: false,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        // Expand/Collapse icon button (only shown when 3+ lines)
-                                        if (_showExpandButton)
-                                          Positioned(
-                                            top: 10,
-                                            right: 12,
-                                            child: GestureDetector(
-                                              onTap: () {
-                                                setState(
-                                                  () => _isExpanded =
-                                                      !_isExpanded,
-                                                );
-                                                _ensureCaretVisible();
-                                              },
-                                              child: Icon(
-                                                _isExpanded
-                                                    ? Lucide.ChevronsDownUp
-                                                    : Lucide.ChevronsUpDown,
-                                                size: 16,
-                                                color: theme
-                                                    .colorScheme
-                                                    .onSurface
-                                                    .withValues(alpha: 0.45),
-                                              ),
-                                            ),
-                                          ),
-                                      ],
+                                  if (_isCollapsed) ...[
+                                    const SizedBox(width: AppSpacing.xs),
+                                    _buildTrailingAction(
+                                      context,
+                                      theme,
+                                      hasText: hasText,
+                                      hasImages: hasImages,
+                                      hasDocs: hasDocs,
                                     ),
-                                    // Bottom buttons row (no divider)
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        AppSpacing.xs,
-                                        0,
-                                        AppSpacing.xs,
-                                        AppSpacing.xs,
-                                      ),
-                                      child: AnimatedSwitcher(
-                                        duration: const Duration(
-                                          milliseconds: 260,
-                                        ),
-                                        switchInCurve: Curves.easeOutCubic,
-                                        switchOutCurve: Curves.easeInCubic,
-                                        transitionBuilder: (child, anim) =>
-                                            FadeTransition(
-                                              opacity: anim,
-                                              child: SlideTransition(
-                                                position: Tween<Offset>(
-                                                  begin: const Offset(0, 0.35),
-                                                  end: Offset.zero,
-                                                ).animate(anim),
-                                                child: child,
-                                              ),
-                                            ),
-                                        child: _ownsVoiceSession
-                                            ? _buildVoiceRecordingRow(
-                                                context,
-                                                theme,
-                                              )
-                                            : Row(
-                                                key: const ValueKey('actions'),
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                children: [
-                                                  // Responsive left action bar that overflows into a + menu on desktop
-                                                  Expanded(
-                                                    child:
-                                                        _buildResponsiveLeftActions(
-                                                          context,
-                                                        ),
-                                                  ),
-                                                  Row(
-                                                    children: [
-                                                      if (widget.showMoreButton) ...[
-                                                        _CompactIconButton(
-                                                          tooltip:
-                                                              AppLocalizations.of(
-                                                                context,
-                                                              )!.chatInputBarMoreTooltip,
-                                                          icon: Lucide.Plus,
-                                                          active:
-                                                              widget.moreOpen,
-                                                          onTap: _composerLocked
-                                                              ? null
-                                                              : widget.onMore,
-                                                          childBuilder: (c) =>
-                                                              AnimatedSwitcher(
-                                                                duration:
-                                                                    const Duration(
-                                                                      milliseconds:
-                                                                          200,
-                                                                    ),
-                                                                transitionBuilder:
-                                                                    (
-                                                                      child,
-                                                                      anim,
-                                                                    ) =>
-                                                                        RotationTransition(
-                                                                      turns:
-                                                                          Tween<double>(
-                                                                            begin:
-                                                                                0.85,
-                                                                            end:
-                                                                                1,
-                                                                          ).animate(
-                                                                            anim,
-                                                                          ),
-                                                                      child:
-                                                                          FadeTransition(
-                                                                            opacity:
-                                                                                anim,
-                                                                            child:
-                                                                                child,
-                                                                          ),
-                                                                    ),
-                                                                child: Icon(
-                                                                  widget.moreOpen
-                                                                      ? Lucide.X
-                                                                      : Lucide
-                                                                            .Plus,
-                                                                  key: ValueKey(
-                                                                    widget.moreOpen
-                                                                        ? 'close'
-                                                                        : 'add',
-                                                                  ),
-                                                                  size: 20,
-                                                                  color: c,
-                                                                ),
-                                                              ),
-                                                        ),
-                                                        const SizedBox(
-                                                          width: 8,
-                                                        ),
-                                                      ],
-                                                      if (showVoiceInput) ...[
-                                                        _CompactIconButton(
-                                                          tooltip:
-                                                              AppLocalizations.of(
-                                                                context,
-                                                              )!.chatInputBarVoiceInputTooltip,
-                                                          icon: Lucide.Mic,
-                                                          onTap:
-                                                              _composerLocked ||
-                                                                  widget.loading
-                                                              ? null
-                                                              : () => unawaited(
-                                                                  _startVoiceInput(),
-                                                                ),
-                                                        ),
-                                                        const SizedBox(
-                                                          width: 8,
-                                                        ),
-                                                      ],
-                                                      _buildTrailingAction(
-                                                        context,
-                                                        theme,
-                                                        hasText: hasText,
-                                                        hasImages: hasImages,
-                                                        hasDocs: hasDocs,
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ),
+                                  ] else if (_showExpandButton) ...[
+                                    const SizedBox(width: AppSpacing.xs),
+                                    GestureDetector(
+                                      onTap: () {
+                                        setState(
+                                          () => _isExpanded = !_isExpanded,
+                                        );
+                                        _ensureCaretVisible();
+                                      },
+                                      child: Icon(
+                                        _isExpanded
+                                            ? Lucide.ChevronsDownUp
+                                            : Lucide.ChevronsUpDown,
+                                        size: 16,
+                                        color: theme.colorScheme.onSurface
+                                            .withValues(alpha: 0.45),
                                       ),
                                     ),
                                   ],
+                                ],
+                              ),
+                            ),
+                            if (!_isCollapsed)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  AppSpacing.xs,
+                                  0,
+                                  AppSpacing.xs,
+                                  AppSpacing.xs,
+                                ),
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(
+                                    milliseconds: 260,
+                                  ),
+                                  switchInCurve: Curves.easeOutCubic,
+                                  switchOutCurve: Curves.easeInCubic,
+                                  transitionBuilder: (child, anim) =>
+                                      FadeTransition(
+                                        opacity: anim,
+                                        child: SlideTransition(
+                                          position: Tween<Offset>(
+                                            begin: const Offset(0, 0.35),
+                                            end: Offset.zero,
+                                          ).animate(anim),
+                                          child: child,
+                                        ),
+                                      ),
+                                  child: _ownsVoiceSession
+                                      ? _buildVoiceRecordingRow(
+                                          context,
+                                          theme,
+                                        )
+                                      : Row(
+                                          key: const ValueKey('actions'),
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            // Responsive left action bar that overflows into a + menu on desktop
+                                            Expanded(
+                                              child:
+                                                  _buildResponsiveLeftActions(
+                                                    context,
+                                                  ),
+                                            ),
+                                            Row(
+                                              children: [
+                                                if (widget.showMoreButton) ...[
+                                                  _CompactIconButton(
+                                                    tooltip:
+                                                        AppLocalizations.of(
+                                                          context,
+                                                        )!.chatInputBarMoreTooltip,
+                                                    icon: Lucide.Plus,
+                                                    active: widget.moreOpen,
+                                                    onTap: _composerLocked
+                                                        ? null
+                                                        : widget.onMore,
+                                                    childBuilder: (c) =>
+                                                        AnimatedSwitcher(
+                                                          duration:
+                                                              const Duration(
+                                                                milliseconds:
+                                                                    200,
+                                                              ),
+                                                          transitionBuilder:
+                                                              (child, anim) =>
+                                                                  RotationTransition(
+                                                                turns:
+                                                                    Tween<double>(
+                                                                      begin:
+                                                                          0.85,
+                                                                      end: 1,
+                                                                    ).animate(
+                                                                      anim,
+                                                                    ),
+                                                                child:
+                                                                    FadeTransition(
+                                                                      opacity:
+                                                                          anim,
+                                                                      child:
+                                                                          child,
+                                                                    ),
+                                                              ),
+                                                          child: Icon(
+                                                            widget.moreOpen
+                                                                ? Lucide.X
+                                                                : Lucide.Plus,
+                                                            key: ValueKey(
+                                                              widget.moreOpen
+                                                                  ? 'close'
+                                                                  : 'add',
+                                                            ),
+                                                            size: 20,
+                                                            color: c,
+                                                          ),
+                                                        ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                ],
+                                                if (showVoiceInput) ...[
+                                                  _CompactIconButton(
+                                                    tooltip:
+                                                        AppLocalizations.of(
+                                                          context,
+                                                        )!.chatInputBarVoiceInputTooltip,
+                                                    icon: Lucide.Mic,
+                                                    onTap: _composerLocked ||
+                                                            widget.loading
+                                                        ? null
+                                                        : () => unawaited(
+                                                            _startVoiceInput(),
+                                                          ),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                ],
+                                                _buildTrailingAction(
+                                                  context,
+                                                  theme,
+                                                  hasText: hasText,
+                                                  hasImages: hasImages,
+                                                  hasDocs: hasDocs,
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
                                 ),
                               ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

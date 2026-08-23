@@ -1000,9 +1000,15 @@ class _HomePageState extends State<HomePage>
               ),
             ),
           );
-          return FadeTransition(
-            opacity: _controller.convoFade,
-            child: _wrapMessageJumpTransition(content),
+          return GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () {
+              FocusManager.instance.primaryFocus?.unfocus();
+            },
+            child: FadeTransition(
+              opacity: _controller.convoFade,
+              child: _wrapMessageJumpTransition(content),
+            ),
           );
         },
       ),
@@ -1175,20 +1181,26 @@ class _HomePageState extends State<HomePage>
           ? _buildAssistantBackground(context)
           : null,
       backgroundImageActive: backgroundImageActive,
-      content: FadeTransition(
-        opacity: _controller.convoFade,
-        child: _wrapMessageJumpTransition(
-          KeyedSubtree(
-            key: ValueKey<String>(
-              _controller.currentConversation?.id ?? 'none',
-            ),
-            child: _buildMessageListView(
-              context,
-              topContentPadding: topContentPadding,
-              bottomContentPadding: bottomContentPadding,
-              dividerPadding: const EdgeInsets.symmetric(
-                vertical: 8,
-                horizontal: 12,
+      content: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () {
+          FocusManager.instance.primaryFocus?.unfocus();
+        },
+        child: FadeTransition(
+          opacity: _controller.convoFade,
+          child: _wrapMessageJumpTransition(
+            KeyedSubtree(
+              key: ValueKey<String>(
+                _controller.currentConversation?.id ?? 'none',
+              ),
+              child: _buildMessageListView(
+                context,
+                topContentPadding: topContentPadding,
+                bottomContentPadding: bottomContentPadding,
+                dividerPadding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 12,
+                ),
               ),
             ),
           ),
