@@ -234,6 +234,7 @@ class ChatInputSection extends StatelessWidget {
     String? pk,
     String? mid,
   ) {
+    if (a?.remoteBridgeEndpointId != null || pk == 'r_connect') return;
     if (pk == null || mid == null) return;
 
     final supportsTools = isToolModel(pk, mid);
@@ -269,10 +270,13 @@ class ChatInputSection extends StatelessWidget {
     String? pk,
     String? mid,
   ) {
+    final hasEnabledMcp = context.watch<McpProvider>().hasAnyEnabled;
+    if (a?.remoteBridgeEndpointId != null || pk == 'r_connect') {
+      return hasEnabledMcp;
+    }
     final pk2 = a?.chatModelProvider ?? settings.currentModelProvider;
     final mid3 = a?.chatModelId ?? settings.currentModelId;
     if (pk2 == null || mid3 == null) return false;
-    final hasEnabledMcp = context.watch<McpProvider>().hasAnyEnabled;
     return isToolModel(pk2, mid3) && hasEnabledMcp;
   }
 

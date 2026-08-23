@@ -91,6 +91,7 @@ class GenerationController {
   }
 
   bool isToolModel(String providerKey, String modelId) {
+    if (providerKey == 'r_connect') return true;
     final settings = contextProvider.read<SettingsProvider>();
     final cfg = settings.getProviderConfig(providerKey);
     final ov = cfg.modelOverrides[modelId] as Map?;
