@@ -443,7 +443,7 @@ class RConnectBridgeService {
   }
 
   bool _sendJson(Map<String, dynamic> data) {
-    if (_ws == null) return false;
+    if (_ws == null || _ws!.readyState != WebSocket.open) return false;
     try {
       _ws!.add(jsonEncode(data));
       return true;
@@ -572,95 +572,86 @@ class RConnectBridgeService {
     var textStarted = false;
     var accumulatedLength = 0;
 
-    final completer = Completer<void>();
-    final sub = events.listen((event) {
-      if (completer.isCompleted) return;
+    // Send user message
+    final success = await sendMessage(
+      sessionKey: sessionKey,
+      content: content,
+      msgId: msgId,
+      replyCtx: replyCtx,
+      images: images,
+      files: files,
+    );
 
-      if (event is BridgeStatusEvent && event.state == BridgeConnectionState.error) {
-        if (!completer.isCompleted) {
-          completer.completeError(Exception(event.message ?? 'R-Connect bridge connection error'));
-        }
-      }
-    });
+    if (!success) {
+      throw Exception('Failed to send message to R-Connect bridge daemon.');
+    }
 
-    try {
-      // Send user message
-      final success = await sendMessage(
-        sessionKey: sessionKey,
-        content: content,
-        msgId: msgId,
-        replyCtx: replyCtx,
-        images: images,
-        files: files,
-      );
-
-      if (!success) {
-        throw Exception('Failed to send message to R-Connect bridge daemon.');
+    await for (final event in events) {
+      if (event is BridgeStatusEvent &&
+          (event.state == BridgeConnectionState.error ||
+              event.state == BridgeConnectionState.disconnected)) {
+        throw Exception(event.message ?? 'R-Connect bridge connection lost.');
       }
 
-      await for (final event in events) {
-        if (event is BridgePreviewStartEvent) {
-          if (event.sessionKey == sessionKey) {
-            if (!textStarted) {
-              textStarted = true;
-              yield TextStart(textChunkId);
-            }
-            if (event.initialContent.isNotEmpty) {
-              yield TextDelta(id: textChunkId, text: event.initialContent);
-              accumulatedLength = event.initialContent.length;
-            }
+      if (event is BridgePreviewStartEvent) {
+        if (event.sessionKey == sessionKey) {
+          if (!textStarted) {
+            textStarted = true;
+            yield TextStart(textChunkId);
           }
-        } else if (event is BridgeUpdateMessageEvent) {
-          if (event.sessionKey == sessionKey) {
-            if (!textStarted) {
-              textStarted = true;
-              yield TextStart(textChunkId);
-            }
-            final newContent = event.content;
-            if (newContent.length > accumulatedLength) {
-              final delta = newContent.substring(accumulatedLength);
-              yield TextDelta(id: textChunkId, text: delta);
-              accumulatedLength = newContent.length;
-            }
-          }
-        } else if (event is BridgeButtonsEvent) {
-          if (event.sessionKey == sessionKey) {
-            if (!textStarted) {
-              textStarted = true;
-              yield TextStart(textChunkId);
-            }
-
-            final buffer = StringBuffer();
-            if (event.content.isNotEmpty) {
-              buffer.writeln('\n\n${event.content}\n');
-            }
-            buffer.writeln('\n> **[Agent 操作交互 / 审批请求]**');
-            for (final row in event.buttons) {
-              for (final btn in row) {
-                buffer.writeln('- **[ ${btn.label} ]** (操作指令: `${btn.action}`)');
-              }
-            }
-            yield TextDelta(id: textChunkId, text: buffer.toString());
-            accumulatedLength += buffer.length;
-          }
-        } else if (event is BridgeReplyEvent) {
-          if (event.sessionKey == sessionKey) {
-            if (!textStarted) {
-              textStarted = true;
-              yield TextStart(textChunkId);
-            }
-            if (event.content.length > accumulatedLength) {
-              final delta = event.content.substring(accumulatedLength);
-              yield TextDelta(id: textChunkId, text: delta);
-            }
-            yield TextEnd(textChunkId);
-            yield const Finish();
-            break;
+          if (event.initialContent.isNotEmpty) {
+            yield TextDelta(id: textChunkId, text: event.initialContent);
+            accumulatedLength = event.initialContent.length;
           }
         }
+      } else if (event is BridgeUpdateMessageEvent) {
+        if (event.sessionKey == sessionKey) {
+          if (!textStarted) {
+            textStarted = true;
+            yield TextStart(textChunkId);
+          }
+          final newContent = event.content;
+          if (newContent.length > accumulatedLength) {
+            final delta = newContent.substring(accumulatedLength);
+            yield TextDelta(id: textChunkId, text: delta);
+            accumulatedLength = newContent.length;
+          }
+        }
+      } else if (event is BridgeButtonsEvent) {
+        if (event.sessionKey == sessionKey) {
+          if (!textStarted) {
+            textStarted = true;
+            yield TextStart(textChunkId);
+          }
+
+          final buffer = StringBuffer();
+          if (event.content.isNotEmpty) {
+            buffer.writeln('\n\n${event.content}\n');
+          }
+          buffer.writeln('\n> **[Agent 操作交互 / 审批请求]**');
+          for (final row in event.buttons) {
+            for (final btn in row) {
+              buffer.writeln('- **[ ${btn.label} ]** (操作指令: `${btn.action}`)');
+            }
+          }
+          yield TextDelta(id: textChunkId, text: buffer.toString());
+          accumulatedLength += buffer.length;
+        }
+      } else if (event is BridgeReplyEvent) {
+        if (event.sessionKey == sessionKey) {
+          if (!textStarted) {
+            textStarted = true;
+            yield TextStart(textChunkId);
+          }
+          if (event.content.length > accumulatedLength) {
+            final delta = event.content.substring(accumulatedLength);
+            yield TextDelta(id: textChunkId, text: delta);
+          }
+          yield TextEnd(textChunkId);
+          yield const Finish();
+          break;
+        }
       }
-    } finally {
-      await sub.cancel();
     }
   }
 }

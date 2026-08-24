@@ -2078,6 +2078,9 @@ class ChatActions {
         return;
       }
 
+      // Record offset before this round starts to avoid matching previous rounds' tool calls
+      final startOffset = state.fullContentRaw.length;
+
       final stream = bridgeService.executeStream(
         sessionKey: 'kelivo:$conversationId',
         content: sendContent,
@@ -2088,11 +2091,15 @@ class ChatActions {
         onData: (chunk) => _handleStreamChunk(chunk, state),
         onError: (error, stackTrace) => _handleStreamError(error, state),
         onDone: () async {
-          // Check if remote agent requested a mobile tool execution
+          // Only check new content produced in the current round
+          final currentRoundText = state.fullContentRaw.length > startOffset
+              ? state.fullContentRaw.substring(startOffset)
+              : '';
+
           final regex = RegExp(
             r'<call_mobile_tool\s+name="([^"]+)">\s*([\s\S]*?)\s*<\/call_mobile_tool>',
           );
-          final match = regex.firstMatch(state.fullContentRaw);
+          final match = regex.firstMatch(currentRoundText);
 
           if (match != null && ctx.onToolCall != null) {
             final toolName = match.group(1)!.trim();
