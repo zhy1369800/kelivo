@@ -2666,6 +2666,15 @@ class ToolHandlerService {
             tool: LocalToolNames.reminderTask,
           );
       }
+    } on PlatformException catch (e) {
+      return _toolError(
+        error: e.code,
+        message: e.message ?? e.toString(),
+        tool: LocalToolNames.reminderTask,
+        instruction: e.code == 'permission_denied'
+            ? 'Inform the user that Reminders permission is missing and guide them to grant access in iOS Settings > Privacy & Security > Reminders.'
+            : null,
+      );
     } on Exception catch (e) {
       return _toolError(
         error: 'reminder_task_error',

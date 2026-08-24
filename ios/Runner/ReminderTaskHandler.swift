@@ -373,49 +373,98 @@ final class ReminderTaskHandler: NSObject {
     return d
   }
 
-  // MARK: - List Reminders
+  // MARK: - Permission Check Helper
 
-  private func listReminders(args: [String: Any], result: @escaping FlutterResult) {
-    let includeCompleted = (args["include_completed"] as? Bool) ?? false
-    let listName = (args["list_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let limit = (args["limit"] as? NSNumber)?.intValue ?? 100
-
-    var targetCalendars: [EKCalendar]? = nil
-    if let name = listName, !name.isEmpty {
-      let calendars = eventStore.calendars(for: .reminder)
-      if let matched = calendars.first(where: {
-        $0.title.lowercased() == name.lowercased() || $0.title.lowercased().contains(name.lowercased())
-      }) {
-        targetCalendars = [matched]
+  private func ensureRemindersPermission(completion: @escaping (FlutterError?) -> Void) {
+    let status: EKAuthorizationStatus
+    if #available(iOS 17.0, *) {
+      status = EKEventStore.authorizationStatus(for: .reminder)
+      if status == .fullAccess {
+        completion(nil)
+        return
+      }
+    } else {
+      status = EKEventStore.authorizationStatus(for: .reminder)
+      if status == .authorized {
+        completion(nil)
+        return
       }
     }
 
-    let predicate: NSPredicate
-    if includeCompleted {
-      predicate = eventStore.predicateForReminders(in: targetCalendars)
-    } else {
-      predicate = eventStore.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: targetCalendars)
-    }
-
-    eventStore.fetchReminders(matching: predicate) { [weak self] reminders in
-      guard let self = self else { return }
-      let isoFormatter = self.makeISOFormatter()
-      let totalReminders = reminders ?? []
-      let totalAvailable = totalReminders.count
-      let sliced = limit > 0 && totalAvailable > limit ? Array(totalReminders.prefix(limit)) : totalReminders
-      let items = sliced.map { self.formatReminder($0, isoFormatter: isoFormatter) }
-
-      DispatchQueue.main.async {
-        var resp: [String: Any] = [
-          "count": items.count,
-          "include_completed": includeCompleted,
-          "reminders": items
-        ]
-        if totalAvailable > items.count {
-          resp["_warning"] = "Results truncated by limit. Returned \(items.count) of \(totalAvailable) total records."
-          resp["total_available"] = totalAvailable
+    if status == .notDetermined {
+      requestPermission { result in
+        if let err = result as? FlutterError {
+          completion(err)
+        } else if let dict = result as? [String: Any], (dict["authorized"] as? Bool) == true {
+          completion(nil)
+        } else {
+          completion(FlutterError(
+            code: "permission_denied",
+            message: "Reminders access is required. Please enable access in iOS Settings > Privacy & Security > Reminders.",
+            details: nil
+          ))
         }
-        result(resp)
+      }
+    } else {
+      completion(FlutterError(
+        code: "permission_denied",
+        message: "Reminders access is required. Please enable access in iOS Settings > Privacy & Security > Reminders.",
+        details: nil
+      ))
+    }
+  }
+
+  // MARK: - List Reminders
+
+  private func listReminders(args: [String: Any], result: @escaping FlutterResult) {
+    ensureRemindersPermission { [weak self] error in
+      if let error = error {
+        result(error)
+        return
+      }
+      guard let self = self else { return }
+
+      let includeCompleted = (args["include_completed"] as? Bool) ?? false
+      let listName = (args["list_name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let limit = (args["limit"] as? NSNumber)?.intValue ?? 100
+
+      var targetCalendars: [EKCalendar]? = nil
+      if let name = listName, !name.isEmpty {
+        let calendars = self.eventStore.calendars(for: .reminder)
+        if let matched = calendars.first(where: {
+          $0.title.lowercased() == name.lowercased() || $0.title.lowercased().contains(name.lowercased())
+        }) {
+          targetCalendars = [matched]
+        }
+      }
+
+      let predicate: NSPredicate
+      if includeCompleted {
+        predicate = self.eventStore.predicateForReminders(in: targetCalendars)
+      } else {
+        predicate = self.eventStore.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: targetCalendars)
+      }
+
+      self.eventStore.fetchReminders(matching: predicate) { [weak self] reminders in
+        guard let self = self else { return }
+        let isoFormatter = self.makeISOFormatter()
+        let totalReminders = reminders ?? []
+        let totalAvailable = totalReminders.count
+        let sliced = limit > 0 && totalAvailable > limit ? Array(totalReminders.prefix(limit)) : totalReminders
+        let items = sliced.map { self.formatReminder($0, isoFormatter: isoFormatter) }
+
+        DispatchQueue.main.async {
+          var resp: [String: Any] = [
+            "count": items.count,
+            "include_completed": includeCompleted,
+            "reminders": items
+          ]
+          if totalAvailable > items.count {
+            resp["_warning"] = "Results truncated by limit. Returned \(items.count) of \(totalAvailable) total records."
+            resp["total_available"] = totalAvailable
+          }
+          result(resp)
+        }
       }
     }
   }
@@ -689,14 +738,21 @@ final class ReminderTaskHandler: NSObject {
   // MARK: - List Lists
 
   private func listLists(result: @escaping FlutterResult) {
-    let calendars = eventStore.calendars(for: .reminder)
-    let items = calendars.map { cal -> [String: Any] in
-      return [
-        "id": cal.calendarIdentifier,
-        "title": cal.title,
-        "allows_content_modifications": cal.allowsContentModifications
-      ]
+    ensureRemindersPermission { [weak self] error in
+      if let error = error {
+        result(error)
+        return
+      }
+      guard let self = self else { return }
+      let calendars = self.eventStore.calendars(for: .reminder)
+      let items = calendars.map { cal -> [String: Any] in
+        return [
+          "id": cal.calendarIdentifier,
+          "title": cal.title,
+          "allows_content_modifications": cal.allowsContentModifications
+        ]
+      }
+      result(["count": items.count, "lists": items])
     }
-    result(["count": items.count, "lists": items])
   }
 }
