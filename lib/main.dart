@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart'
 import 'dart:async';
 import 'dart:ui' show AppExitResponse;
 import 'l10n/app_localizations.dart';
+import 'main_background_intent.dart';
 import 'features/home/pages/home_page.dart';
 import 'features/migration/hive_to_sqlite_migration_page.dart';
 import 'features/migration/hive_to_sqlite_migration_service.dart';

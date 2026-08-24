@@ -90,21 +90,30 @@ struct AskAIIntent: AppIntent {
                 body: inputPrompt
             )
 
-            let result = try await IntentFlutterBridge.shared.execute(
-                prompt: inputPrompt,
-                assistantId: assistantId,
-                sessionId: sessionId,
-                modelId: modelId,
-                filePaths: tempFilePaths
-            )
+            do {
+                let result = try await IntentFlutterBridge.shared.execute(
+                    prompt: inputPrompt,
+                    assistantId: assistantId,
+                    sessionId: sessionId,
+                    modelId: modelId,
+                    filePaths: tempFilePaths
+                )
 
-            NativeNotificationHelper.shared.sendNotification(
-                title: "\(result.assistantName) 已回复",
-                body: result.response
-            )
+                NativeNotificationHelper.shared.sendNotification(
+                    title: "\(result.assistantName) 已回复",
+                    body: result.response
+                )
 
-            // 直接返回回复文本字符串，方便在快捷指令后续步骤中引用
-            return .result(value: result.response, dialog: "\(result.response)")
+                // 直接返回回复文本字符串，方便在快捷指令后续步骤中引用
+                return .result(value: result.response, dialog: "\(result.response)")
+            } catch {
+                let errorText = "执行失败: \(error.localizedDescription)"
+                NativeNotificationHelper.shared.sendNotification(
+                    title: "Kelivo 任务失败",
+                    body: error.localizedDescription
+                )
+                return .result(value: errorText, dialog: "\(errorText)")
+            }
         }
 
         // 4. 异步模式（实验性）：立即返回，后台协程继续跑

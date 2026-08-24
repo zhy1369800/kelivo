@@ -30,10 +30,13 @@ final class IntentFlutterBridge {
     ) async throws -> IntentChatResult {
         let engine = FlutterEngine(name: "kelivo_intent_headless_engine", project: nil, allowHeadlessExecution: true)
         
-        let didRun = engine.run(withEntrypoint: "backgroundIntentMain", libraryURI: "package:Kelivo/main_background_intent.dart")
+        var didRun = engine.run(withEntrypoint: "backgroundIntentMain", libraryURI: nil)
+        if !didRun {
+            didRun = engine.run(withEntrypoint: "backgroundIntentMain", libraryURI: "package:Kelivo/main_background_intent.dart")
+        }
         guard didRun else {
             logger.error("Failed to run background FlutterEngine with entrypoint backgroundIntentMain")
-            throw NSError(domain: "KelivoIntent", code: 500, userInfo: [NSLocalizedDescriptionKey: "无法启动后台处理引擎"])
+            throw NSError(domain: "KelivoIntent", code: 500, userInfo: [NSLocalizedDescriptionKey: "无法启动后台处理引擎，请重新编译应用"])
         }
 
         // ⭐ 必须为 Headless 引擎注册原生插件（如 path_provider），否则 Dart 侧调用插件方法会报 MissingPluginException
