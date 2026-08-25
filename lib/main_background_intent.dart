@@ -22,22 +22,48 @@ import 'core/services/search/search_tool_service.dart';
 import 'utils/app_directories.dart';
 
 const MethodChannel _channel = MethodChannel('app.intent_chat');
+bool _isListenerInstalled = false;
 
-/// iOS 快捷指令后台无界面执行入口
+/// 初始化全局后台快捷指令通道监听（供主 App main() 调用，支持复用已存在的活跃引擎）
+void initBackgroundIntentListener() {
+  if (_isListenerInstalled) return;
+  _isListenerInstalled = true;
+
+  _channel.setMethodCallHandler((call) async {
+    if (call.method == 'executeIntent') {
+      final args = Map<String, dynamic>.from(call.arguments as Map);
+      return await handleExecuteIntent(args);
+    }
+    throw PlatformException(code: 'not_implemented', message: 'Method not implemented');
+  });
+}
+
+/// iOS 快捷指令后台独立无界面 Headless 执行入口
 @pragma('vm:entry-point')
 void backgroundIntentMain() async {
   WidgetsFlutterBinding.ensureInitialized();
+  initBackgroundIntentListener();
 
   try {
-    // 主动向 Native 端获取任务参数
-    final rawArgs = await _channel.invokeMethod<dynamic>('getIntentParams');
-    if (rawArgs == null) {
-      await _channel.invokeMethod('onIntentError', '未收到快捷指令传入的参数');
-      return;
+    // 带有重试机制的参数拉取（确保 Native Channel Handler 100% 就绪，彻底杜绝 Timeout 丢包）
+    Map<String, dynamic>? args;
+    for (var i = 0; i < 10; i++) {
+      try {
+        final rawArgs = await _channel.invokeMethod<dynamic>('getIntentParams');
+        if (rawArgs != null) {
+          args = Map<String, dynamic>.from(rawArgs as Map);
+          break;
+        }
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
-    final args = Map<String, dynamic>.from(rawArgs as Map);
-    final result = await _handleExecuteIntent(args);
-    await _channel.invokeMethod('onIntentComplete', result);
+
+    if (args != null) {
+      final result = await handleExecuteIntent(args);
+      await _channel.invokeMethod('onIntentComplete', result);
+    } else {
+      await _channel.invokeMethod('onIntentError', '未能从快捷指令获取到执行参数（握手超时）');
+    }
   } catch (e, stack) {
     debugPrint('backgroundIntentMain error: $e\n$stack');
     try {
@@ -46,7 +72,7 @@ void backgroundIntentMain() async {
   }
 }
 
-Future<Map<String, dynamic>> _handleExecuteIntent(Map<String, dynamic> args) async {
+Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) async {
   final prompt = args['prompt'] as String? ?? '';
   final assistantId = args['assistantId'] as String?;
   final existingSessionId = args['sessionId'] as String?;
@@ -62,9 +88,8 @@ Future<Map<String, dynamic>> _handleExecuteIntent(Map<String, dynamic> args) asy
   final busRepo = lease.businessRepository;
 
   try {
-
-  final prefs = BusinessPreferences(busRepo);
-  await prefs.load();
+    final prefs = BusinessPreferences(busRepo);
+    await prefs.load();
 
   // 1. 读取或创建助手
   Assistant assistant = const Assistant(id: 'default', name: '默认助手');
