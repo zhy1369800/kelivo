@@ -36,8 +36,8 @@ final class IntentFlutterBridge {
         // 1. 优先检测主 App 是否已在运行（前台或后台唤醒中）
         // 若主引擎已存活，直接复用其 binaryMessenger 进行通信，避免在同进程中创建第二个 FlutterEngine 导致内存暴涨被系统 Jetsam 杀死
         if let appDelegate = UIApplication.shared.delegate as? FlutterAppDelegate,
-           let flutterVC = appDelegate.window?.rootViewController as? FlutterViewController,
-           let activeEngine = flutterVC.engine {
+           let flutterVC = appDelegate.window?.rootViewController as? FlutterViewController {
+            let activeEngine = flutterVC.engine
             logger.info("Reusing active main FlutterEngine for Intent execution")
             let channel = FlutterMethodChannel(name: "app.intent_chat", binaryMessenger: activeEngine.binaryMessenger)
             return try await withCheckedThrowingContinuation { continuation in
