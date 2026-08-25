@@ -30,16 +30,7 @@ final class IntentFlutterBridge {
     ) async throws -> IntentChatResult {
         let engine = FlutterEngine(name: "kelivo_intent_headless_engine", project: nil, allowHeadlessExecution: true)
         
-        var didRun = engine.run(withEntrypoint: "backgroundIntentMain", libraryURI: nil)
-        if !didRun {
-            didRun = engine.run(withEntrypoint: "backgroundIntentMain", libraryURI: "package:Kelivo/main_background_intent.dart")
-        }
-        guard didRun else {
-            logger.error("Failed to run background FlutterEngine with entrypoint backgroundIntentMain")
-            throw NSError(domain: "KelivoIntent", code: 500, userInfo: [NSLocalizedDescriptionKey: "无法启动后台处理引擎，请重新编译应用"])
-        }
-
-        // ⭐ 必须为 Headless 引擎注册原生插件（如 path_provider），否则 Dart 侧调用插件方法会报 MissingPluginException
+        // 1. 必须为 Headless 引擎注册原生插件（如 path_provider）
         GeneratedPluginRegistrant.register(with: engine)
 
         let channel = FlutterMethodChannel(name: "app.intent_chat", binaryMessenger: engine.binaryMessenger)
@@ -53,27 +44,67 @@ final class IntentFlutterBridge {
         ]
 
         return try await withCheckedThrowingContinuation { continuation in
-            channel.invokeMethod("executeIntent", arguments: args) { result in
-                // 任务完成，销毁后台引擎释放内存
-                engine.destroyContext()
-
-                if let error = result as? FlutterError {
-                    logger.error("Intent execution error: \(error.message ?? "")")
-                    continuation.resume(throwing: NSError(domain: "KelivoIntent", code: 500, userInfo: [NSLocalizedDescriptionKey: error.message ?? "执行出错"]))
-                } else if let dict = result as? [String: Any] {
+            var isFinished = false
+            
+            // 2. 提前注册 MethodChannel 回调，等待 Dart 引擎就绪后主动拉取参数与上报结果（彻底避免 Native->Dart 时序死锁）
+            channel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
+                if call.method == "getIntentParams" {
+                    // Dart 引擎初始化完成，返回输入参数
+                    result(args)
+                } else if call.method == "onIntentComplete" {
+                    result(true)
+                    guard !isFinished else { return }
+                    isFinished = true
+                    
+                    let dict = call.arguments as? [String: Any] ?? [:]
                     let sessionId = dict["sessionId"] as? String ?? ""
                     let response = dict["response"] as? String ?? ""
                     let assistantName = dict["assistantName"] as? String ?? "Kelivo"
                     let modelName = dict["modelName"] as? String ?? "Default"
+                    
                     continuation.resume(returning: IntentChatResult(
                         sessionId: sessionId,
                         response: response,
                         assistantName: assistantName,
                         modelName: modelName
                     ))
+                    
+                    DispatchQueue.main.async {
+                        engine.destroyContext()
+                    }
+                } else if call.method == "onIntentError" {
+                    result(true)
+                    guard !isFinished else { return }
+                    isFinished = true
+                    
+                    let errorMsg = (call.arguments as? String) ?? "执行失败"
+                    logger.error("Intent execution reported error: \(errorMsg)")
+                    continuation.resume(throwing: NSError(
+                        domain: "KelivoIntent",
+                        code: 500,
+                        userInfo: [NSLocalizedDescriptionKey: errorMsg]
+                    ))
+                    
+                    DispatchQueue.main.async {
+                        engine.destroyContext()
+                    }
                 } else {
-                    continuation.resume(throwing: NSError(domain: "KelivoIntent", code: 500, userInfo: [NSLocalizedDescriptionKey: "未知返回结果"]))
+                    result(FlutterMethodNotImplemented)
                 }
+            }
+
+            // 3. 启动 Dart 后台引擎
+            var didRun = engine.run(withEntrypoint: "backgroundIntentMain", libraryURI: nil)
+            if !didRun {
+                didRun = engine.run(withEntrypoint: "backgroundIntentMain", libraryURI: "package:Kelivo/main_background_intent.dart")
+            }
+            guard didRun else {
+                guard !isFinished else { return }
+                isFinished = true
+                logger.error("Failed to run background FlutterEngine with entrypoint backgroundIntentMain")
+                continuation.resume(throwing: NSError(domain: "KelivoIntent", code: 500, userInfo: [NSLocalizedDescriptionKey: "无法启动后台处理引擎，请重新编译应用"]))
+                engine.destroyContext()
+                return
             }
         }
     }

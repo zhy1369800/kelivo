@@ -28,13 +28,22 @@ const MethodChannel _channel = MethodChannel('app.intent_chat');
 void backgroundIntentMain() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  _channel.setMethodCallHandler((call) async {
-    if (call.method == 'executeIntent') {
-      final args = Map<String, dynamic>.from(call.arguments as Map);
-      return await _handleExecuteIntent(args);
+  try {
+    // 主动向 Native 端获取任务参数
+    final rawArgs = await _channel.invokeMethod<dynamic>('getIntentParams');
+    if (rawArgs == null) {
+      await _channel.invokeMethod('onIntentError', '未收到快捷指令传入的参数');
+      return;
     }
-    throw PlatformException(code: 'not_implemented', message: 'Method not implemented');
-  });
+    final args = Map<String, dynamic>.from(rawArgs as Map);
+    final result = await _handleExecuteIntent(args);
+    await _channel.invokeMethod('onIntentComplete', result);
+  } catch (e, stack) {
+    debugPrint('backgroundIntentMain error: $e\n$stack');
+    try {
+      await _channel.invokeMethod('onIntentError', '后台执行异常: $e');
+    } catch (_) {}
+  }
 }
 
 Future<Map<String, dynamic>> _handleExecuteIntent(Map<String, dynamic> args) async {
@@ -51,6 +60,8 @@ Future<Map<String, dynamic>> _handleExecuteIntent(Map<String, dynamic> args) asy
   final lease = await gateway.acquire(dbFile);
   final dbRepo = lease.repository;
   final busRepo = lease.businessRepository;
+
+  try {
 
   final prefs = BusinessPreferences(busRepo);
   await prefs.load();
@@ -382,10 +393,13 @@ Future<Map<String, dynamic>> _handleExecuteIntent(Map<String, dynamic> args) asy
   );
   await dbRepo.putMessage(assistantMsg);
 
-  return {
-    'sessionId': conversationId,
-    'response': assistantResponse,
-    'assistantName': assistant.name,
-    'modelName': selectedModel,
-  };
+    return {
+      'sessionId': conversationId,
+      'response': assistantResponse,
+      'assistantName': assistant.name,
+      'modelName': selectedModel,
+    };
+  } finally {
+    await lease.release();
+  }
 }
