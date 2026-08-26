@@ -104,15 +104,36 @@ struct AskAIIntent: AppIntent {
                     body: result.response
                 )
 
-                // 直接返回回复文本字符串，方便在快捷指令后续步骤中引用
+                let jsonDict: [String: Any] = [
+                    "success": true,
+                    "session_id": result.sessionId,
+                    "response": result.response,
+                    "assistant_name": result.assistantName,
+                    "model_name": result.modelName
+                ]
+                if let jsonData = try? JSONSerialization.data(withJSONObject: jsonDict, options: [.prettyPrinted, .sortedKeys]),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    return .result(value: jsonString, dialog: "\(result.response)")
+                }
+
                 return .result(value: result.response, dialog: "\(result.response)")
             } catch {
-                let errorText = "执行失败: \(error.localizedDescription)"
+                let errorMsg = error.localizedDescription
                 NativeNotificationHelper.shared.sendNotification(
                     title: "Kelivo 任务失败",
-                    body: error.localizedDescription
+                    body: errorMsg
                 )
-                return .result(value: errorText, dialog: "\(errorText)")
+                let errorDict: [String: Any] = [
+                    "success": false,
+                    "error": errorMsg,
+                    "session_id": sessionId ?? "",
+                    "response": "执行失败: \(errorMsg)"
+                ]
+                if let jsonData = try? JSONSerialization.data(withJSONObject: errorDict, options: [.prettyPrinted, .sortedKeys]),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    return .result(value: jsonString, dialog: "执行失败: \(errorMsg)")
+                }
+                return .result(value: "执行失败: \(errorMsg)", dialog: "执行失败: \(errorMsg)")
             }
         }
 

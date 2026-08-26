@@ -32,15 +32,22 @@ struct SessionEntityQuery: EntityQuery, EntityStringQuery {
 
     func entities(for identifiers: [String]) async throws -> [SessionEntity] {
         let all = try await suggestedEntities()
-        return all.filter { identifiers.contains($0.id) }
+        return identifiers.map { id in
+            if let matched = all.first(where: { $0.id == id }) {
+                return matched
+            }
+            return SessionEntity(id: id, title: "会话 (\(id.prefix(8)))")
+        }
     }
 
     func entities(matching string: String) async throws -> [SessionEntity] {
         let all = try await suggestedEntities()
         if string.isEmpty { return all }
-        return all.filter {
-            $0.title.localizedCaseInsensitiveContains(string)
+        let filtered = all.filter {
+            $0.title.localizedCaseInsensitiveContains(string) || $0.id.lowercased() == string.lowercased()
         }
+        if !filtered.isEmpty { return filtered }
+        return [SessionEntity(id: string, title: "会话 (\(string.prefix(8)))")]
     }
 
     func suggestedEntities() async throws -> [SessionEntity] {
