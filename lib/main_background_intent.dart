@@ -12,13 +12,19 @@ import 'core/database/chat_database_gateway.dart';
 import 'core/models/assistant.dart';
 import 'core/models/chat_message.dart';
 import 'core/models/conversation.dart';
+import 'core/models/memory_entry.dart';
 import 'core/models/message_part.dart';
 import 'core/providers/mcp_provider.dart';
 import 'core/providers/settings_provider.dart';
 import 'core/services/api/chat_api_service.dart';
 import 'core/services/api/stream/stream_chunk.dart';
+import 'core/services/memory/memory_block_builder.dart';
+import 'core/services/memory/memory_prompts.dart';
+import 'core/services/memory/memory_repository.dart';
+import 'core/services/memory/memory_tools.dart';
 import 'core/services/search/search_service.dart';
 import 'core/services/search/search_tool_service.dart';
+import 'features/home/services/local_tools_service.dart';
 import 'utils/app_directories.dart';
 
 const MethodChannel _channel = MethodChannel('app.intent_chat');
@@ -129,8 +135,14 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
 
   // 3. 构建用户消息
   final userMessageId = const Uuid().v4();
+  String effectivePrompt = prompt;
+  if (assistant.appendCurrentTimeToUserMessage) {
+    final nowStr = DateTime.now().toString();
+    effectivePrompt = '$prompt\n\n[System Current Time: $nowStr]';
+  }
+
   final userParts = <MessagePart>[
-    TextPart(prompt),
+    TextPart(effectivePrompt),
   ];
 
   // 附件处理（图片/文件）
@@ -156,7 +168,7 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
     id: userMessageId,
     conversationId: conversationId,
     role: 'user',
-    content: prompt,
+    content: effectivePrompt,
     parts: userParts,
   );
   await dbRepo.putMessage(userMsg);
@@ -177,12 +189,66 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
     });
   }
 
+  // 注入预设对话消息 (Preset Messages)
+  if (existingSessionId == null || existingSessionId.isEmpty) {
+    for (final preset in assistant.presetMessages) {
+      if (preset.content.trim().isNotEmpty) {
+        apiMessages.add({
+          'role': preset.role,
+          'content': preset.content.trim(),
+        });
+      }
+    }
+  }
+
   for (final msg in history) {
     if (msg.role == 'user' || msg.role == 'assistant') {
       apiMessages.add({
         'role': msg.role,
         'content': msg.content,
       });
+    }
+  }
+
+  // 4.1 记忆系统 (Memory System) 动态上下文注入
+  if (assistant.enableMemory) {
+    try {
+      final visibleMemories = await dbRepo.queryVisibleMemories(
+        assistantId: assistant.id,
+      );
+      final profileFields = await dbRepo.readProfileFields();
+      final profileBlock = MemoryBlockBuilder.buildProfileBlock(
+        fields: profileFields,
+        lang: MemoryPromptLang.zh,
+      );
+      final totalByType = <MemoryType, int>{
+        for (final t in MemoryType.values)
+          t: visibleMemories.where((e) => e.type == t).length,
+      };
+      final memoryBlock = MemoryBlockBuilder.buildMemoryBlock(
+        visible: visibleMemories,
+        totalByType: totalByType,
+        lang: MemoryPromptLang.zh,
+        maxItems: 50,
+      );
+      final memoryBlockText = MemoryBlockBuilder.buildFullSnapshotPrefix(
+        profileBlock,
+        memoryBlock,
+        MemoryPromptLang.zh,
+      );
+      if (memoryBlockText.trim().isNotEmpty) {
+        if (apiMessages.isNotEmpty && apiMessages.first['role'] == 'system') {
+          apiMessages.first['content'] =
+              '${apiMessages.first['content']}\n\n$memoryBlockText';
+        } else {
+          apiMessages.insert(0, {
+            'role': 'system',
+            'content': memoryBlockText,
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Memory prompt injection error: $e');
     }
   }
 
@@ -214,15 +280,36 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
     enabled: true,
   );
 
-  // 6. 收集助手中开启的工具 (MCP + 网络搜索)
+  // 6. 收集助手中开启的工具 (Local Tools + Memory Tools + Search + MCP)
   final toolDefs = <Map<String, dynamic>>[];
   McpProvider? mcpProvider;
   List<McpServerConfig> activeMcpServers = [];
 
-  // 6.1 网络搜索工具
+  // 6.1 本地原生工具 (Local Tools)
+  final localToolDefs = LocalToolsService.buildToolDefinitions(
+    assistant: assistant,
+    supportsTools: true,
+  );
+  if (localToolDefs.isNotEmpty) {
+    toolDefs.addAll(localToolDefs);
+  }
+
+  // 6.2 记忆系统工具 (Memory Tools)
+  if (assistant.enableMemory || assistant.allowPastConversationRecall) {
+    final memoryToolDefs = MemoryTools.buildDefinitions(
+      lang: MemoryPromptLang.zh,
+      writeScope: assistant.memoryWriteScope,
+      enableMemory: assistant.enableMemory,
+      allowPastConversationRecall: assistant.allowPastConversationRecall,
+    );
+    if (memoryToolDefs.isNotEmpty) {
+      toolDefs.addAll(memoryToolDefs);
+    }
+  }
+
+  // 6.3 网络搜索工具
   if (assistant.searchEnabled == true) {
     toolDefs.add(SearchToolService.getToolDefinition());
-    // 注入搜索 inline citations 说明
     if (apiMessages.isNotEmpty && apiMessages.first['role'] == 'system') {
       apiMessages.first['content'] =
           '${apiMessages.first['content']}\n\n${SearchToolService.getSystemPrompt()}';
@@ -234,7 +321,7 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
     }
   }
 
-  // 6.2 MCP 工具（直接从已加载的 BusinessPreferences 中同步反序列化，避免异步竞态）
+  // 6.4 MCP 工具
   final mcpServerIds = assistant.mcpServerIds.toSet();
   if (mcpServerIds.isNotEmpty) {
     final rawMcp = prefs.getString('mcp_servers_v1');
@@ -249,8 +336,12 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
             .toList();
 
         if (activeMcpServers.isNotEmpty) {
-          mcpProvider = McpProvider(preferences: prefs);
+          final mcpProv = McpProvider(preferences: prefs);
+          mcpProvider = mcpProv;
           for (final server in activeMcpServers) {
+            try {
+              await mcpProv.ensureConnected(server.id);
+            } catch (_) {}
             for (final tool in server.tools.where((t) => t.enabled)) {
               final toolSchema = tool.schema ??
                   {
@@ -277,13 +368,48 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
     }
   }
 
-  // 6.3 Tool-Call 执行器 handler
+  // 6.5 Tool-Call 执行器 handler
   Future<String> handleToolCall(
     String name,
     Map<String, dynamic> toolArgs, {
     String? toolCallId,
   }) async {
-    // A. 处理网络搜索
+    // A. 处理本地原生工具 (Local Tools)
+    try {
+      final localRes = await LocalToolsService.tryHandleToolCall(
+        name,
+        toolArgs,
+        assistant,
+      );
+      if (localRes != null) {
+        return localRes;
+      }
+    } catch (e) {
+      debugPrint('Local tool execution failed: $e');
+    }
+
+    // B. 处理记忆系统工具 (Memory Tools)
+    if (assistant.enableMemory || assistant.allowPastConversationRecall) {
+      try {
+        final memRepo = MemoryRepository(prefs);
+        final memRes = await MemoryTools.handle(
+          name: name,
+          args: toolArgs,
+          assistant: assistant,
+          repository: memRepo,
+          chatRepository: dbRepo,
+          conversationId: conversationId,
+          promptLang: MemoryPromptLang.zh,
+        );
+        if (memRes != null) {
+          return memRes;
+        }
+      } catch (e) {
+        debugPrint('Memory tool execution failed: $e');
+      }
+    }
+
+    // C. 处理网络搜索
     if (name == SearchToolService.toolName) {
       final query = toolArgs['query'] as String? ?? '';
       if (query.trim().isEmpty) {
@@ -345,14 +471,26 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
       }
     }
 
-    // B. 处理 MCP 工具
-    if (mcpProvider != null && activeMcpServers.isNotEmpty) {
+    // D. 处理 MCP 工具
+    final provider = mcpProvider;
+    if (provider != null && activeMcpServers.isNotEmpty) {
       try {
         for (final server in activeMcpServers) {
           final toolMatch = server.tools.any((t) => t.name == name && t.enabled);
           if (toolMatch) {
-            final res = await mcpProvider.callTool(server.id, name, toolArgs);
+            try {
+              await provider.ensureConnected(server.id);
+            } catch (_) {}
+            final res = await provider.callTool(server.id, name, toolArgs);
             if (res != null) {
+              if (res.isError == true) {
+                final errBuf = StringBuffer('MCP Tool Error:\n');
+                for (final c in res.content) {
+                  if (c is mcp.TextContent) errBuf.writeln(c.text);
+                }
+                final errText = errBuf.toString().trim();
+                return errText.isNotEmpty ? errText : jsonEncode({'error': 'MCP Tool execution error'});
+              }
               final buf = StringBuffer();
               for (final c in res.content) {
                 if (c is mcp.TextContent) {
