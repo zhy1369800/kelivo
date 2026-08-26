@@ -76,7 +76,7 @@ struct AskAIIntent: AppIntent {
         let modelId = model?.id
         let inputPrompt = prompt
 
-        // 3. 同步模式（推荐）：等待生成完毕后返回，结果可直接用于快捷指令后续动作
+        // 3. 同步模式（推荐）：等待生成完毕后返回，结果可直接用于快捷指令后续动作（不发多余通知）
         if waitForResult {
             defer {
                 BackgroundAudioKeepAlive.shared.stop()
@@ -85,11 +85,6 @@ struct AskAIIntent: AppIntent {
                 }
             }
 
-            NativeNotificationHelper.shared.sendNotification(
-                title: "Kelivo 正在思考...",
-                body: inputPrompt
-            )
-
             do {
                 let result = try await IntentFlutterBridge.shared.execute(
                     prompt: inputPrompt,
@@ -97,11 +92,6 @@ struct AskAIIntent: AppIntent {
                     sessionId: sessionId,
                     modelId: modelId,
                     filePaths: tempFilePaths
-                )
-
-                NativeNotificationHelper.shared.sendNotification(
-                    title: "\(result.assistantName) 已回复",
-                    body: result.response
                 )
 
                 let jsonDict: [String: Any] = [
@@ -119,10 +109,6 @@ struct AskAIIntent: AppIntent {
                 return .result(value: result.response, dialog: "\(result.response)")
             } catch {
                 let errorMsg = error.localizedDescription
-                NativeNotificationHelper.shared.sendNotification(
-                    title: "Kelivo 任务失败",
-                    body: errorMsg
-                )
                 let errorDict: [String: Any] = [
                     "success": false,
                     "error": errorMsg,
@@ -137,14 +123,7 @@ struct AskAIIntent: AppIntent {
             }
         }
 
-        // 4. 异步模式（实验性）：立即返回，后台协程继续跑
-        // ⚠️ 注意：AppIntents 的 perform() 返回后系统随时可能挂起进程，
-        // 后台任务能否完成取决于系统调度，不可保证。建议优先使用同步模式。
-        NativeNotificationHelper.shared.sendNotification(
-            title: "Kelivo 任务已开始",
-            body: inputPrompt
-        )
-
+        // 4. 异步模式（实验性）：立即返回，后台生成完毕后再推送通知
         Task { @MainActor in
             defer {
                 BackgroundAudioKeepAlive.shared.stop()
@@ -162,6 +141,7 @@ struct AskAIIntent: AppIntent {
                     filePaths: tempFilePaths
                 )
 
+                // 仅异步模式有结果返回时才推送通知
                 NativeNotificationHelper.shared.sendNotification(
                     title: "\(result.assistantName) 已回复",
                     body: result.response
