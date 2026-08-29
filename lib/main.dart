@@ -55,6 +55,7 @@ import 'core/services/backup/restore_business_lease.dart';
 import 'core/services/backup/restore_startup_gate.dart';
 import 'core/services/backup/restore_receipt.dart';
 import 'core/services/mcp/mcp_tool_service.dart';
+import 'core/services/preview/resource_preview_service.dart';
 import 'core/services/logging/flutter_logger.dart';
 import 'features/home/services/ask_user_interaction_service.dart';
 import 'features/home/services/tool_approval_service.dart';
@@ -560,6 +561,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => McpProvider(preferences: businessPreferences),
         ),
+        ChangeNotifierProvider.value(value: ResourcePreviewService.instance),
         ChangeNotifierProvider(create: (_) => ToolApprovalService()),
         ChangeNotifierProvider(create: (_) => AskUserInteractionService()),
         ChangeNotifierProvider(

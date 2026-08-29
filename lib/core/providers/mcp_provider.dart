@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:mcp_client/mcp_client.dart' as mcp;
 import '../database/business_preferences.dart';
 import '../services/mcp/kelivo_fetch/kelivo_fetch_server.dart';
+import '../services/mcp/kelivo_open/kelivo_open_server.dart';
 import '../services/mcp/mcp_oauth_service.dart';
 import '../services/mcp/stdio_command_resolver.dart';
 import 'package:uuid/uuid.dart';
@@ -380,10 +381,20 @@ class McpProvider extends ChangeNotifier {
         _servers = list;
       } catch (_) {}
     }
-    // Ensure built-in @kelivo/fetch is present by default
-    final builtin = _builtinFetchServerIfMissing();
-    if (builtin != null) {
-      final next = <McpServerConfig>[..._servers, builtin];
+    // Ensure built-in servers (@kelivo/fetch and @kelivo/open) are present by default
+    var next = List<McpServerConfig>.of(_servers);
+    var modified = false;
+    final builtinFetch = _builtinFetchServerIfMissing();
+    if (builtinFetch != null) {
+      next.add(builtinFetch);
+      modified = true;
+    }
+    final builtinOpen = _builtinOpenServerIfMissing();
+    if (builtinOpen != null) {
+      next.add(builtinOpen);
+      modified = true;
+    }
+    if (modified) {
       await _persistServers(next);
       _servers = next;
     }
@@ -403,7 +414,6 @@ class McpProvider extends ChangeNotifier {
   McpServerConfig? _builtinFetchServerIfMissing() {
     final exists = _servers.any(
       (s) =>
-          s.transport == McpTransportType.inmemory ||
           s.name == '@kelivo/fetch' ||
           s.id == 'kelivo_fetch',
     );
@@ -412,6 +422,22 @@ class McpProvider extends ChangeNotifier {
       id: 'kelivo_fetch',
       enabled: true,
       name: '@kelivo/fetch',
+      transport: McpTransportType.inmemory,
+      tools: const <McpToolConfig>[], // will refresh on connect
+    );
+  }
+
+  McpServerConfig? _builtinOpenServerIfMissing() {
+    final exists = _servers.any(
+      (s) =>
+          s.name == '@kelivo/open' ||
+          s.id == 'kelivo_open',
+    );
+    if (exists) return null;
+    return McpServerConfig(
+      id: 'kelivo_open',
+      enabled: true,
+      name: '@kelivo/open',
       transport: McpTransportType.inmemory,
       tools: const <McpToolConfig>[], // will refresh on connect
     );
@@ -1316,9 +1342,11 @@ class McpProvider extends ChangeNotifier {
 
       if (server.transport == McpTransportType.inmemory) {
         client = mcp.McpClient.createClient(clientConfig);
-        await client.connect(
-          KelivoInMemoryClientTransport(KelivoFetchMcpServerEngine()),
-        );
+        final mcp.ClientTransport transport =
+            (server.id == 'kelivo_open' || server.name == '@kelivo/open')
+                ? KelivoOpenInMemoryClientTransport(KelivoOpenMcpServerEngine())
+                : KelivoInMemoryClientTransport(KelivoFetchMcpServerEngine());
+        await client.connect(transport);
       } else {
         final transportConfig = await _transportConfig(server);
         final result = await mcp.McpClient.createAndConnect(
