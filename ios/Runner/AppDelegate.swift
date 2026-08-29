@@ -327,7 +327,9 @@ private final class IosBackgroundGenerationHandler {
     let title = args["title"] as? String ?? "Kelivo"
     let detail = args["detail"] as? String ?? ""
     finishLiveActivity(title: title, detail: detail)
-    if notificationsEnabled { showCompletionNotification(title: title, body: detail) }
+    if notificationsEnabled && UIApplication.shared.applicationState != .active {
+      showCompletionNotification(title: title, body: detail)
+    }
     endBackgroundTask()
     resetGenerationOptions()
     result(true)
