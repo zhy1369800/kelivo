@@ -30,6 +30,7 @@ class _WebViewPageState extends State<WebViewPage> {
   bool _canGoBack = false;
   bool _canGoForward = false;
   bool _isDesktopMode = false;
+  double _topDragAccumulated = 0;
   final List<_ConsoleMessage> _console = <_ConsoleMessage>[];
 
   static const String _desktopUserAgent =
@@ -183,220 +184,241 @@ class _WebViewPageState extends State<WebViewPage> {
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          toolbarHeight: 56,
-          titleSpacing: 0,
-          leading: IconButton(
-            icon: Icon(_canGoBack ? Lucide.ArrowLeft : Lucide.X),
-            onPressed: () async {
-              if (_canGoBack) {
-                _controller.goBack();
-              } else {
-                Navigator.of(context).maybePop();
+        appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(56),
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onVerticalDragStart: (_) {
+              _topDragAccumulated = 0;
+            },
+            onVerticalDragUpdate: (details) {
+              if (details.delta.dy > 0) {
+                _topDragAccumulated += details.delta.dy;
               }
             },
-          ),
-          title: GestureDetector(
-            behavior: HitTestBehavior.opaque,
             onVerticalDragEnd: (details) {
-              if (details.primaryVelocity != null && details.primaryVelocity! > 500) {
+              final velocity = details.primaryVelocity ?? 0;
+              if (_topDragAccumulated > 40 || velocity > 400) {
                 Navigator.of(context).maybePop();
               }
+              _topDragAccumulated = 0;
             },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Top drag handle indicator
-                Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 6),
-                  decoration: BoxDecoration(
-                    color: cs.onSurfaceVariant.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                Text(
-                  _title?.isNotEmpty == true ? _title! : (_currentUrl ?? ''),
-                  style: Theme.of(context).textTheme.titleMedium,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          centerTitle: true,
-          actions: [
-            PopupMenuButton<String>(
-              icon: const Icon(Lucide.MoreVertical),
-              onSelected: (value) async {
-                final currentTarget = _currentUrl ?? widget.url ?? '';
-                final uri = Uri.tryParse(currentTarget);
-
-                switch (value) {
-                  case 'reload':
-                    _controller.reload();
-                    break;
-                  case 'forward':
-                    if (_canGoForward) {
-                      _controller.goForward();
-                    }
-                    break;
-                  case 'desktop_mode':
-                    setState(() {
-                      _isDesktopMode = !_isDesktopMode;
-                    });
-                    await _controller.setUserAgent(
-                      _isDesktopMode ? _desktopUserAgent : null,
-                    );
-                    await _controller.reload();
-                    if (context.mounted) {
-                      showAppSnackBar(
-                        context,
-                        message: _isDesktopMode ? '已切换至电脑桌面版' : '已切换至手机版',
-                        type: NotificationType.info,
-                      );
-                    }
-                    break;
-                  case 'open':
-                    if (uri != null && (uri.isScheme('http') || uri.isScheme('https'))) {
-                      await launchUrl(
-                        uri,
-                        mode: LaunchMode.externalApplication,
-                      );
-                    }
-                    break;
-                  case 'share':
-                    if (uri != null) {
-                      final size = MediaQuery.maybeOf(context)?.size;
-                      final anchor = (size != null && size.width > 0 && size.height > 0)
-                          ? Rect.fromCenter(
-                              center: Offset(size.width / 2, size.height / 2),
-                              width: 10,
-                              height: 10,
-                            )
-                          : null;
-                      await SharePlus.instance.share(
-                        ShareParams(
-                          uri: uri,
-                          sharePositionOrigin: anchor,
-                        ),
-                      );
-                    }
-                    break;
-                  case 'copy_link':
-                    if (currentTarget.isNotEmpty) {
-                      await Clipboard.setData(
-                        ClipboardData(text: currentTarget),
-                      );
-                      if (context.mounted) {
-                        showAppSnackBar(
-                          context,
-                          message: l10n.chatMessageWidgetCopiedToClipboard,
-                          type: NotificationType.success,
-                        );
-                      }
-                    }
-                    break;
-                  case 'console':
-                    showCustomBottomSheet(
-                      context: context,
-                      title: l10n.messageWebViewConsoleLogs,
-                      count: _console.length,
-                      partialHeightFactor: 0.65,
-                      expandedHeightFactor: 0.90,
-                      builder: (sheetContext, scrollController) {
-                        return _ConsoleSheet(
-                          messages: _console,
-                          scrollController: scrollController,
-                          onClear: () {
-                            setState(() {
-                              _console.clear();
-                            });
-                          },
-                        );
-                      },
-                    );
-                    break;
-                }
-              },
-              itemBuilder: (ctx) => [
-                const PopupMenuItem<String>(
-                  value: 'reload',
-                  child: Row(
-                    children: [
-                      Icon(Lucide.RotateCw, size: 18),
-                      SizedBox(width: 12),
-                      Text('重新加载'),
-                    ],
-                  ),
-                ),
-                if (_canGoForward)
-                  const PopupMenuItem<String>(
-                    value: 'forward',
-                    child: Row(
-                      children: [
-                        Icon(Lucide.ArrowRight, size: 18),
-                        SizedBox(width: 12),
-                        Text('前进'),
-                      ],
+            child: AppBar(
+              toolbarHeight: 56,
+              titleSpacing: 0,
+              leading: IconButton(
+                icon: Icon(_canGoBack ? Lucide.ArrowLeft : Lucide.X),
+                onPressed: () async {
+                  if (_canGoBack) {
+                    _controller.goBack();
+                  } else {
+                    Navigator.of(context).maybePop();
+                  }
+                },
+              ),
+              title: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 6),
+                    decoration: BoxDecoration(
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                if (!contentMode) ...[
-                  PopupMenuItem<String>(
-                    value: 'desktop_mode',
-                    child: Row(
-                      children: [
-                        Icon(Lucide.Monitor, size: 18),
-                        SizedBox(width: 12),
-                        Text(_isDesktopMode ? '请求移动网站' : '请求桌面网站'),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem<String>(
-                    value: 'open',
-                    child: Row(
-                      children: [
-                        const Icon(Lucide.Compass, size: 18),
-                        const SizedBox(width: 12),
-                        Text(l10n.messageWebViewOpenInBrowser),
-                      ],
-                    ),
-                  ),
-                  const PopupMenuItem<String>(
-                    value: 'share',
-                    child: Row(
-                      children: [
-                        Icon(Lucide.Share2, size: 18),
-                        SizedBox(width: 12),
-                        Text('分享'),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem<String>(
-                    value: 'copy_link',
-                    child: Row(
-                      children: [
-                        const Icon(Lucide.Copy, size: 18),
-                        const SizedBox(width: 12),
-                        Text(l10n.sideDrawerMenuCopy),
-                      ],
-                    ),
+                  Text(
+                    _title?.isNotEmpty == true ? _title! : (_currentUrl ?? ''),
+                    style: Theme.of(context).textTheme.titleMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
-                PopupMenuItem<String>(
-                  value: 'console',
-                  child: Row(
-                    children: [
-                      const Icon(Lucide.Terminal, size: 18),
-                      const SizedBox(width: 12),
-                      Text('${l10n.messageWebViewConsoleLogs} (${_console.length})'),
+              ),
+              centerTitle: true,
+              actions: [
+                PopupMenuButton<String>(
+                  icon: const Icon(Lucide.MoreVertical),
+                  onSelected: (value) async {
+                    final currentTarget = _currentUrl ?? widget.url ?? '';
+                    final uri = Uri.tryParse(currentTarget);
+
+                    switch (value) {
+                      case 'reload':
+                        _controller.reload();
+                        break;
+                      case 'forward':
+                        if (_canGoForward) {
+                          _controller.goForward();
+                        }
+                        break;
+                      case 'desktop_mode':
+                        setState(() {
+                          _isDesktopMode = !_isDesktopMode;
+                        });
+                        await _controller.setUserAgent(
+                          _isDesktopMode ? _desktopUserAgent : null,
+                        );
+                        await _controller.reload();
+                        if (context.mounted) {
+                          showAppSnackBar(
+                            context,
+                            message: _isDesktopMode ? '已切换至电脑桌面版' : '已切换至手机版',
+                            type: NotificationType.info,
+                          );
+                        }
+                        break;
+                      case 'open':
+                        if (uri != null &&
+                            (uri.isScheme('http') || uri.isScheme('https'))) {
+                          await launchUrl(
+                            uri,
+                            mode: LaunchMode.externalApplication,
+                          );
+                        }
+                        break;
+                      case 'share':
+                        if (uri != null) {
+                          final size = MediaQuery.maybeOf(context)?.size;
+                          final anchor = (size != null &&
+                                  size.width > 0 &&
+                                  size.height > 0)
+                              ? Rect.fromCenter(
+                                  center: Offset(
+                                    size.width / 2,
+                                    size.height / 2,
+                                  ),
+                                  width: 10,
+                                  height: 10,
+                                )
+                              : null;
+                          await SharePlus.instance.share(
+                            ShareParams(
+                              uri: uri,
+                              sharePositionOrigin: anchor,
+                            ),
+                          );
+                        }
+                        break;
+                      case 'copy_link':
+                        if (currentTarget.isNotEmpty) {
+                          await Clipboard.setData(
+                            ClipboardData(text: currentTarget),
+                          );
+                          if (context.mounted) {
+                            showAppSnackBar(
+                              context,
+                              message: l10n.chatMessageWidgetCopiedToClipboard,
+                              type: NotificationType.success,
+                            );
+                          }
+                        }
+                        break;
+                      case 'console':
+                        final isConsoleEmpty = _console.isEmpty;
+                        showCustomBottomSheet(
+                          context: context,
+                          title: l10n.messageWebViewConsoleLogs,
+                          count: _console.length,
+                          partialHeightFactor: isConsoleEmpty ? 0.25 : 0.65,
+                          expandedHeightFactor: isConsoleEmpty ? 0.25 : 0.90,
+                          builder: (sheetContext, scrollController) {
+                            return _ConsoleSheet(
+                              messages: _console,
+                              scrollController: scrollController,
+                              onClear: () {
+                                setState(() {
+                                  _console.clear();
+                                });
+                              },
+                            );
+                          },
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (ctx) => [
+                    const PopupMenuItem<String>(
+                      value: 'reload',
+                      child: Row(
+                        children: [
+                          Icon(Lucide.RotateCw, size: 18),
+                          SizedBox(width: 12),
+                          Text('重新加载'),
+                        ],
+                      ),
+                    ),
+                    if (_canGoForward)
+                      const PopupMenuItem<String>(
+                        value: 'forward',
+                        child: Row(
+                          children: [
+                            Icon(Lucide.ArrowRight, size: 18),
+                            SizedBox(width: 12),
+                            Text('前进'),
+                          ],
+                        ),
+                      ),
+                    if (!contentMode) ...[
+                      PopupMenuItem<String>(
+                        value: 'desktop_mode',
+                        child: Row(
+                          children: [
+                            Icon(Lucide.Monitor, size: 18),
+                            SizedBox(width: 12),
+                            Text(_isDesktopMode ? '请求移动网站' : '请求桌面网站'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem<String>(
+                        value: 'open',
+                        child: Row(
+                          children: [
+                            const Icon(Lucide.Compass, size: 18),
+                            const SizedBox(width: 12),
+                            Text(l10n.messageWebViewOpenInBrowser),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem<String>(
+                        value: 'share',
+                        child: Row(
+                          children: [
+                            Icon(Lucide.Share2, size: 18),
+                            SizedBox(width: 12),
+                            Text('分享'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem<String>(
+                        value: 'copy_link',
+                        child: Row(
+                          children: [
+                            const Icon(Lucide.Copy, size: 18),
+                            const SizedBox(width: 12),
+                            Text(l10n.sideDrawerMenuCopy),
+                          ],
+                        ),
+                      ),
                     ],
-                  ),
+                    PopupMenuItem<String>(
+                      value: 'console',
+                      child: Row(
+                        children: [
+                          const Icon(Lucide.Terminal, size: 18),
+                          const SizedBox(width: 12),
+                          Text(
+                            '${l10n.messageWebViewConsoleLogs} (${_console.length})',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
         body: Column(
           children: [
@@ -446,11 +468,11 @@ class _ConsoleSheet extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Action Bar (Copy All, Clear)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              if (messages.isNotEmpty) ...[
+          if (messages.isNotEmpty) ...[
+            // Action Bar (Copy All, Clear)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
                 TextButton.icon(
                   onPressed: () async {
                     final allLogs = messages
@@ -482,21 +504,29 @@ class _ConsoleSheet extends StatelessWidget {
                   label: Text(l10n.memoryTraceClearAction),
                 ),
               ],
-            ],
-          ),
-          const Divider(height: 1),
-          const SizedBox(height: 8),
+            ),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+          ],
           if (messages.isEmpty)
             Expanded(
               child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    l10n.messageWebViewNoConsoleMessages,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: cs.onSurfaceVariant,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Lucide.Terminal,
+                      size: 28,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.4),
                     ),
-                  ),
+                    const SizedBox(height: 10),
+                    Text(
+                      l10n.messageWebViewNoConsoleMessages,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             )
