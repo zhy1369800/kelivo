@@ -119,5 +119,23 @@ void main() {
       expect(res.target, contains('test.html'));
       expect(res.openedAs, 'file_not_found');
     });
+
+    test('preview service handles share action for web URLs and local files', () async {
+      final webRes = await ResourcePreviewService.instance.openResource(
+        target: 'https://flutter.dev',
+        action: 'share',
+      );
+      expect(webRes.success, isTrue);
+      expect(webRes.openedAs, 'share_sheet');
+
+      final testFile = File('${tempDir.path}/share_test.png');
+      await testFile.writeAsBytes([1, 2, 3]);
+      final fileRes = await ResourcePreviewService.instance.openResource(
+        target: testFile.path,
+        action: 'share',
+      );
+      expect(fileRes.success, isTrue);
+      expect(fileRes.openedAs, 'share_sheet');
+    });
   });
 }

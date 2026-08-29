@@ -70,8 +70,19 @@ class ResourcePreviewModal extends StatelessWidget {
                       tooltip: '分享文件',
                       icon: const Icon(Lucide.Share2, size: 20),
                       onPressed: () async {
+                        final size = MediaQuery.maybeOf(context)?.size;
+                        final anchor = (size != null && size.width > 0 && size.height > 0)
+                            ? Rect.fromCenter(
+                                center: Offset(size.width / 2, size.height / 2),
+                                width: 10,
+                                height: 10,
+                              )
+                            : null;
                         await SharePlus.instance.share(
-                          ShareParams(files: [XFile(filePath)]),
+                          ShareParams(
+                            files: [XFile(filePath)],
+                            sharePositionOrigin: anchor,
+                          ),
                         );
                       },
                     ),

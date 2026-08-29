@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -112,9 +113,6 @@ class ResourcePreviewService extends ChangeNotifier {
         openedAs: 'none',
       );
     }
-
-    final effectiveContext = context ?? rootNavigatorKey.currentContext;
-
     // 1. Web URL Handling (http://, https://)
     final uri = Uri.tryParse(trimmed);
     if (uri != null && (uri.isScheme('http') || uri.isScheme('https'))) {
@@ -122,17 +120,17 @@ class ResourcePreviewService extends ChangeNotifier {
         uri: uri,
         action: action,
         title: title,
-        context: effectiveContext,
+        context: context,
       );
     }
 
-    // 2. Resolve local path (supports file://, kelivo-file:///, kelivo://, minis://, relative, and absolute paths)
+    // 2. Resolve local path (supports file://, kelivo-file:///, kelivo://, relative, and absolute paths)
     final resolvedPath = await _resolveLocalPath(trimmed);
     return _openLocalFile(
       targetPath: resolvedPath,
       action: action,
       title: title,
-      context: effectiveContext,
+      context: context,
     );
   }
 
@@ -187,6 +185,28 @@ class ResourcePreviewService extends ChangeNotifier {
     return SandboxPathResolver.fix(trimmed);
   }
 
+  Rect? _calculateShareAnchor(BuildContext? context) {
+    if (context == null || !context.mounted) return null;
+    final size = MediaQuery.maybeOf(context)?.size;
+    if (size != null && size.width > 0 && size.height > 0) {
+      return Rect.fromCenter(
+        center: Offset(size.width / 2, size.height / 2),
+        width: 10,
+        height: 10,
+      );
+    }
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox != null && renderBox.hasSize) {
+      final boxSize = renderBox.size;
+      return Rect.fromCenter(
+        center: Offset(boxSize.width / 2, boxSize.height / 2),
+        width: 10,
+        height: 10,
+      );
+    }
+    return null;
+  }
+
   Future<ResourceOpenResult> _openWebUrl({
     required Uri uri,
     required String action,
@@ -194,6 +214,39 @@ class ResourcePreviewService extends ChangeNotifier {
     BuildContext? context,
   }) async {
     final urlString = uri.toString();
+    final effectiveContext =
+        (context != null && context.mounted) ? context : rootNavigatorKey.currentContext;
+
+    // Explicit share action for Web URL
+    if (action == 'share') {
+      try {
+        final anchor = _calculateShareAnchor(effectiveContext);
+        unawaited(
+          SharePlus.instance
+              .share(
+                ShareParams(
+                  uri: uri,
+                  sharePositionOrigin: anchor,
+                ),
+              )
+              .catchError((_) => ShareResult.unavailable),
+        );
+        return ResourceOpenResult(
+          success: true,
+          message: 'Opened system share sheet for URL: $urlString',
+          target: urlString,
+          openedAs: 'share_sheet',
+        );
+      } catch (e) {
+        return ResourceOpenResult(
+          success: false,
+          message: 'Failed to share URL: $e',
+          target: urlString,
+          openedAs: 'share_sheet',
+        );
+      }
+    }
+
     if (action == 'system_open') {
       try {
         final launched = await launchUrl(
@@ -219,10 +272,12 @@ class ResourcePreviewService extends ChangeNotifier {
     }
 
     // In-app WebView preview (default)
-    if (context != null && context.mounted) {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => WebViewPage(url: urlString),
+    if (effectiveContext != null && effectiveContext.mounted) {
+      unawaited(
+        Navigator.of(effectiveContext).push(
+          MaterialPageRoute<void>(
+            builder: (_) => WebViewPage(url: urlString),
+          ),
         ),
       );
       return ResourceOpenResult(
@@ -274,24 +329,34 @@ class ResourcePreviewService extends ChangeNotifier {
 
     final ext = p.extension(effectivePath).toLowerCase();
     final effectiveTitle = title ?? p.basename(effectivePath);
+    final effectiveContext =
+        (context != null && context.mounted) ? context : rootNavigatorKey.currentContext;
 
     // Explicit share action
     if (action == 'share') {
       try {
-        await SharePlus.instance.share(
-          ShareParams(files: [XFile(file.path)]),
+        final anchor = _calculateShareAnchor(effectiveContext);
+        unawaited(
+          SharePlus.instance
+              .share(
+                ShareParams(
+                  files: [XFile(file.path)],
+                  sharePositionOrigin: anchor,
+                ),
+              )
+              .catchError((_) => ShareResult.unavailable),
         );
         return ResourceOpenResult(
           success: true,
-          message: 'Opened system share sheet for file: $targetPath',
-          target: targetPath,
+          message: 'Opened system share sheet for file: $effectivePath',
+          target: effectivePath,
           openedAs: 'share_sheet',
         );
       } catch (e) {
         return ResourceOpenResult(
           success: false,
           message: 'Failed to share file: $e',
-          target: targetPath,
+          target: effectivePath,
           openedAs: 'share_sheet',
         );
       }
@@ -303,7 +368,7 @@ class ResourcePreviewService extends ChangeNotifier {
       return ResourceOpenResult(
         success: res.type == ResultType.done,
         message: 'Opened with system default application: ${res.message}',
-        target: targetPath,
+        target: effectivePath,
         openedAs: 'system_application',
       );
     }
@@ -311,16 +376,18 @@ class ResourcePreviewService extends ChangeNotifier {
     // Auto or in_app_preview: Route by extension
     // 1. Image formats
     if (_imageExtensions.contains(ext)) {
-      if (context != null && context.mounted) {
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => ImageViewerPage(images: [file.path]),
+      if (effectiveContext != null && effectiveContext.mounted) {
+        unawaited(
+          Navigator.of(effectiveContext).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ImageViewerPage(images: [file.path]),
+            ),
           ),
         );
         return ResourceOpenResult(
           success: true,
-          message: 'Opened in in-app Image Viewer: $targetPath',
-          target: targetPath,
+          message: 'Opened in in-app Image Viewer: $effectivePath',
+          target: effectivePath,
           openedAs: 'image_viewer',
         );
       }
@@ -331,33 +398,37 @@ class ResourcePreviewService extends ChangeNotifier {
       try {
         final content = await file.readAsString();
         if (defaultTargetPlatform == TargetPlatform.linux) {
-          if (context != null && context.mounted) {
-            await ResourcePreviewModal.show(
-              context: context,
-              title: effectiveTitle,
-              content: content,
-              filePath: file.path,
-              isMarkdown: false,
+          if (effectiveContext != null && effectiveContext.mounted) {
+            unawaited(
+              ResourcePreviewModal.show(
+                context: effectiveContext,
+                title: effectiveTitle,
+                content: content,
+                filePath: file.path,
+                isMarkdown: false,
+              ),
             );
             return ResourceOpenResult(
               success: true,
-              message: 'Opened HTML code preview on Linux: $targetPath',
-              target: targetPath,
+              message: 'Opened HTML code preview on Linux: $effectivePath',
+              target: effectivePath,
               openedAs: 'text_preview',
             );
           }
         }
         final base64Content = base64Encode(utf8.encode(content));
-        if (context != null && context.mounted) {
-          await Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => WebViewPage(contentBase64: base64Content),
+        if (effectiveContext != null && effectiveContext.mounted) {
+          unawaited(
+            Navigator.of(effectiveContext).push(
+              MaterialPageRoute<void>(
+                builder: (_) => WebViewPage(contentBase64: base64Content),
+              ),
             ),
           );
           return ResourceOpenResult(
             success: true,
-            message: 'Rendered HTML in in-app WebView: $targetPath',
-            target: targetPath,
+            message: 'Rendered HTML in in-app WebView: $effectivePath',
+            target: effectivePath,
             openedAs: 'html_preview',
           );
         }
@@ -370,18 +441,20 @@ class ResourcePreviewService extends ChangeNotifier {
     if (_markdownExtensions.contains(ext) || _textExtensions.contains(ext)) {
       try {
         final content = await file.readAsString();
-        if (context != null && context.mounted) {
-          await ResourcePreviewModal.show(
-            context: context,
-            title: effectiveTitle,
-            content: content,
-            filePath: file.path,
-            isMarkdown: _markdownExtensions.contains(ext),
+        if (effectiveContext != null && effectiveContext.mounted) {
+          unawaited(
+            ResourcePreviewModal.show(
+              context: effectiveContext,
+              title: effectiveTitle,
+              content: content,
+              filePath: file.path,
+              isMarkdown: _markdownExtensions.contains(ext),
+            ),
           );
           return ResourceOpenResult(
             success: true,
-            message: 'Opened in in-app Markdown/Text Viewer: $targetPath',
-            target: targetPath,
+            message: 'Opened in in-app Markdown/Text Viewer: $effectivePath',
+            target: effectivePath,
             openedAs: 'text_preview',
           );
         }
@@ -397,16 +470,16 @@ class ResourcePreviewService extends ChangeNotifier {
       return ResourceOpenResult(
         success: success,
         message: success
-            ? 'Opened with system associated application: $targetPath'
+            ? 'Opened with system associated application: $effectivePath'
             : 'Result from system open: ${res.message}',
-        target: targetPath,
+        target: effectivePath,
         openedAs: 'system_application',
       );
     } catch (e) {
       return ResourceOpenResult(
         success: false,
         message: 'Failed to open file: $e',
-        target: targetPath,
+        target: effectivePath,
         openedAs: 'error',
       );
     }
