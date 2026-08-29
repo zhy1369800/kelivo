@@ -12,6 +12,10 @@ import '../../../shared/pages/webview_page.dart';
 import '../../../shared/widgets/resource_preview_modal.dart';
 import '../../../shared/widgets/snackbar.dart';
 
+import '../../../utils/app_directories.dart';
+import '../../../utils/kelivo_file_uri.dart';
+import '../../../utils/sandbox_path_resolver.dart';
+
 /// Result of an open/preview resource operation.
 class ResourceOpenResult {
   final bool success;
@@ -92,7 +96,7 @@ class ResourcePreviewService extends ChangeNotifier {
     '.ps1',
   };
 
-  /// Open or preview a resource (Web URL or Local File Path).
+  /// Open or preview a resource (Web URL, Custom App URI, or Local File Path).
   Future<ResourceOpenResult> openResource({
     required String target,
     String action = 'auto',
@@ -111,19 +115,7 @@ class ResourcePreviewService extends ChangeNotifier {
 
     final effectiveContext = context ?? rootNavigatorKey.currentContext;
 
-    // 1. Handle file:// URI scheme specifically
-    if (trimmed.startsWith('file://')) {
-      final fileUri = Uri.tryParse(trimmed);
-      final localFilePath = fileUri != null ? fileUri.toFilePath() : trimmed.replaceFirst('file://', '');
-      return _openLocalFile(
-        targetPath: localFilePath,
-        action: action,
-        title: title,
-        context: effectiveContext,
-      );
-    }
-
-    // 2. Web URL Handling (http://, https://)
+    // 1. Web URL Handling (http://, https://)
     final uri = Uri.tryParse(trimmed);
     if (uri != null && (uri.isScheme('http') || uri.isScheme('https'))) {
       return _openWebUrl(
@@ -134,13 +126,65 @@ class ResourcePreviewService extends ChangeNotifier {
       );
     }
 
-    // 3. General Local File Handling
+    // 2. Resolve local path (supports file://, kelivo-file:///, kelivo://, minis://, relative, and absolute paths)
+    final resolvedPath = await _resolveLocalPath(trimmed);
     return _openLocalFile(
-      targetPath: trimmed,
+      targetPath: resolvedPath,
       action: action,
       title: title,
       context: effectiveContext,
     );
+  }
+
+  /// Resolves custom schemes and relative paths to a canonical absolute local file path.
+  Future<String> _resolveLocalPath(String input) async {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return trimmed;
+
+    // 1. file:// URI scheme
+    if (trimmed.startsWith('file://')) {
+      final fileUri = Uri.tryParse(trimmed);
+      return fileUri != null ? fileUri.toFilePath() : trimmed.replaceFirst('file://', '');
+    }
+
+    // 2. Canonical kelivo-file:/// scheme (e.g. kelivo-file:///upload/test.png)
+    if (KelivoFileUri.isKelivoFileUri(trimmed)) {
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        final resolved = KelivoFileUri.resolveToAbsolute(trimmed, root: appDataDir.path);
+        if (resolved != null) return resolved;
+      } catch (_) {}
+    }
+
+    // 3. kelivo:// scheme (e.g. kelivo://workspace/test.html or kelivo://upload/photo.png)
+    if (trimmed.startsWith('kelivo://')) {
+      final uri = Uri.tryParse(trimmed);
+      if (uri != null && uri.host.isNotEmpty) {
+        try {
+          final appDataDir = await AppDirectories.getAppDataDirectory();
+          final namespace = uri.host;
+          final subpath = uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
+          return p.join(appDataDir.path, namespace, subpath);
+        } catch (_) {}
+      }
+    }
+
+    // 4. Absolute path
+    if (p.isAbsolute(trimmed) || File(trimmed).existsSync()) {
+      return SandboxPathResolver.fix(trimmed);
+    }
+
+    // 5. Relative path (e.g. workspace/test.html, upload/image.png)
+    try {
+      final appDataDir = await AppDirectories.getAppDataDirectory();
+      final candidate = p.join(appDataDir.path, trimmed);
+      if (File(candidate).existsSync()) {
+        return candidate;
+      }
+      return candidate;
+    } catch (_) {}
+
+    return SandboxPathResolver.fix(trimmed);
   }
 
   Future<ResourceOpenResult> _openWebUrl({
@@ -217,18 +261,19 @@ class ResourcePreviewService extends ChangeNotifier {
     String? title,
     BuildContext? context,
   }) async {
-    final file = File(targetPath);
+    final effectivePath = SandboxPathResolver.fix(targetPath);
+    final file = File(effectivePath);
     if (!file.existsSync()) {
       return ResourceOpenResult(
         success: false,
-        message: 'Local file not found on disk: $targetPath',
-        target: targetPath,
+        message: 'Local file not found on disk: $effectivePath',
+        target: effectivePath,
         openedAs: 'file_not_found',
       );
     }
 
-    final ext = p.extension(targetPath).toLowerCase();
-    final effectiveTitle = title ?? p.basename(targetPath);
+    final ext = p.extension(effectivePath).toLowerCase();
+    final effectiveTitle = title ?? p.basename(effectivePath);
 
     // Explicit share action
     if (action == 'share') {

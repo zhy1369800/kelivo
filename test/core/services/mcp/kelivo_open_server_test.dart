@@ -106,8 +106,18 @@ void main() {
         action: 'in_app_preview',
       );
 
-      expect(res.target, testFile.path);
+      expect(res.target, contains('test_doc.md'));
       expect(res.openedAs, isIn(['text_preview', 'system_application']));
+    });
+
+    test('preview service resolves kelivo:// URIs', () async {
+      final res = await ResourcePreviewService.instance.openResource(
+        target: 'kelivo://workspace/test.html',
+      );
+      // Even if file does not exist, target path is correctly resolved to local path
+      expect(res.target, contains('workspace'));
+      expect(res.target, contains('test.html'));
+      expect(res.openedAs, 'file_not_found');
     });
   });
 }
