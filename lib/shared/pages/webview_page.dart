@@ -3,9 +3,13 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../icons/lucide_adapter.dart';
 import '../../l10n/app_localizations.dart';
+import '../widgets/custom_bottom_sheet.dart';
+import '../widgets/snackbar.dart';
 
 class WebViewPage extends StatefulWidget {
   const WebViewPage({super.key, this.url, this.contentBase64});
@@ -207,10 +211,23 @@ class _WebViewPageState extends State<WebViewPage> {
                     }
                     break;
                   case 'console':
-                    showModalBottomSheet(
+                    showCustomBottomSheet(
                       context: context,
-                      isScrollControlled: true,
-                      builder: (ctx) => _ConsoleSheet(messages: _console),
+                      title: l10n.messageWebViewConsoleLogs,
+                      count: _console.length,
+                      partialHeightFactor: 0.65,
+                      expandedHeightFactor: 0.90,
+                      builder: (sheetContext, scrollController) {
+                        return _ConsoleSheet(
+                          messages: _console,
+                          scrollController: scrollController,
+                          onClear: () {
+                            setState(() {
+                              _console.clear();
+                            });
+                          },
+                        );
+                      },
                     );
                     break;
                 }
@@ -267,69 +284,188 @@ class _ConsoleMessage {
 }
 
 class _ConsoleSheet extends StatelessWidget {
-  const _ConsoleSheet({required this.messages});
+  const _ConsoleSheet({
+    required this.messages,
+    required this.scrollController,
+    required this.onClear,
+  });
+
   final List<_ConsoleMessage> messages;
+  final ScrollController scrollController;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              l10n.messageWebViewConsoleLogs,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            if (messages.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Text(
-                  l10n.messageWebViewNoConsoleMessages,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Action Bar (Copy All, Clear)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              if (messages.isNotEmpty) ...[
+                TextButton.icon(
+                  onPressed: () async {
+                    final allLogs = messages
+                        .map(
+                          (m) =>
+                              '[${m.level}] ${m.message}'
+                              '${m.source != null ? '\nSource: ${m.source}${m.line != null ? ':${m.line}' : ''}' : ''}',
+                        )
+                        .join('\n\n');
+                    await Clipboard.setData(ClipboardData(text: allLogs));
+                    if (context.mounted) {
+                      showAppSnackBar(
+                        context,
+                        message: l10n.chatMessageWidgetCopiedToClipboard,
+                        type: NotificationType.success,
+                      );
+                    }
+                  },
+                  icon: const Icon(Lucide.Copy, size: 16),
+                  label: Text(l10n.sideDrawerMenuCopy),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: () {
+                    onClear();
+                    Navigator.of(context).maybePop();
+                  },
+                  icon: const Icon(Lucide.Trash2, size: 16),
+                  label: Text(l10n.memoryTraceClearAction),
+                ),
+              ],
+            ],
+          ),
+          const Divider(height: 1),
+          const SizedBox(height: 8),
+          if (messages.isEmpty)
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    l10n.messageWebViewNoConsoleMessages,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               ),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
+            )
+          else
+            Expanded(
+              child: ListView.separated(
+                controller: scrollController,
                 itemCount: messages.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
                   final m = messages[i];
-                  Color c;
-                  switch (m.level) {
-                    case 'ERROR':
-                      c = cs.error;
-                      break;
-                    case 'WARN':
-                    case 'WARNING':
-                      c = cs.secondary;
-                      break;
-                    default:
-                      c = cs.onSurface;
-                      break;
-                  }
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Text(
-                      '${m.level}: ${m.message}\nSource: ${m.source ?? ''}${m.line != null ? ':${m.line}' : ''}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: c,
-                        fontFamily: 'monospace',
+                  final isError = m.level == 'ERROR';
+                  final isWarn = m.level == 'WARN' || m.level == 'WARNING';
+                  final badgeColor = isError
+                      ? cs.error
+                      : isWarn
+                          ? cs.tertiary
+                          : cs.primary;
+                  final badgeBg = isError
+                      ? cs.errorContainer.withValues(alpha: 0.5)
+                      : isWarn
+                          ? cs.tertiaryContainer.withValues(alpha: 0.5)
+                          : cs.surfaceContainerHighest;
+
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: cs.outlineVariant.withValues(alpha: 0.4),
                       ),
+                    ),
+                    padding: const EdgeInsets.all(10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: badgeBg,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                m.level,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: badgeColor,
+                                ),
+                              ),
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 28,
+                                minHeight: 28,
+                              ),
+                              icon: const Icon(Lucide.Copy, size: 14),
+                              tooltip: l10n.sideDrawerMenuCopy,
+                              onPressed: () async {
+                                final logText =
+                                    '[${m.level}] ${m.message}'
+                                    '${m.source != null ? '\nSource: ${m.source}${m.line != null ? ':${m.line}' : ''}' : ''}';
+                                await Clipboard.setData(
+                                  ClipboardData(text: logText),
+                                );
+                                if (ctx.mounted) {
+                                  showAppSnackBar(
+                                    ctx,
+                                    message: l10n.chatMessageWidgetCopiedToClipboard,
+                                    type: NotificationType.success,
+                                  );
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        SelectableText(
+                          m.message,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontFamily: 'monospace',
+                            color: isError ? cs.error : cs.onSurface,
+                          ),
+                        ),
+                        if (m.source != null && m.source!.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          SelectableText(
+                            'Source: ${m.source}${m.line != null ? ':${m.line}' : ''}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: cs.onSurfaceVariant,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   );
                 },
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
