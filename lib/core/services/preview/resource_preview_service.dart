@@ -113,6 +113,7 @@ class ResourcePreviewService extends ChangeNotifier {
         openedAs: 'none',
       );
     }
+    final initialContext = (context != null && context.mounted) ? context : null;
     // 1. Web URL Handling (http://, https://)
     final uri = Uri.tryParse(trimmed);
     if (uri != null && (uri.isScheme('http') || uri.isScheme('https'))) {
@@ -120,7 +121,7 @@ class ResourcePreviewService extends ChangeNotifier {
         uri: uri,
         action: action,
         title: title,
-        context: context,
+        context: initialContext,
       );
     }
 
@@ -130,7 +131,7 @@ class ResourcePreviewService extends ChangeNotifier {
       targetPath: resolvedPath,
       action: action,
       title: title,
-      context: context,
+      context: (initialContext != null && initialContext.mounted) ? initialContext : null,
     );
   }
 
@@ -175,11 +176,7 @@ class ResourcePreviewService extends ChangeNotifier {
     // 5. Relative path (e.g. workspace/test.html, upload/image.png)
     try {
       final appDataDir = await AppDirectories.getAppDataDirectory();
-      final candidate = p.join(appDataDir.path, trimmed);
-      if (File(candidate).existsSync()) {
-        return candidate;
-      }
-      return candidate;
+      return p.join(appDataDir.path, trimmed);
     } catch (_) {}
 
     return SandboxPathResolver.fix(trimmed);
@@ -364,13 +361,7 @@ class ResourcePreviewService extends ChangeNotifier {
 
     // Explicit system_open action
     if (action == 'system_open') {
-      final res = await OpenFilex.open(file.path);
-      return ResourceOpenResult(
-        success: res.type == ResultType.done,
-        message: 'Opened with system default application: ${res.message}',
-        target: effectivePath,
-        openedAs: 'system_application',
-      );
+      return _openWithSystemDefault(file.path, effectivePath);
     }
 
     // Auto or in_app_preview: Route by extension
@@ -391,6 +382,7 @@ class ResourcePreviewService extends ChangeNotifier {
           openedAs: 'image_viewer',
         );
       }
+      return _openWithSystemDefault(file.path, effectivePath);
     }
 
     // 2. HTML format
@@ -432,9 +424,8 @@ class ResourcePreviewService extends ChangeNotifier {
             openedAs: 'html_preview',
           );
         }
-      } catch (e) {
-        // Fall back to system open
-      }
+      } catch (_) {}
+      return _openWithSystemDefault(file.path, effectivePath);
     }
 
     // 3. Markdown / Code / Text formats
@@ -458,14 +449,20 @@ class ResourcePreviewService extends ChangeNotifier {
             openedAs: 'text_preview',
           );
         }
-      } catch (e) {
-        // Fall back to system open
-      }
+      } catch (_) {}
+      return _openWithSystemDefault(file.path, effectivePath);
     }
 
     // 4. Default: Fallback to system application
+    return _openWithSystemDefault(file.path, effectivePath);
+  }
+
+  Future<ResourceOpenResult> _openWithSystemDefault(
+    String filePath,
+    String effectivePath,
+  ) async {
     try {
-      final res = await OpenFilex.open(file.path);
+      final res = await OpenFilex.open(filePath);
       final success = res.type == ResultType.done;
       return ResourceOpenResult(
         success: success,

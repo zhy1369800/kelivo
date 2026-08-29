@@ -186,7 +186,9 @@ class KelivoOpenMcpServerEngine {
         'target': {
           'type': 'string',
           'description':
-              'The URL (http:// or https://) or local file absolute path to open or preview.',
+              'The resource target to open: Web URL (http:// or https://), '
+              'app URI (kelivo://<namespace>/<path> or kelivo-file:///<root>/<path>), '
+              'or local file path (absolute or relative).',
         },
         'action': {
           'type': 'string',
@@ -210,6 +212,7 @@ class KelivoOpenMcpServerEngine {
         'name': 'kelivo_open',
         'description':
             'Open or preview web URLs, images, HTML, Markdown, documents, or local files directly for the user. '
+            'Supports Web URLs (http/https), app protocol URIs (kelivo://, kelivo-file:///), and local file paths. '
             'Web URLs open in an in-app browser/WebView, images open in an image viewer, '
             'Markdown/text files open in a rich text preview, and other files launch in their system default application.',
         'inputSchema': schema(),

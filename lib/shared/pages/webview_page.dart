@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../icons/lucide_adapter.dart';
@@ -28,7 +29,11 @@ class _WebViewPageState extends State<WebViewPage> {
   int _progress = 0;
   bool _canGoBack = false;
   bool _canGoForward = false;
+  bool _isDesktopMode = false;
   final List<_ConsoleMessage> _console = <_ConsoleMessage>[];
+
+  static const String _desktopUserAgent =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
   @override
   void initState() {
@@ -164,9 +169,11 @@ class _WebViewPageState extends State<WebViewPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
     final bool contentMode =
         (widget.contentBase64 != null && (widget.contentBase64!.isNotEmpty)) &&
         ((widget.url == null) || widget.url!.isEmpty);
+
     return PopScope(
       canPop: !_canGoBack,
       onPopInvokedWithResult: (didPop, _) {
@@ -177,36 +184,117 @@ class _WebViewPageState extends State<WebViewPage> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(
-            _title?.isNotEmpty == true ? _title! : (_currentUrl ?? ''),
+          toolbarHeight: 56,
+          titleSpacing: 0,
+          leading: IconButton(
+            icon: Icon(_canGoBack ? Lucide.ArrowLeft : Lucide.X),
+            onPressed: () async {
+              if (_canGoBack) {
+                _controller.goBack();
+              } else {
+                Navigator.of(context).maybePop();
+              }
+            },
           ),
+          title: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onVerticalDragEnd: (details) {
+              if (details.primaryVelocity != null && details.primaryVelocity! > 500) {
+                Navigator.of(context).maybePop();
+              }
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Top drag handle indicator
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 6),
+                  decoration: BoxDecoration(
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Text(
+                  _title?.isNotEmpty == true ? _title! : (_currentUrl ?? ''),
+                  style: Theme.of(context).textTheme.titleMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          centerTitle: true,
           actions: [
-            if (!contentMode) ...[
-              IconButton(
-                tooltip: l10n.messageWebViewRefreshTooltip,
-                onPressed: () => _controller.reload(),
-                icon: const Icon(Icons.refresh),
-              ),
-              IconButton(
-                tooltip: l10n.messageWebViewForwardTooltip,
-                onPressed: _canGoForward ? () => _controller.goForward() : null,
-                icon: const Icon(Icons.arrow_forward),
-              ),
-            ],
             PopupMenuButton<String>(
+              icon: const Icon(Lucide.MoreVertical),
               onSelected: (value) async {
+                final currentTarget = _currentUrl ?? widget.url ?? '';
+                final uri = Uri.tryParse(currentTarget);
+
                 switch (value) {
+                  case 'reload':
+                    _controller.reload();
+                    break;
+                  case 'forward':
+                    if (_canGoForward) {
+                      _controller.goForward();
+                    }
+                    break;
+                  case 'desktop_mode':
+                    setState(() {
+                      _isDesktopMode = !_isDesktopMode;
+                    });
+                    await _controller.setUserAgent(
+                      _isDesktopMode ? _desktopUserAgent : null,
+                    );
+                    await _controller.reload();
+                    if (context.mounted) {
+                      showAppSnackBar(
+                        context,
+                        message: _isDesktopMode ? '已切换至电脑桌面版' : '已切换至手机版',
+                        type: NotificationType.info,
+                      );
+                    }
+                    break;
                   case 'open':
-                    if (!contentMode) {
-                      final url = _currentUrl;
-                      if (url != null && url.trim().isNotEmpty) {
-                        final uri = Uri.tryParse(url);
-                        if (uri != null) {
-                          await launchUrl(
-                            uri,
-                            mode: LaunchMode.externalApplication,
-                          );
-                        }
+                    if (uri != null && (uri.isScheme('http') || uri.isScheme('https'))) {
+                      await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    }
+                    break;
+                  case 'share':
+                    if (uri != null) {
+                      final size = MediaQuery.maybeOf(context)?.size;
+                      final anchor = (size != null && size.width > 0 && size.height > 0)
+                          ? Rect.fromCenter(
+                              center: Offset(size.width / 2, size.height / 2),
+                              width: 10,
+                              height: 10,
+                            )
+                          : null;
+                      await SharePlus.instance.share(
+                        ShareParams(
+                          uri: uri,
+                          sharePositionOrigin: anchor,
+                        ),
+                      );
+                    }
+                    break;
+                  case 'copy_link':
+                    if (currentTarget.isNotEmpty) {
+                      await Clipboard.setData(
+                        ClipboardData(text: currentTarget),
+                      );
+                      if (context.mounted) {
+                        showAppSnackBar(
+                          context,
+                          message: l10n.chatMessageWidgetCopiedToClipboard,
+                          type: NotificationType.success,
+                        );
                       }
                     }
                     break;
@@ -233,28 +321,82 @@ class _WebViewPageState extends State<WebViewPage> {
                 }
               },
               itemBuilder: (ctx) => [
-                if (!contentMode)
+                const PopupMenuItem<String>(
+                  value: 'reload',
+                  child: Row(
+                    children: [
+                      Icon(Lucide.RotateCw, size: 18),
+                      SizedBox(width: 12),
+                      Text('重新加载'),
+                    ],
+                  ),
+                ),
+                if (_canGoForward)
+                  const PopupMenuItem<String>(
+                    value: 'forward',
+                    child: Row(
+                      children: [
+                        Icon(Lucide.ArrowRight, size: 18),
+                        SizedBox(width: 12),
+                        Text('前进'),
+                      ],
+                    ),
+                  ),
+                if (!contentMode) ...[
+                  PopupMenuItem<String>(
+                    value: 'desktop_mode',
+                    child: Row(
+                      children: [
+                        Icon(Lucide.Monitor, size: 18),
+                        SizedBox(width: 12),
+                        Text(_isDesktopMode ? '请求移动网站' : '请求桌面网站'),
+                      ],
+                    ),
+                  ),
                   PopupMenuItem<String>(
                     value: 'open',
-                    child: Text(l10n.messageWebViewOpenInBrowser),
+                    child: Row(
+                      children: [
+                        const Icon(Lucide.Compass, size: 18),
+                        const SizedBox(width: 12),
+                        Text(l10n.messageWebViewOpenInBrowser),
+                      ],
+                    ),
                   ),
+                  const PopupMenuItem<String>(
+                    value: 'share',
+                    child: Row(
+                      children: [
+                        Icon(Lucide.Share2, size: 18),
+                        SizedBox(width: 12),
+                        Text('分享'),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'copy_link',
+                    child: Row(
+                      children: [
+                        const Icon(Lucide.Copy, size: 18),
+                        const SizedBox(width: 12),
+                        Text(l10n.sideDrawerMenuCopy),
+                      ],
+                    ),
+                  ),
+                ],
                 PopupMenuItem<String>(
                   value: 'console',
-                  child: Text(l10n.messageWebViewConsoleLogs),
+                  child: Row(
+                    children: [
+                      const Icon(Lucide.Terminal, size: 18),
+                      const SizedBox(width: 12),
+                      Text('${l10n.messageWebViewConsoleLogs} (${_console.length})'),
+                    ],
+                  ),
                 ),
               ],
             ),
           ],
-          leading: IconButton(
-            icon: Icon(_canGoBack ? Icons.arrow_back : Icons.close),
-            onPressed: () async {
-              if (_canGoBack) {
-                _controller.goBack();
-              } else {
-                Navigator.of(context).maybePop();
-              }
-            },
-          ),
         ),
         body: Column(
           children: [
