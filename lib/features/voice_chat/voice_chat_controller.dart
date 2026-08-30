@@ -82,6 +82,7 @@ class VoiceChatController extends ChangeNotifier {
   Future<void> start() async {
     if (_state != VoiceChatState.idle) return;
     _error = null;
+    ttsProvider.suppressFloatingPlayer = true;
     await VoiceChatLiveActivityService.instance.start(
       assistantName: assistantName,
       avatarPath: avatarPath,
@@ -90,6 +91,7 @@ class VoiceChatController extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    ttsProvider.suppressFloatingPlayer = false;
     _silenceTimer?.cancel();
     _silenceTimer = null;
     _idleTimer?.cancel();
@@ -361,6 +363,7 @@ class VoiceChatController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    ttsProvider.suppressFloatingPlayer = false;
     _silenceTimer?.cancel();
     _idleTimer?.cancel();
     _bargeInTimer?.cancel();

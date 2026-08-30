@@ -47,6 +47,7 @@ class _TtsFloatingPlayerState extends State<TtsFloatingPlayer> {
 
     return Consumer<TtsProvider>(
       builder: (context, tts, _) {
+        if (tts.suppressFloatingPlayer) return const SizedBox.shrink();
         final state = tts.playbackState;
         final visible = state.isPlayerVisible;
         if (visible && !_wasVisible) {

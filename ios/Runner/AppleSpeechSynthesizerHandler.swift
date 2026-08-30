@@ -68,10 +68,15 @@ final class AppleSpeechSynthesizerHandler: NSObject, AVSpeechSynthesizerDelegate
     // Configure Audio Session for Speech Output
     do {
       let audioSession = AVAudioSession.sharedInstance()
-      try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+      try audioSession.setCategory(
+        .playAndRecord,
+        mode: .spokenAudio,
+        options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .duckOthers]
+      )
       try audioSession.setActive(true)
     } catch {
-      // Non-fatal audio session setup
+      try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+      try? AVAudioSession.sharedInstance().setActive(true)
     }
 
     synthesizer.speak(utterance)
@@ -217,7 +222,6 @@ final class AppleSpeechSynthesizerHandler: NSObject, AVSpeechSynthesizerDelegate
   // MARK: - AVSpeechSynthesizerDelegate
 
   func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-    // Reset Audio Session
-    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    // Keep audio session alive for seamless continuous background voice dialogue
   }
 }

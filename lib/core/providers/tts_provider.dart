@@ -110,6 +110,14 @@ class TtsProvider extends ChangeNotifier {
   bool get canSaveNetworkAudio =>
       _lastReplayNetworkService != null && _chunks.isNotEmpty;
 
+  bool _suppressFloatingPlayer = false;
+  bool get suppressFloatingPlayer => _suppressFloatingPlayer;
+  set suppressFloatingPlayer(bool value) {
+    if (_suppressFloatingPlayer == value) return;
+    _suppressFloatingPlayer = value;
+    notifyListeners();
+  }
+
   TtsProvider({required this.preferences}) {
     _init();
   }
