@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:Kelivo/core/services/mcp/kelivo_open/kelivo_open_server.dart';
@@ -136,6 +137,16 @@ void main() {
       );
       expect(fileRes.success, isTrue);
       expect(fileRes.openedAs, 'share_sheet');
+    });
+
+    test('buildVerticalSlideRoute creates valid PageRouteBuilder', () {
+      final route = ResourcePreviewService.buildVerticalSlideRoute<void>(
+        page: const SizedBox(),
+      );
+      expect(route, isA<PageRouteBuilder<void>>());
+      final pageRoute = route as PageRouteBuilder<void>;
+      expect(pageRoute.transitionDuration, const Duration(milliseconds: 280));
+      expect(pageRoute.reverseTransitionDuration, const Duration(milliseconds: 240));
     });
   });
 }

@@ -97,6 +97,49 @@ class ResourcePreviewService extends ChangeNotifier {
     '.ps1',
   };
 
+  Route<dynamic>? _activePreviewRoute;
+
+  /// Builds a vertical slide route (slides up from bottom, slides down to dismiss).
+  static Route<T> buildVerticalSlideRoute<T>({required Widget page}) {
+    return PageRouteBuilder<T>(
+      opaque: false,
+      barrierColor: Colors.black45,
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        const curve = Curves.easeOutCubic;
+        final tween = Tween<Offset>(
+          begin: const Offset(0.0, 1.0),
+          end: Offset.zero,
+        ).chain(CurveTween(curve: curve));
+        return SlideTransition(
+          position: animation.drive(tween),
+          child: child,
+        );
+      },
+      transitionDuration: const Duration(milliseconds: 280),
+      reverseTransitionDuration: const Duration(milliseconds: 240),
+    );
+  }
+
+  void _dismissActivePreviewRoute() {
+    final route = _activePreviewRoute;
+    if (route != null && route.isActive) {
+      final navigator = route.navigator;
+      if (navigator != null && navigator.mounted) {
+        try {
+          navigator.removeRoute(route);
+        } catch (_) {
+          // Keep failure silent without attempting maybePop() which might pop underlying app pages
+        }
+      }
+    }
+    _activePreviewRoute = null;
+  }
+
+  void _trackActivePreviewRoute(Route<dynamic> route) {
+    _activePreviewRoute = route;
+  }
+
   /// Open or preview a resource (Web URL, Custom App URI, or Local File Path).
   Future<ResourceOpenResult> openResource({
     required String target,
@@ -269,14 +312,26 @@ class ResourcePreviewService extends ChangeNotifier {
     }
 
     // In-app WebView preview (default)
-    if (effectiveContext != null && effectiveContext.mounted) {
-      unawaited(
-        Navigator.of(effectiveContext).push(
-          MaterialPageRoute<void>(
-            builder: (_) => WebViewPage(url: urlString),
-          ),
-        ),
+    // 1. Check if an existing WebViewPage is already mounted -> update in place
+    final activeWebState = WebViewPage.activeState;
+    if (activeWebState != null && activeWebState.mounted) {
+      await activeWebState.updateTarget(url: urlString, title: title);
+      return ResourceOpenResult(
+        success: true,
+        message: 'Updated existing in-app WebView: $urlString',
+        target: urlString,
+        openedAs: 'in_app_webview',
       );
+    }
+
+    if (effectiveContext != null && effectiveContext.mounted) {
+      // Dismiss any other previewer route before pushing
+      _dismissActivePreviewRoute();
+      final route = buildVerticalSlideRoute<void>(
+        page: WebViewPage(url: urlString),
+      );
+      _trackActivePreviewRoute(route);
+      unawaited(Navigator.of(effectiveContext).push(route));
       return ResourceOpenResult(
         success: true,
         message: 'Opened in in-app WebView: $urlString',
@@ -368,13 +423,12 @@ class ResourcePreviewService extends ChangeNotifier {
     // 1. Image formats
     if (_imageExtensions.contains(ext)) {
       if (effectiveContext != null && effectiveContext.mounted) {
-        unawaited(
-          Navigator.of(effectiveContext).push(
-            MaterialPageRoute<void>(
-              builder: (_) => ImageViewerPage(images: [file.path]),
-            ),
-          ),
+        _dismissActivePreviewRoute();
+        final route = buildVerticalSlideRoute<void>(
+          page: ImageViewerPage(images: [file.path]),
         );
+        _trackActivePreviewRoute(route);
+        unawaited(Navigator.of(effectiveContext).push(route));
         return ResourceOpenResult(
           success: true,
           message: 'Opened in in-app Image Viewer: $effectivePath',
@@ -391,6 +445,7 @@ class ResourcePreviewService extends ChangeNotifier {
         final content = await file.readAsString();
         if (defaultTargetPlatform == TargetPlatform.linux) {
           if (effectiveContext != null && effectiveContext.mounted) {
+            _dismissActivePreviewRoute();
             unawaited(
               ResourcePreviewModal.show(
                 context: effectiveContext,
@@ -409,14 +464,28 @@ class ResourcePreviewService extends ChangeNotifier {
           }
         }
         final base64Content = base64Encode(utf8.encode(content));
-        if (effectiveContext != null && effectiveContext.mounted) {
-          unawaited(
-            Navigator.of(effectiveContext).push(
-              MaterialPageRoute<void>(
-                builder: (_) => WebViewPage(contentBase64: base64Content),
-              ),
-            ),
+        // Check if an existing WebViewPage is already mounted -> update in place
+        final activeWebState = WebViewPage.activeState;
+        if (activeWebState != null && activeWebState.mounted) {
+          await activeWebState.updateTarget(
+            contentBase64: base64Content,
+            title: effectiveTitle,
           );
+          return ResourceOpenResult(
+            success: true,
+            message: 'Updated rendered HTML in existing in-app WebView: $effectivePath',
+            target: effectivePath,
+            openedAs: 'html_preview',
+          );
+        }
+
+        if (effectiveContext != null && effectiveContext.mounted) {
+          _dismissActivePreviewRoute();
+          final route = buildVerticalSlideRoute<void>(
+            page: WebViewPage(contentBase64: base64Content),
+          );
+          _trackActivePreviewRoute(route);
+          unawaited(Navigator.of(effectiveContext).push(route));
           return ResourceOpenResult(
             success: true,
             message: 'Rendered HTML in in-app WebView: $effectivePath',
@@ -433,6 +502,7 @@ class ResourcePreviewService extends ChangeNotifier {
       try {
         final content = await file.readAsString();
         if (effectiveContext != null && effectiveContext.mounted) {
+          _dismissActivePreviewRoute();
           unawaited(
             ResourcePreviewModal.show(
               context: effectiveContext,

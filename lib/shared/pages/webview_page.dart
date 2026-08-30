@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
@@ -17,11 +18,15 @@ class WebViewPage extends StatefulWidget {
   final String? url;
   final String? contentBase64; // HTML string in Base64
 
+  /// Global handle to currently mounted WebViewPage instance (if any).
+  static _WebViewPageState? activeState;
+
   @override
   State<WebViewPage> createState() => _WebViewPageState();
 }
 
-class _WebViewPageState extends State<WebViewPage> {
+class _WebViewPageState extends State<WebViewPage>
+    with SingleTickerProviderStateMixin {
   late final WebViewController _controller;
   String? _title;
   String? _currentUrl;
@@ -30,15 +35,45 @@ class _WebViewPageState extends State<WebViewPage> {
   bool _canGoBack = false;
   bool _canGoForward = false;
   bool _isDesktopMode = false;
-  double _topDragAccumulated = 0;
+  late bool _contentMode; // true when rendering inline HTML (not a URL)
   final List<_ConsoleMessage> _console = <_ConsoleMessage>[];
 
+  // Downward drag-to-dismiss states
+  double _dragDy = 0.0;
+  double _animFrom = 0.0;
+  double _animTo = 0.0;
+  bool _isDismissing = false;
+  late final AnimationController _slideCtrl;
+
   static const String _desktopUserAgent =
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, Gecko) Chrome/125.0.0.0 Safari/537.36';
 
   @override
   void initState() {
     super.initState();
+    _contentMode =
+        (widget.contentBase64 != null && widget.contentBase64!.isNotEmpty) &&
+        (widget.url == null || widget.url!.isEmpty);
+    WebViewPage.activeState = this;
+    _slideCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    )
+      ..addListener(() {
+        final curve = _isDismissing ? Curves.easeInCubic : Curves.easeOutCubic;
+        final t = curve.transform(_slideCtrl.value);
+        setState(() {
+          _dragDy = _animFrom + (_animTo - _animFrom) * t;
+        });
+      })
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed && _isDismissing) {
+          if (mounted) {
+            Navigator.of(context).pop();
+          }
+        }
+      });
+
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel('Console', onMessageReceived: _onConsoleMessage)
@@ -78,6 +113,53 @@ class _WebViewPageState extends State<WebViewPage> {
     scheduleMicrotask(_initialLoad);
   }
 
+  @override
+  void dispose() {
+    if (WebViewPage.activeState == this) {
+      WebViewPage.activeState = null;
+    }
+    _slideCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Update content in-place without rebuilding or reopening the page.
+  Future<void> updateTarget({
+    String? url,
+    String? contentBase64,
+    String? title,
+  }) async {
+    if (!mounted) return;
+    _slideCtrl.stop();
+    final targetUrl = url?.trim() ?? '';
+    setState(() {
+      if (title != null && title.trim().isNotEmpty) {
+        _title = title.trim();
+      }
+      _contentMode = targetUrl.isEmpty; // URL 模式 vs HTML 模式
+      _isLoading = true;
+      _progress = 0;
+      _dragDy = 0.0;
+      _isDismissing = false;
+    });
+
+    if (targetUrl.isNotEmpty) {
+      await _controller.loadRequest(Uri.parse(targetUrl));
+    } else {
+      final data = contentBase64 ?? '';
+      final html = data.isEmpty
+          ? '<!doctype html><html><body></body></html>'
+          : utf8.decode(base64Decode(data));
+      await _controller.loadHtmlString(html);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _progress = 100;
+        });
+        await _refreshCanGoStates();
+      }
+    }
+  }
+
   Future<void> _initialLoad() async {
     if (defaultTargetPlatform == TargetPlatform.linux) {
       // Keep parity with existing Linux limitation: no WebView support
@@ -98,6 +180,13 @@ class _WebViewPageState extends State<WebViewPage> {
           ? '<!doctype html><html><body></body></html>'
           : utf8.decode(base64Decode(data));
       await _controller.loadHtmlString(html);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _progress = 100;
+        });
+        await _refreshCanGoStates();
+      }
     }
   }
 
@@ -167,13 +256,20 @@ class _WebViewPageState extends State<WebViewPage> {
     } catch (_) {}
   }
 
+  void _dismissDownwards() {
+    if (_isDismissing) return;
+    _slideCtrl.stop();
+    final screenH = MediaQuery.sizeOf(context).height;
+    _animFrom = _dragDy;
+    _animTo = screenH > 0 ? screenH : 800.0;
+    _isDismissing = true;
+    _slideCtrl.forward(from: 0.0);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final bool contentMode =
-        (widget.contentBase64 != null && (widget.contentBase64!.isNotEmpty)) &&
-        ((widget.url == null) || widget.url!.isEmpty);
 
     return PopScope(
       canPop: !_canGoBack,
@@ -183,61 +279,77 @@ class _WebViewPageState extends State<WebViewPage> {
           _controller.goBack();
         }
       },
-      child: Scaffold(
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onVerticalDragStart: (_) {
-              _topDragAccumulated = 0;
-            },
-            onVerticalDragUpdate: (details) {
-              if (details.delta.dy > 0) {
-                _topDragAccumulated += details.delta.dy;
-              }
-            },
-            onVerticalDragEnd: (details) {
-              final velocity = details.primaryVelocity ?? 0;
-              if (_topDragAccumulated > 40 || velocity > 400) {
-                Navigator.of(context).maybePop();
-              }
-              _topDragAccumulated = 0;
-            },
-            child: AppBar(
-              toolbarHeight: 56,
-              titleSpacing: 0,
-              leading: IconButton(
-                icon: Icon(_canGoBack ? Lucide.ArrowLeft : Lucide.X),
-                onPressed: () async {
-                  if (_canGoBack) {
-                    _controller.goBack();
+      child: Transform.translate(
+        offset: Offset(0, _dragDy),
+        child: ClipRRect(
+          borderRadius: _dragDy > 0
+              ? const BorderRadius.vertical(top: Radius.circular(20))
+              : BorderRadius.zero,
+          child: Scaffold(
+            appBar: PreferredSize(
+              preferredSize: const Size.fromHeight(56),
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onVerticalDragStart: (_) {
+                  _slideCtrl.stop();
+                },
+                onVerticalDragUpdate: (details) {
+                  final dy = details.delta.dy;
+                  if (dy <= 0 && _dragDy <= 0) return;
+                  setState(() {
+                    _dragDy = math.max(0.0, _dragDy + dy);
+                  });
+                },
+                onVerticalDragEnd: (details) {
+                  final velocity = details.primaryVelocity ?? 0;
+                  const double dismissDistance = 120.0;
+                  const double dismissVelocity = 700.0;
+                  if (_dragDy > dismissDistance || velocity > dismissVelocity) {
+                    _dismissDownwards();
                   } else {
-                    Navigator.of(context).maybePop();
+                    _animFrom = _dragDy;
+                    _animTo = 0.0;
+                    _isDismissing = false;
+                    _slideCtrl.forward(from: 0.0);
                   }
                 },
-              ),
-              title: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 36,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 6),
-                    decoration: BoxDecoration(
-                      color: cs.onSurfaceVariant.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
+                child: AppBar(
+                  toolbarHeight: 56,
+                  titleSpacing: 0,
+                  leading: IconButton(
+                    icon: Icon(_canGoBack ? Lucide.ArrowLeft : Lucide.X),
+                    onPressed: () {
+                      if (_canGoBack) {
+                        _controller.goBack();
+                      } else {
+                        _dismissDownwards();
+                      }
+                    },
                   ),
-                  Text(
-                    _title?.isNotEmpty == true ? _title! : (_currentUrl ?? ''),
-                    style: Theme.of(context).textTheme.titleMedium,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  title: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 6),
+                        decoration: BoxDecoration(
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      Text(
+                        _title?.isNotEmpty == true
+                            ? _title!
+                            : (_currentUrl ?? ''),
+                        style: Theme.of(context).textTheme.titleMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              centerTitle: true,
-              actions: [
+                  centerTitle: true,
+                  actions: [
                 PopupMenuButton<String>(
                   icon: const Icon(Lucide.MoreVertical),
                   onSelected: (value) async {
@@ -360,7 +472,7 @@ class _WebViewPageState extends State<WebViewPage> {
                           ],
                         ),
                       ),
-                    if (!contentMode) ...[
+                    if (!_contentMode) ...[
                       PopupMenuItem<String>(
                         value: 'desktop_mode',
                         child: Row(
@@ -430,7 +542,9 @@ class _WebViewPageState extends State<WebViewPage> {
           ],
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 }
 
