@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
 import 'voice_chat_controller.dart';
+import 'widgets/particle_fluid_orb.dart';
 
 /// 全屏沉浸式语音聊天 Overlay —— Gemini Live 风格
 class VoiceChatOverlay extends StatefulWidget {
@@ -19,12 +20,9 @@ class VoiceChatOverlay extends StatefulWidget {
 }
 
 class _VoiceChatOverlayState extends State<VoiceChatOverlay>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   late final AnimationController _entryCtrl;
   late final Animation<double> _entryAnim;
-  late final AnimationController _rippleCtrl;
-  late final AnimationController _pulseCtrl;
-  late final Animation<double> _pulseAnim;
 
   // 滚动控制器（AI 文本区）
   final ScrollController _scrollCtrl = ScrollController();
@@ -40,18 +38,6 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
     _entryAnim =
         CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic);
     _entryCtrl.forward();
-
-    _rippleCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat();
-
-    _pulseCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1100),
-    )..repeat(reverse: true);
-    _pulseAnim =
-        CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut);
 
     // 当 AI 文字更新时，自动滚回顶部（最新回复从顶开始读）
     widget.controller.addListener(_onControllerChanged);
@@ -77,8 +63,6 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
     _entryCtrl.dispose();
-    _rippleCtrl.dispose();
-    _pulseCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
   }
@@ -154,22 +138,20 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
                         ),
                       ),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 16),
 
-                      // ── 动效 Orb（点击打断） ──
-                      _OrbSection(
+                      // ── 3D 粒子发光流体球（点击可打断） ──
+                      ParticleFluidOrb(
                         controller: widget.controller,
-                        rippleAnim: _rippleCtrl,
-                        pulseAnim: _pulseAnim,
-                        color: _stateColor,
+                        size: 230,
                       ),
 
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 24),
 
                       // ── 底部操作区 ──
                       _BottomBar(onClose: _close),
 
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
                     ],
                   );
                 },
@@ -391,230 +373,6 @@ class _SubtitleArea extends StatelessWidget {
       ),
     );
   }
-}
-
-// ────────────────────────────────────────────
-// 中央动效 Orb（点击可打断 TTS）
-// ────────────────────────────────────────────
-class _OrbSection extends StatefulWidget {
-  const _OrbSection({
-    required this.controller,
-    required this.rippleAnim,
-    required this.pulseAnim,
-    required this.color,
-  });
-
-  final VoiceChatController controller;
-  final Animation<double> rippleAnim;
-  final Animation<double> pulseAnim;
-  final Color color;
-
-  @override
-  State<_OrbSection> createState() => _OrbSectionState();
-}
-
-class _OrbSectionState extends State<_OrbSection> {
-  bool _pressing = false;
-
-  Future<void> _onTap() async {
-    if (widget.controller.state == VoiceChatState.aiSpeaking) {
-      await widget.controller.interruptTts();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isAiSpeaking =
-        widget.controller.state == VoiceChatState.aiSpeaking;
-
-    return Column(
-      children: [
-        // 提示文字：AI 说话中才显示点击提示
-        AnimatedOpacity(
-          opacity: isAiSpeaking ? 1.0 : 0.0,
-          duration: const Duration(milliseconds: 300),
-          child: Text(
-            AppLocalizations.of(context)?.voiceChatClickToInterrupt ??
-                'Tap to interrupt',
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.4),
-              fontSize: 12,
-              letterSpacing: 0.3,
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-
-        // Orb 本体
-        GestureDetector(
-          onTap: _onTap,
-          onTapDown: (_) => setState(() => _pressing = true),
-          onTapUp: (_) => setState(() => _pressing = false),
-          onTapCancel: () => setState(() => _pressing = false),
-          child: AnimatedScale(
-            scale: _pressing ? 0.93 : 1.0,
-            duration: const Duration(milliseconds: 120),
-            curve: Curves.easeOut,
-            child: SizedBox(
-              width: 180,
-              height: 180,
-              child: AnimatedBuilder(
-                animation:
-                    Listenable.merge([widget.rippleAnim, widget.pulseAnim]),
-                builder: (_, __) {
-                  final state = widget.controller.state;
-                  final soundLevel =
-                      widget.controller.soundLevel.clamp(0.0, 1.0);
-                  final isActive = state == VoiceChatState.listening ||
-                      state == VoiceChatState.aiSpeaking;
-
-                  const baseR = 52.0;
-                  final dynamicR = isActive
-                      ? baseR +
-                          soundLevel * 22 +
-                          widget.pulseAnim.value * 10
-                      : baseR;
-                  final ripplePhase = widget.rippleAnim.value;
-
-                  return CustomPaint(
-                    painter: _OrbPainter(
-                      color: widget.color,
-                      baseRadius: dynamicR,
-                      ripplePhase: ripplePhase,
-                      isActive: isActive,
-                      pulseValue: widget.pulseAnim.value,
-                    ),
-                    child: Center(
-                      child: _OrbIcon(
-                        state: state,
-                        isAiSpeaking: isAiSpeaking,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _OrbIcon extends StatelessWidget {
-  const _OrbIcon({required this.state, required this.isAiSpeaking});
-  final VoiceChatState state;
-  final bool isAiSpeaking;
-
-  @override
-  Widget build(BuildContext context) {
-    final icon = switch (state) {
-      VoiceChatState.listening => Icons.mic_rounded,
-      VoiceChatState.processing => Icons.auto_awesome_rounded,
-      // AI 说话时改用 stop 图标提示可打断
-      VoiceChatState.aiSpeaking => Icons.stop_rounded,
-      VoiceChatState.idle => Icons.mic_none_rounded,
-    };
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 200),
-      child: Icon(icon, key: ValueKey(state), color: Colors.white, size: 34),
-    );
-  }
-}
-
-class _OrbPainter extends CustomPainter {
-  const _OrbPainter({
-    required this.color,
-    required this.baseRadius,
-    required this.ripplePhase,
-    required this.isActive,
-    required this.pulseValue,
-  });
-
-  final Color color;
-  final double baseRadius;
-  final double ripplePhase;
-  final bool isActive;
-  final double pulseValue;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-
-    // 多层波纹
-    if (isActive) {
-      for (int i = 0; i < 3; i++) {
-        final phase = (ripplePhase + i / 3) % 1.0;
-        final ringRadius = baseRadius + phase * 44;
-        final opacity = (1.0 - phase) * 0.2;
-        canvas.drawCircle(
-          center,
-          ringRadius,
-          Paint()
-            ..color = color.withValues(alpha: opacity)
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.5,
-        );
-      }
-    }
-
-    // 外光晕
-    final glowR = baseRadius + 16;
-    canvas.drawCircle(
-      center,
-      glowR * 1.5,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            color.withValues(alpha: isActive ? 0.20 + pulseValue * 0.08 : 0.06),
-            color.withValues(alpha: 0),
-          ],
-        ).createShader(
-            Rect.fromCircle(center: center, radius: glowR * 1.5)),
-    );
-
-    // 中间环
-    canvas.drawCircle(
-      center,
-      baseRadius + 10,
-      Paint()..color = color.withValues(alpha: isActive ? 0.14 : 0.05),
-    );
-
-    // 核心渐变圆
-    canvas.drawCircle(
-      center,
-      baseRadius,
-      Paint()
-        ..shader = RadialGradient(
-          center: const Alignment(-0.3, -0.3),
-          colors: [
-            Color.lerp(Colors.white, color, 0.35)!,
-            color,
-            Color.lerp(color, Colors.black, 0.22)!,
-          ],
-          stops: const [0.0, 0.55, 1.0],
-        ).createShader(
-            Rect.fromCircle(center: center, radius: baseRadius)),
-    );
-
-    // 高光
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: center.translate(-baseRadius * 0.25, -baseRadius * 0.28),
-        width: baseRadius * 0.65,
-        height: baseRadius * 0.38,
-      ),
-      Paint()..color = Colors.white.withValues(alpha: 0.18),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_OrbPainter old) =>
-      old.ripplePhase != ripplePhase ||
-      old.baseRadius != baseRadius ||
-      old.pulseValue != pulseValue ||
-      old.isActive != isActive ||
-      old.color != color;
 }
 
 // ────────────────────────────────────────────
