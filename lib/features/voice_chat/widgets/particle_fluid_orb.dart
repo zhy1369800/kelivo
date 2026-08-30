@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -12,6 +13,25 @@ class _SpherePoint {
   final double z;
   final double u;
   final double v;
+}
+
+/// 粒子流体样式数据模型
+class _OrbStyle {
+  const _OrbStyle(this.primary, this.glow, this.speed, this.amp);
+
+  final Color primary;
+  final Color glow;
+  final double speed;
+  final double amp;
+
+  static _OrbStyle lerp(_OrbStyle a, _OrbStyle b, double t) {
+    return _OrbStyle(
+      Color.lerp(a.primary, b.primary, t)!,
+      Color.lerp(a.glow, b.glow, t)!,
+      ui.lerpDouble(a.speed, b.speed, t)!,
+      ui.lerpDouble(a.amp, b.amp, t)!,
+    );
+  }
 }
 
 /// 3D 粒子发光流体球组件 —— ChatGPT / Siri 风格
@@ -32,11 +52,17 @@ class ParticleFluidOrb extends StatefulWidget {
 }
 
 class _ParticleFluidOrbState extends State<ParticleFluidOrb>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _animController;
+  late final AnimationController _transitionCtrl;
+  late final Animation<double> _transitionAnim;
   late final List<_SpherePoint> _basePoints;
-  bool _pressing = false;
 
+  VoiceChatState _previousState = VoiceChatState.idle;
+  _OrbStyle _oldStyle = _resolveStyle(VoiceChatState.idle, 0);
+  _OrbStyle _targetStyle = _resolveStyle(VoiceChatState.idle, 0);
+
+  bool _pressing = false;
   static const int _pointCount = 480;
 
   @override
@@ -47,22 +73,82 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
       duration: const Duration(seconds: 12),
     )..repeat();
 
+    _transitionCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+    );
+    _transitionAnim = CurvedAnimation(
+      parent: _transitionCtrl,
+      curve: Curves.easeOutCubic,
+    );
+    _transitionCtrl.value = 1.0; // 初始无需过渡
+
+    _previousState = widget.controller.state;
+    _targetStyle = _resolveStyle(_previousState, widget.controller.soundLevel);
+    _oldStyle = _targetStyle;
+
     _basePoints = _generateFibonacciSphere(_pointCount);
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  void _onControllerChanged() {
+    final newState = widget.controller.state;
+    if (newState != _previousState) {
+      _oldStyle = _OrbStyle.lerp(_oldStyle, _targetStyle, _transitionAnim.value);
+      _targetStyle = _resolveStyle(newState, widget.controller.soundLevel);
+      _previousState = newState;
+      _transitionCtrl.forward(from: 0.0);
+    }
   }
 
   @override
   void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
     _animController.dispose();
+    _transitionCtrl.dispose();
     super.dispose();
+  }
+
+  static _OrbStyle _resolveStyle(VoiceChatState state, double soundLevel) {
+    switch (state) {
+      case VoiceChatState.listening:
+        return _OrbStyle(
+          const Color(0xFF38BDF8),
+          const Color(0xFF0284C7),
+          1.2,
+          1.1 + soundLevel * 1.2,
+        );
+      case VoiceChatState.processing:
+        return const _OrbStyle(
+          Color(0xFFA855F7),
+          Color(0xFF7C3AED),
+          2.0,
+          0.85,
+        );
+      case VoiceChatState.aiSpeaking:
+        return const _OrbStyle(
+          Color(0xFF34D399),
+          Color(0xFF059669),
+          1.5,
+          1.35,
+        );
+      case VoiceChatState.idle:
+        return const _OrbStyle(
+          Color(0xFF94A3B8),
+          Color(0xFF64748B),
+          0.5,
+          0.45,
+        );
+    }
   }
 
   /// 使用斐波那契黄金螺旋算法在单位球面上生成均匀分布的点
   List<_SpherePoint> _generateFibonacciSphere(int samples) {
     final points = <_SpherePoint>[];
-    final phi = (1.0 + math.sqrt(5.0)) / 2.0; // 黄金比例
+    final phi = (1.0 + math.sqrt(5.0)) / 2.0;
 
     for (int i = 0; i < samples; i++) {
-      final y = 1.0 - (i / (samples - 1.0)) * 2.0; // 从 1 到 -1
+      final y = 1.0 - (i / (samples - 1.0)) * 2.0;
       final radius = math.sqrt(math.max(0.0, 1.0 - y * y));
 
       final theta = 2.0 * math.pi * i / phi;
@@ -120,13 +206,24 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
               width: widget.size,
               height: widget.size,
               child: AnimatedBuilder(
-                animation: _animController,
+                animation: Listenable.merge([_animController, _transitionCtrl]),
                 builder: (context, _) {
+                  final activeTargetStyle = _resolveStyle(
+                    widget.controller.state,
+                    widget.controller.soundLevel,
+                  );
+                  final currentStyle = _OrbStyle.lerp(
+                    _oldStyle,
+                    activeTargetStyle,
+                    _transitionAnim.value,
+                  );
+
                   return CustomPaint(
                     size: Size(widget.size, widget.size),
                     painter: _ParticleFluidPainter(
                       points: _basePoints,
                       progress: _animController.value,
+                      style: currentStyle,
                       state: widget.controller.state,
                       soundLevel: widget.controller.soundLevel,
                     ),
@@ -146,12 +243,14 @@ class _ParticleFluidPainter extends CustomPainter {
   _ParticleFluidPainter({
     required this.points,
     required this.progress,
+    required this.style,
     required this.state,
     required this.soundLevel,
   });
 
   final List<_SpherePoint> points;
   final double progress;
+  final _OrbStyle style;
   final VoiceChatState state;
   final double soundLevel;
 
@@ -160,8 +259,10 @@ class _ParticleFluidPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final baseRadius = size.width * 0.38;
 
-    // 状态色彩配置
-    final (primaryColor, glowColor, waveSpeed, waveAmp) = _resolveStyle();
+    final primaryColor = style.primary;
+    final glowColor = style.glow;
+    final waveSpeed = style.speed;
+    final waveAmp = style.amp;
 
     // 1. 绘制核心漫反射背景辉光
     final bgGlowPaint = Paint()
@@ -268,47 +369,10 @@ class _ParticleFluidPainter extends CustomPainter {
     }
   }
 
-  /// 根据状态分发流体色彩与动效参数
-  (Color primary, Color glow, double speed, double amp) _resolveStyle() {
-    switch (state) {
-      case VoiceChatState.listening:
-        // 青蓝极光：随说话音量高灵敏起伏
-        return (
-          const Color(0xFF38BDF8),
-          const Color(0xFF0284C7),
-          1.2,
-          1.1 + soundLevel * 1.2,
-        );
-      case VoiceChatState.processing:
-        // 流光紫：加速自旋、思考旋涡
-        return (
-          const Color(0xFFA855F7),
-          const Color(0xFF7C3AED),
-          2.0,
-          0.85,
-        );
-      case VoiceChatState.aiSpeaking:
-        // 翡翠荧光绿（参考图效果）：高频波浪流体
-        return (
-          const Color(0xFF34D399),
-          const Color(0xFF059669),
-          1.5,
-          1.35,
-        );
-      case VoiceChatState.idle:
-        // 柔和暗蓝：缓慢轻微呼吸
-        return (
-          const Color(0xFF94A3B8),
-          const Color(0xFF64748B),
-          0.5,
-          0.45,
-        );
-    }
-  }
-
   @override
   bool shouldRepaint(covariant _ParticleFluidPainter oldDelegate) {
     return oldDelegate.progress != progress ||
+        oldDelegate.style != style ||
         oldDelegate.state != state ||
         oldDelegate.soundLevel != soundLevel;
   }

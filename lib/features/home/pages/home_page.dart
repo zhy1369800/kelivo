@@ -1606,14 +1606,17 @@ class _HomePageState extends State<HomePage>
     _voiceChatController = controller;
 
     void onControllerChange() {
-      if (!_controller.isCurrentConversationLoading &&
-          controller.state == VoiceChatState.processing) {
+      if (controller.state == VoiceChatState.processing) {
         final msgs = _controller.messages;
         final assistantMsgs = msgs.where((m) => m.role == 'assistant');
         if (assistantMsgs.isNotEmpty) {
           final replyText = assistantMsgs.last.content;
           if (replyText.isNotEmpty) {
-            controller.onAiReplyComplete(replyText);
+            if (_controller.isCurrentConversationLoading) {
+              controller.updateStreamingText(replyText);
+            } else {
+              controller.onAiReplyComplete(replyText);
+            }
           }
         }
       }

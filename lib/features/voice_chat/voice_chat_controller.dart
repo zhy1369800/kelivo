@@ -108,6 +108,16 @@ class VoiceChatController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  void updateStreamingText(String text) {
+    if (_disposed || _state != VoiceChatState.processing) return;
+    final cleanText = VoiceTextSanitizer.clean(text);
+    if (cleanText.isNotEmpty && cleanText != _lastAiText) {
+      _lastAiText = cleanText;
+      _syncLiveActivity();
+      notifyListeners();
+    }
+  }
+
   void onAiReplyComplete(String text) {
     if (_disposed || _state != VoiceChatState.processing) return;
     final cleanText = VoiceTextSanitizer.clean(text);
