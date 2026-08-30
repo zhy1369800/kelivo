@@ -144,6 +144,10 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       speechSynthesizerChannel.setMethodCallHandler { [weak self] call, result in
         self?.appleSpeechSynthesizerHandler.handle(call: call, result: result)
       }
+
+      if #available(iOS 16.1, *) {
+        VoiceChatLiveActivityHandler.shared.setup(binaryMessenger: controller.binaryMessenger)
+      }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -158,8 +162,16 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
     open url: URL,
     options: [UIApplication.OpenURLOptionsKey: Any] = [:]
   ) -> Bool {
-    if url.scheme == "kelivo" && url.host == "oauth-return" {
-      return true
+    if url.scheme == "kelivo" {
+      if url.host == "oauth-return" {
+        return true
+      }
+      if url.host == "voice" && url.path == "/stop" {
+        if #available(iOS 16.1, *) {
+          VoiceChatLiveActivityHandler.shared.handleStopFromWidget()
+        }
+        return true
+      }
     }
     return super.application(app, open: url, options: options)
   }

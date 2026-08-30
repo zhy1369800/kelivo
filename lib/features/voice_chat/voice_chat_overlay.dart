@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import 'voice_chat_controller.dart';
@@ -231,11 +229,11 @@ class _TopBar extends StatelessWidget {
               height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.08),
+                color: Colors.white.withValues(alpha: 0.08),
               ),
               child: Icon(
                 Icons.close_rounded,
-                color: Colors.white.withOpacity(0.7),
+                color: Colors.white.withValues(alpha: 0.7),
                 size: 18,
               ),
             ),
@@ -287,10 +285,10 @@ class _PulsingDotState extends State<_PulsingDot>
         height: 8,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: widget.color.withOpacity(0.5 + _a.value * 0.5),
+          color: widget.color.withValues(alpha: 0.5 + _a.value * 0.5),
           boxShadow: [
             BoxShadow(
-              color: widget.color.withOpacity(0.4 * _a.value),
+              color: widget.color.withValues(alpha: 0.4 * _a.value),
               blurRadius: 6,
               spreadRadius: 1,
             ),
@@ -359,7 +357,7 @@ class _SubtitleArea extends StatelessWidget {
     return AnimatedDefaultTextStyle(
       duration: const Duration(milliseconds: 200),
       style: TextStyle(
-        color: live ? Colors.white : Colors.white.withOpacity(0.35),
+        color: live ? Colors.white : Colors.white.withValues(alpha: 0.35),
         fontSize: live ? 17 : 13,
         fontWeight: live ? FontWeight.w500 : FontWeight.w400,
         height: 1.55,
@@ -436,7 +434,7 @@ class _OrbSectionState extends State<_OrbSection> {
           child: Text(
             '点击打断',
             style: TextStyle(
-              color: Colors.white.withOpacity(0.4),
+              color: Colors.white.withValues(alpha: 0.4),
               fontSize: 12,
               letterSpacing: 0.3,
             ),
@@ -550,7 +548,7 @@ class _OrbPainter extends CustomPainter {
           center,
           ringRadius,
           Paint()
-            ..color = color.withOpacity(opacity)
+            ..color = color.withValues(alpha: opacity)
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1.5,
         );
@@ -565,8 +563,8 @@ class _OrbPainter extends CustomPainter {
       Paint()
         ..shader = RadialGradient(
           colors: [
-            color.withOpacity(isActive ? 0.20 + pulseValue * 0.08 : 0.06),
-            color.withOpacity(0),
+            color.withValues(alpha: isActive ? 0.20 + pulseValue * 0.08 : 0.06),
+            color.withValues(alpha: 0),
           ],
         ).createShader(
             Rect.fromCircle(center: center, radius: glowR * 1.5)),
@@ -576,7 +574,7 @@ class _OrbPainter extends CustomPainter {
     canvas.drawCircle(
       center,
       baseRadius + 10,
-      Paint()..color = color.withOpacity(isActive ? 0.14 : 0.05),
+      Paint()..color = color.withValues(alpha: isActive ? 0.14 : 0.05),
     );
 
     // 核心渐变圆
@@ -603,7 +601,7 @@ class _OrbPainter extends CustomPainter {
         width: baseRadius * 0.65,
         height: baseRadius * 0.38,
       ),
-      Paint()..color = Colors.white.withOpacity(0.18),
+      Paint()..color = Colors.white.withValues(alpha: 0.18),
     );
   }
 
@@ -632,9 +630,9 @@ class _BottomBar extends StatelessWidget {
         height: 64,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: const Color(0xFFF87171).withOpacity(0.15),
+          color: const Color(0xFFF87171).withValues(alpha: 0.15),
           border: Border.all(
-            color: const Color(0xFFF87171).withOpacity(0.5),
+            color: const Color(0xFFF87171).withValues(alpha: 0.5),
             width: 1.5,
           ),
         ),

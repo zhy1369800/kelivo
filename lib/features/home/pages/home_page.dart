@@ -1584,11 +1584,18 @@ class _HomePageState extends State<HomePage>
     final asr = context.read<AsrProvider>();
     final tts = context.read<TtsProvider>();
     final settings = context.read<SettingsProvider>();
+    final assistant = context.read<AssistantProvider>().currentAssistant;
+    final assistantName = (assistant != null && assistant.name.trim().isNotEmpty)
+        ? assistant.name.trim()
+        : 'AI 助手';
+    final avatarPath = assistant?.avatar;
 
     final controller = VoiceChatController(
       asrProvider: asr,
       ttsProvider: tts,
       preferredAsrService: settings.selectedAsrService,
+      assistantName: assistantName,
+      avatarPath: avatarPath,
       sendMessage: (data) async {
         await _controller.sendMessage(data);
       },

@@ -8,6 +8,10 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* KelivoGenerationActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */; };
+		A100000000000000000000B1 /* VoiceChatActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B0 /* VoiceChatActivityAttributes.swift */; };
+		A100000000000000000000B2 /* VoiceChatActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B0 /* VoiceChatActivityAttributes.swift */; };
+		A100000000000000000000B3 /* VoiceChatLiveActivityHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B4 /* VoiceChatLiveActivityHandler.swift */; };
+		A100000000000000000000B5 /* VoiceChatIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000B6 /* VoiceChatIntents.swift */; };
 		A10000000000000000000099 /* MapKitHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000098 /* MapKitHandler.swift */; };
 		A100000000000000000000A1 /* AppleVisionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A0 /* AppleVisionHandler.swift */; };
 		A100000000000000000000A3 /* AppleSpeechRecognizerHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000000A2 /* AppleSpeechRecognizerHandler.swift */; };
@@ -86,6 +90,9 @@
 
 /* Begin PBXFileReference section */
 		A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KelivoGenerationActivityAttributes.swift; sourceTree = "<group>"; };
+		A100000000000000000000B0 /* VoiceChatActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChatActivityAttributes.swift; sourceTree = "<group>"; };
+		A100000000000000000000B4 /* VoiceChatLiveActivityHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChatLiveActivityHandler.swift; sourceTree = "<group>"; };
+		A100000000000000000000B6 /* VoiceChatIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceChatIntents.swift; sourceTree = "<group>"; };
 		A10000000000000000000098 /* MapKitHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapKitHandler.swift; sourceTree = "<group>"; };
 		A100000000000000000000A0 /* AppleVisionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleVisionHandler.swift; sourceTree = "<group>"; };
 		A100000000000000000000A2 /* AppleSpeechRecognizerHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleSpeechRecognizerHandler.swift; sourceTree = "<group>"; };
@@ -251,6 +258,8 @@
 				B1000000000000000000000F /* AskAIIntent.swift */,
 				B10000000000000000000011 /* KelivoShortcutsProvider.swift */,
 				A10000000000000000000010 /* KelivoGenerationActivityAttributes.swift */,
+				A100000000000000000000B0 /* VoiceChatActivityAttributes.swift */,
+				A100000000000000000000B4 /* VoiceChatLiveActivityHandler.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -260,6 +269,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000011 /* GenerationActivityExtension.swift */,
+				A100000000000000000000B6 /* VoiceChatIntents.swift */,
 				A10000000000000000000012 /* Info.plist */,
 			);
 			path = GenerationActivityExtension;
@@ -534,6 +544,8 @@
 			files = (
 				A10000000000000000000003 /* GenerationActivityExtension.swift in Sources */,
 				A10000000000000000000002 /* KelivoGenerationActivityAttributes.swift in Sources */,
+				A100000000000000000000B2 /* VoiceChatActivityAttributes.swift in Sources */,
+				A100000000000000000000B5 /* VoiceChatIntents.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -550,6 +562,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000001 /* KelivoGenerationActivityAttributes.swift in Sources */,
+				A100000000000000000000B1 /* VoiceChatActivityAttributes.swift in Sources */,
+				A100000000000000000000B3 /* VoiceChatLiveActivityHandler.swift in Sources */,
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				A10000000000000000000099 /* MapKitHandler.swift in Sources */,
 				A100000000000000000000A1 /* AppleVisionHandler.swift in Sources */,

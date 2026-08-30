@@ -1235,7 +1235,7 @@ class ChatActions {
         assistant: assistant,
         settings: settings,
         supportsReasoning: supportsReasoning,
-        enableReasoning: enableReasoning,
+        enableReasoning: input.disableReasoning ? false : enableReasoning,
         generateTitleOnFinish: true,
         generationRunId: generationRunId,
       );
@@ -1912,8 +1912,9 @@ class ChatActions {
             modelId: ctx.modelId,
             messages: ctx.apiMessages,
             userImagePaths: ctx.userImagePaths,
-            thinkingBudget:
-                assistant?.thinkingBudget ?? ctx.settings.thinkingBudget,
+            thinkingBudget: (ctx.enableReasoning == false)
+                ? 0
+                : (assistant?.thinkingBudget ?? ctx.settings.thinkingBudget),
             temperature: assistant?.temperature,
             topP: assistant?.topP,
             maxTokens: assistant?.maxTokens,
@@ -1965,8 +1966,9 @@ class ChatActions {
         modelId: ctx.modelId,
         messages: ctx.apiMessages,
         userImagePaths: ctx.userImagePaths,
-        thinkingBudget:
-            assistant?.thinkingBudget ?? ctx.settings.thinkingBudget,
+        thinkingBudget: (ctx.enableReasoning == false)
+            ? 0
+            : (assistant?.thinkingBudget ?? ctx.settings.thinkingBudget),
         temperature: assistant?.temperature,
         topP: assistant?.topP,
         maxTokens: assistant?.maxTokens,

@@ -7,24 +7,35 @@ import '../../core/providers/asr_provider.dart';
 import '../../core/providers/tts_provider.dart';
 import '../../core/services/asr/asr_service_options.dart';
 import '../../core/services/tts/tts_playback_models.dart';
+import 'services/live_activity_service.dart';
 
 enum VoiceChatState { idle, listening, processing, aiSpeaking }
 
-/// Controller that orchestrates the Gemini-style continuous voice chat loop.
+/// Controller that orchestrates the continuous voice chat loop and iOS Live Activity.
 class VoiceChatController extends ChangeNotifier {
   VoiceChatController({
     required this.asrProvider,
     required this.ttsProvider,
     required this.sendMessage,
-    AsrServiceOptions? preferredAsrService,
+    this.assistantName = 'AI 助手',
+    this.avatarPath,
+    this.preferredAsrService,
     this.silenceThreshold = 0.04,
     this.silenceDuration = const Duration(milliseconds: 1500),
-  }) : _preferredAsrService = preferredAsrService;
+  }) {
+    VoiceChatLiveActivityService.instance.onStopRequested = () {
+      if (!_disposed && isActive) {
+        stop();
+      }
+    };
+  }
 
   final AsrProvider asrProvider;
   final TtsProvider ttsProvider;
   final Future<void> Function(ChatInputData) sendMessage;
-  final AsrServiceOptions? _preferredAsrService;
+  final String assistantName;
+  final String? avatarPath;
+  final AsrServiceOptions? preferredAsrService;
   final double silenceThreshold;
   final Duration silenceDuration;
 
@@ -48,9 +59,22 @@ class VoiceChatController extends ChangeNotifier {
   bool get isActive => _state != VoiceChatState.idle;
   double get soundLevel => asrProvider.soundLevel;
 
+  String get stateLabel {
+    return switch (_state) {
+      VoiceChatState.idle => '准备就绪',
+      VoiceChatState.listening => '在听呢...',
+      VoiceChatState.processing => 'AI 思考中...',
+      VoiceChatState.aiSpeaking => 'AI 回复中...',
+    };
+  }
+
   Future<void> start() async {
     if (_state != VoiceChatState.idle) return;
     _error = null;
+    await VoiceChatLiveActivityService.instance.start(
+      assistantName: assistantName,
+      avatarPath: avatarPath,
+    );
     await _startListening();
   }
 
@@ -65,6 +89,7 @@ class VoiceChatController extends ChangeNotifier {
     ttsProvider.stop();
     _state = VoiceChatState.idle;
     _transcript = '';
+    await VoiceChatLiveActivityService.instance.stop();
     if (!_disposed) notifyListeners();
   }
 
@@ -72,6 +97,7 @@ class VoiceChatController extends ChangeNotifier {
     if (_disposed || _state != VoiceChatState.processing) return;
     _lastAiText = text;
     _state = VoiceChatState.aiSpeaking;
+    _syncLiveActivity();
     notifyListeners();
     _startTts(text);
   }
@@ -89,6 +115,7 @@ class VoiceChatController extends ChangeNotifier {
     if (_disposed) return;
     _transcript = '';
     _state = VoiceChatState.listening;
+    _syncLiveActivity();
     notifyListeners();
 
     final service = _resolveAsrService();
@@ -97,6 +124,7 @@ class VoiceChatController extends ChangeNotifier {
     } catch (e) {
       _error = e.toString();
       _state = VoiceChatState.idle;
+      _syncLiveActivity();
       if (!_disposed) notifyListeners();
       return;
     }
@@ -112,6 +140,7 @@ class VoiceChatController extends ChangeNotifier {
     final t = asrProvider.transcript;
     if (t != _transcript) {
       _transcript = t;
+      _syncLiveActivity();
       notifyListeners();
     }
     final level = asrProvider.soundLevel;
@@ -152,9 +181,12 @@ class VoiceChatController extends ChangeNotifier {
     }
     _state = VoiceChatState.processing;
     _transcript = '';
+    _syncLiveActivity();
     notifyListeners();
     try {
-      await sendMessage(ChatInputData(text: _lastUserText));
+      await sendMessage(
+        ChatInputData(text: _lastUserText, disableReasoning: true),
+      );
     } catch (e) {
       _error = e.toString();
       await _startListening();
@@ -189,8 +221,34 @@ class VoiceChatController extends ChangeNotifier {
     _bargeInTimer = null;
   }
 
+  void _syncLiveActivity() {
+    if (_disposed) return;
+    final stateString = switch (_state) {
+      VoiceChatState.listening => 'listening',
+      VoiceChatState.processing => 'processing',
+      VoiceChatState.aiSpeaking => 'aiSpeaking',
+      VoiceChatState.idle => 'idle',
+    };
+
+    final currentTranscript = switch (_state) {
+      VoiceChatState.listening => _transcript,
+      VoiceChatState.processing => _lastUserText,
+      VoiceChatState.aiSpeaking => _lastAiText,
+      VoiceChatState.idle => '',
+    };
+
+    VoiceChatLiveActivityService.instance.update(
+      state: stateString,
+      stateLabel: stateLabel,
+      transcript: currentTranscript,
+      assistantName: assistantName,
+      waveLevel: soundLevel,
+      isFinished: _state == VoiceChatState.idle,
+    );
+  }
+
   AsrServiceOptions _resolveAsrService() {
-    final preferred = _preferredAsrService;
+    final preferred = preferredAsrService;
     if (preferred != null &&
         preferred.isConfigured &&
         asrProvider.canUse(preferred)) {
@@ -224,6 +282,7 @@ class VoiceChatController extends ChangeNotifier {
     _bargeInTimer?.cancel();
     _removeAsrListener();
     _removeTtsListener();
+    VoiceChatLiveActivityService.instance.onStopRequested = null;
     super.dispose();
   }
 }
