@@ -4719,6 +4719,31 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get voiceChatBargeInTitle => '允许语音打断 (Voice Barge-in)';
+
+  @override
+  String get voiceChatBargeInSubtitle =>
+      'AI 播报时开口说话可自动打断并重新开始听取；连续 30 秒静音将自动进入休眠省电';
+
+  @override
+  String get voiceChatStateIdle => '准备就绪';
+
+  @override
+  String get voiceChatStateListening => '在听呢...';
+
+  @override
+  String get voiceChatStateProcessing => 'AI 思考中...';
+
+  @override
+  String get voiceChatStateAiSpeaking => 'AI 回复中...';
+
+  @override
+  String get voiceChatDefaultAssistant => 'AI 助手';
+
+  @override
+  String get voiceChatClickToInterrupt => '点击打断';
+
+  @override
   String get ttsServicesPageAddNotImplemented => '新增 TTS 服务暂未实现';
 
   @override
@@ -12612,6 +12637,31 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   }
 
   @override
+  String get voiceChatBargeInTitle => '允许语音打断 (Voice Barge-in)';
+
+  @override
+  String get voiceChatBargeInSubtitle =>
+      'AI 播报时开口说话可自动打断并重新开始听取；连续 30 秒静音将自动进入休眠省电';
+
+  @override
+  String get voiceChatStateIdle => '准备就绪';
+
+  @override
+  String get voiceChatStateListening => '在听呢...';
+
+  @override
+  String get voiceChatStateProcessing => 'AI 思考中...';
+
+  @override
+  String get voiceChatStateAiSpeaking => 'AI 回复中...';
+
+  @override
+  String get voiceChatDefaultAssistant => 'AI 助手';
+
+  @override
+  String get voiceChatClickToInterrupt => '点击打断';
+
+  @override
   String get ttsServicesPageAddNotImplemented => '新增 TTS 服务暂未实现';
 
   @override
@@ -20427,6 +20477,31 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String asrServicesRecognitionFailed(String error) {
     return '語音辨識失敗：$error';
   }
+
+  @override
+  String get voiceChatBargeInTitle => '允許語音打斷 (Voice Barge-in)';
+
+  @override
+  String get voiceChatBargeInSubtitle =>
+      'AI 播報時開口說話可自動打斷並重新開始聽取；連續 30 秒靜音將自動進入休眠省電';
+
+  @override
+  String get voiceChatStateIdle => '準備就緒';
+
+  @override
+  String get voiceChatStateListening => '在聽呢...';
+
+  @override
+  String get voiceChatStateProcessing => 'AI 思考中...';
+
+  @override
+  String get voiceChatStateAiSpeaking => 'AI 回覆中...';
+
+  @override
+  String get voiceChatDefaultAssistant => 'AI 助手';
+
+  @override
+  String get voiceChatClickToInterrupt => '點擊打斷';
 
   @override
   String get ttsServicesPageAddNotImplemented => '新增 TTS 服務暫未實現';

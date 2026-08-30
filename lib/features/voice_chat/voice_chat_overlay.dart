@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/app_localizations.dart';
 import 'voice_chat_controller.dart';
 
 /// 全屏沉浸式语音聊天 Overlay —— Gemini Live 风格
@@ -96,12 +97,13 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
     };
   }
 
-  String get _stateLabel {
+  String _getStateLabel(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return switch (widget.controller.state) {
-      VoiceChatState.idle => '准备就绪',
-      VoiceChatState.listening => '正在聆听',
-      VoiceChatState.processing => 'AI 思考中',
-      VoiceChatState.aiSpeaking => 'AI 回复中',
+      VoiceChatState.idle => l10n?.voiceChatStateIdle ?? 'Ready',
+      VoiceChatState.listening => l10n?.voiceChatStateListening ?? 'Listening...',
+      VoiceChatState.processing => l10n?.voiceChatStateProcessing ?? 'Thinking...',
+      VoiceChatState.aiSpeaking => l10n?.voiceChatStateAiSpeaking ?? 'Speaking...',
     };
   }
 
@@ -138,7 +140,7 @@ class _VoiceChatOverlayState extends State<VoiceChatOverlay>
                     children: [
                       // ── 顶部状态栏 ──
                       _TopBar(
-                        label: _stateLabel,
+                        label: _getStateLabel(context),
                         color: _stateColor,
                         onClose: _close,
                       ),
@@ -432,7 +434,8 @@ class _OrbSectionState extends State<_OrbSection> {
           opacity: isAiSpeaking ? 1.0 : 0.0,
           duration: const Duration(milliseconds: 300),
           child: Text(
-            '点击打断',
+            AppLocalizations.of(context)?.voiceChatClickToInterrupt ??
+                'Tap to interrupt',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.4),
               fontSize: 12,

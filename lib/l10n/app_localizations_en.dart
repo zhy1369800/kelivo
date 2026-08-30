@@ -4916,6 +4916,31 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get voiceChatBargeInTitle => 'Allow Voice Barge-in';
+
+  @override
+  String get voiceChatBargeInSubtitle =>
+      'Speaking during AI playback automatically interrupts it; automatically sleeps after 30s of silence';
+
+  @override
+  String get voiceChatStateIdle => 'Ready';
+
+  @override
+  String get voiceChatStateListening => 'Listening...';
+
+  @override
+  String get voiceChatStateProcessing => 'AI Thinking...';
+
+  @override
+  String get voiceChatStateAiSpeaking => 'AI Speaking...';
+
+  @override
+  String get voiceChatDefaultAssistant => 'AI Assistant';
+
+  @override
+  String get voiceChatClickToInterrupt => 'Tap to interrupt';
+
+  @override
   String get ttsServicesPageAddNotImplemented =>
       'Add TTS service not implemented';
 

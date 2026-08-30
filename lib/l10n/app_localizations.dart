@@ -9055,6 +9055,54 @@ abstract class AppLocalizations {
   /// **'Speech recognition failed: {error}'**
   String asrServicesRecognitionFailed(String error);
 
+  /// No description provided for @voiceChatBargeInTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow Voice Barge-in'**
+  String get voiceChatBargeInTitle;
+
+  /// No description provided for @voiceChatBargeInSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Speaking during AI playback automatically interrupts it; automatically sleeps after 30s of silence'**
+  String get voiceChatBargeInSubtitle;
+
+  /// No description provided for @voiceChatStateIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ready'**
+  String get voiceChatStateIdle;
+
+  /// No description provided for @voiceChatStateListening.
+  ///
+  /// In en, this message translates to:
+  /// **'Listening...'**
+  String get voiceChatStateListening;
+
+  /// No description provided for @voiceChatStateProcessing.
+  ///
+  /// In en, this message translates to:
+  /// **'AI Thinking...'**
+  String get voiceChatStateProcessing;
+
+  /// No description provided for @voiceChatStateAiSpeaking.
+  ///
+  /// In en, this message translates to:
+  /// **'AI Speaking...'**
+  String get voiceChatStateAiSpeaking;
+
+  /// No description provided for @voiceChatDefaultAssistant.
+  ///
+  /// In en, this message translates to:
+  /// **'AI Assistant'**
+  String get voiceChatDefaultAssistant;
+
+  /// No description provided for @voiceChatClickToInterrupt.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to interrupt'**
+  String get voiceChatClickToInterrupt;
+
   /// No description provided for @ttsServicesPageAddNotImplemented.
   ///
   /// In en, this message translates to:

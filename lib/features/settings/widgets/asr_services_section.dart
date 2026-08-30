@@ -179,6 +179,23 @@ class _AsrServicesSectionState extends State<AsrServicesSection> {
                   ),
               ],
             ),
+          const SizedBox(height: 16),
+          VoiceServiceMobileCard(
+            children: [
+              SwitchListTile.adaptive(
+                title: Text(
+                  l10n.voiceChatBargeInTitle,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                ),
+                subtitle: Text(
+                  l10n.voiceChatBargeInSubtitle,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                value: settings.enableVoiceBargeIn,
+                onChanged: (val) => settings.setEnableVoiceBargeIn(val),
+              ),
+            ],
+          ),
         ],
       ),
     );

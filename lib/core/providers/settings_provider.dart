@@ -372,6 +372,7 @@ class SettingsProvider extends ChangeNotifier {
   static const String _ttsTextSelectionModeKey = 'tts_text_selection_mode_v1';
   static const String _asrServicesKey = 'asr_services_v1';
   static const String _asrSelectedServiceIdKey = 'asr_selected_service_id_v1';
+  static const String _voiceChatEnableBargeInKey = 'voice_chat_enable_barge_in_v1';
   // Desktop UI
   static const String _desktopSidebarWidthKey = 'desktop_sidebar_width_v1';
   static const String _desktopSidebarOpenKey = 'desktop_sidebar_open_v1';
@@ -406,8 +407,10 @@ class SettingsProvider extends ChangeNotifier {
   // ASR is opt-in. An empty list intentionally keeps voice input hidden.
   List<AsrServiceOptions> _asrServices = const <AsrServiceOptions>[];
   String? _selectedAsrServiceId;
+  bool _enableVoiceBargeIn = true;
   List<AsrServiceOptions> get asrServices => _asrServices;
   String? get selectedAsrServiceId => _selectedAsrServiceId;
+  bool get enableVoiceBargeIn => _enableVoiceBargeIn;
   AsrServiceOptions? get selectedAsrService {
     final selectedId = _selectedAsrServiceId;
     if (selectedId == null) return null;
@@ -1470,6 +1473,7 @@ class SettingsProvider extends ChangeNotifier {
         await prefs.setString(_asrSelectedServiceIdKey, _selectedAsrServiceId!);
       }
     }
+    _enableVoiceBargeIn = prefs.getBool(_voiceChatEnableBargeInKey) ?? true;
     // webdav config
     final webdavStr = prefs.getString(_webDavConfigKey);
     if (webdavStr != null && webdavStr.isNotEmpty) {
@@ -1712,6 +1716,13 @@ class SettingsProvider extends ChangeNotifier {
     } else {
       await prefs.setString(_asrSelectedServiceIdKey, selectedId);
     }
+  }
+
+  Future<void> setEnableVoiceBargeIn(bool value) async {
+    if (_enableVoiceBargeIn == value) return;
+    _enableVoiceBargeIn = value;
+    await _preferences.setBool(_voiceChatEnableBargeInKey, value);
+    notifyListeners();
   }
 
   // ===== User Font Settings =====

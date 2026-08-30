@@ -1585,15 +1585,18 @@ class _HomePageState extends State<HomePage>
     final tts = context.read<TtsProvider>();
     final settings = context.read<SettingsProvider>();
     final assistant = context.read<AssistantProvider>().currentAssistant;
+    final defaultAssistantName =
+        AppLocalizations.of(context)?.voiceChatDefaultAssistant ?? 'AI Assistant';
     final assistantName = (assistant != null && assistant.name.trim().isNotEmpty)
         ? assistant.name.trim()
-        : 'AI 助手';
+        : defaultAssistantName;
     final avatarPath = assistant?.avatar;
 
     final controller = VoiceChatController(
       asrProvider: asr,
       ttsProvider: tts,
       preferredAsrService: settings.selectedAsrService,
+      enableBargeIn: settings.enableVoiceBargeIn,
       assistantName: assistantName,
       avatarPath: avatarPath,
       sendMessage: (data) async {
