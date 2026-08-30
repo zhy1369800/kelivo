@@ -17,7 +17,7 @@ class NativeShortcutAutomationService {
   NativeShortcutAutomationService._();
 
   static const String _tasksSubdir = 'tasks';
-  static const Duration _defaultTimeout = Duration(seconds: 10);
+  static const Duration _defaultTimeout = Duration(seconds: 15);
   static const Duration _pollInterval = Duration(milliseconds: 500);
 
   /// Ensure `Documents/tasks/` directory exists with a placeholder file.
