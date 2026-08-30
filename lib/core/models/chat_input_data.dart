@@ -16,6 +16,7 @@ class ChatInputData {
   final List<DocumentAttachment> documents; // selected files
   final bool allowImagesApiRouting;
   final bool disableReasoning;
+  final bool isVoiceMode;
 
   const ChatInputData({
     required this.text,
@@ -23,6 +24,7 @@ class ChatInputData {
     this.documents = const [],
     this.allowImagesApiRouting = true,
     this.disableReasoning = false,
+    this.isVoiceMode = false,
   });
 }
 

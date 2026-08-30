@@ -1194,7 +1194,7 @@ class ChatActions {
     try {
       await messageGenerationService.initializeReasoningState(
         messageId: assistantMessage.id,
-        enableReasoning: enableReasoning,
+        enableReasoning: input.disableReasoning ? false : enableReasoning,
       );
       final apiContextMessages = <ChatMessage>[
         ...existingContextMessages,
@@ -1211,6 +1211,7 @@ class ChatActions {
             assistantId: assistantId,
             providerKey: providerKey,
             modelId: modelId,
+            isVoiceMode: input.isVoiceMode,
             approvalService: approvalService,
             askUserService: askUserService,
           );

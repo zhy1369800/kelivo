@@ -1277,6 +1277,28 @@ class MessageBuilderService {
     }
   }
 
+  /// Inject real-time voice chat mode prompt directive.
+  void injectVoiceModePrompt(List<Map<String, dynamic>> apiMessages) {
+    const voicePrompt =
+        '【实时语音通话模式特别约束（最高优先级）】：\n'
+        '你当前正处于一对一实时语音通话中。你的回复将直接通过语音合成（TTS）朗读并作为字幕显示。请严格遵守：\n'
+        '1. 纯口语表达：严禁输出任何 Markdown 格式（严禁粗体 **、斜体 *、标题 #、列表符号 - 或 1.、代码块 ```、表格、括号注解等）；\n'
+        '2. 严禁 Emoji 表情符号：严禁输出任何表情符号（如 😊、👍、🚀 等），避免语音引擎朗读出表情名称；\n'
+        '3. 简洁自然：直奔主题，避免长篇大论、列表罗列和客套废话，单次回复控制在 1~3 句话以内，如同真人打电话般简洁自然；\n'
+        '4. 严禁输出任何思考推理过程或 <think> 标签。';
+
+    final systemIdx = apiMessages.indexWhere((m) => m['role'] == 'system');
+    if (systemIdx >= 0) {
+      final current = apiMessages[systemIdx]['content']?.toString() ?? '';
+      apiMessages[systemIdx]['content'] = '$current\n\n$voicePrompt'.trim();
+    } else {
+      apiMessages.insert(0, {
+        'role': 'system',
+        'content': voicePrompt,
+      });
+    }
+  }
+
   /// Inject §11 memory rules into the system message.
   ///
   /// Pure function of `(enableMemory, allowPastConversationRecall, lang,

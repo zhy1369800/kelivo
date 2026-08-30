@@ -448,6 +448,8 @@ class HomeViewModel extends ChangeNotifier {
       imagePaths: List<String>.of(input.imagePaths),
       documents: List<DocumentAttachment>.of(input.documents),
       allowImagesApiRouting: input.allowImagesApiRouting,
+      disableReasoning: input.disableReasoning,
+      isVoiceMode: input.isVoiceMode,
     );
   }
 

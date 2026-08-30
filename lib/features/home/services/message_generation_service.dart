@@ -120,6 +120,7 @@ class MessageGenerationService {
     required String? assistantId,
     required String providerKey,
     required String modelId,
+    bool isVoiceMode = false,
     ToolApprovalService? approvalService,
     AskUserInteractionService? askUserService,
   }) async {
@@ -188,6 +189,11 @@ class MessageGenerationService {
       apiMessages,
       assistantId,
     );
+
+    // 语音模式 Prompt 放在所有注入最末尾，确保其作为最高优先级系统指令不被覆盖
+    if (isVoiceMode) {
+      messageBuilderService.injectVoiceModePrompt(apiMessages);
+    }
 
     // Single final trim after WorldBook TOP/BOTTOM/AT_DEPTH injections. OCR and
     // document extraction must run only on this retained set so images that will

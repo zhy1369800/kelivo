@@ -8,6 +8,7 @@ import '../../core/providers/tts_provider.dart';
 import '../../core/services/asr/asr_service_options.dart';
 import '../../core/services/tts/tts_playback_models.dart';
 import 'services/live_activity_service.dart';
+import 'utils/voice_text_sanitizer.dart';
 
 enum VoiceChatState { idle, listening, processing, aiSpeaking }
 
@@ -107,13 +108,14 @@ class VoiceChatController extends ChangeNotifier {
 
   void onAiReplyComplete(String text) {
     if (_disposed || _state != VoiceChatState.processing) return;
-    _lastAiText = text;
+    final cleanText = VoiceTextSanitizer.clean(text);
+    _lastAiText = cleanText.isNotEmpty ? cleanText : text;
     _state = VoiceChatState.aiSpeaking;
     _idleTimer?.cancel();
     _idleTimer = null;
     _syncLiveActivity();
     notifyListeners();
-    _startTts(text);
+    _startTts(_lastAiText);
   }
 
   /// 打断 TTS 并立刻重新开始聆听（支持手动点击打断与 Voice Barge-in 声控打断）
@@ -207,7 +209,11 @@ class VoiceChatController extends ChangeNotifier {
     notifyListeners();
     try {
       await sendMessage(
-        ChatInputData(text: _lastUserText, disableReasoning: true),
+        ChatInputData(
+          text: _lastUserText,
+          disableReasoning: true,
+          isVoiceMode: true,
+        ),
       );
     } catch (e) {
       _error = e.toString();
