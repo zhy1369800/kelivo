@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -59,6 +60,7 @@ class VoiceChatController extends ChangeNotifier {
   Timer? _silenceTimer;
   Timer? _idleTimer;
   Timer? _bargeInTimer;
+  DateTime? _ttsStartTime;
   VoidCallback? _asrListener;
   VoidCallback? _ttsListener;
 
@@ -256,6 +258,7 @@ class VoiceChatController extends ChangeNotifier {
 
   void _startTts(String text) {
     _removeTtsListener();
+    _ttsStartTime = DateTime.now();
     ttsProvider.speak(text);
     void listener() => _onTtsChanged();
     _ttsListener = listener;
@@ -282,9 +285,23 @@ class VoiceChatController extends ChangeNotifier {
 
   void _onBargeInSoundChanged() {
     if (_disposed || _state != VoiceChatState.aiSpeaking) return;
+
+    // 1. 声学滤波器收敛免扰期（前 600ms 内不触发打断，防止扬声器启动瞬态冲击）
+    final startTime = _ttsStartTime;
+    if (startTime != null &&
+        DateTime.now().difference(startTime) < const Duration(milliseconds: 600)) {
+      return;
+    }
+
+    // 2. 自适应近场人声突刺阈值（防回音保底 0.55，并兼容用户调高的自定义配置）
     final level = asrProvider.soundLevel;
-    if (level > bargeInThreshold) {
-      _bargeInTimer ??= Timer(bargeInDuration, () {
+    final effectiveThreshold = math.max(bargeInThreshold, 0.55);
+    final effectiveDuration = bargeInDuration > const Duration(milliseconds: 300)
+        ? bargeInDuration
+        : const Duration(milliseconds: 300);
+
+    if (level > effectiveThreshold) {
+      _bargeInTimer ??= Timer(effectiveDuration, () {
         if (!_disposed && _state == VoiceChatState.aiSpeaking) {
           interruptTts();
         }
@@ -297,17 +314,37 @@ class VoiceChatController extends ChangeNotifier {
 
   void _onTtsChanged() {
     if (_disposed || _state != VoiceChatState.aiSpeaking) return;
+
     final status = ttsProvider.playbackState.status;
-    if (status == TtsPlaybackStatus.ended ||
-        (!ttsProvider.isSpeaking && !ttsProvider.isPaused &&
-            status != TtsPlaybackStatus.buffering &&
-            status != TtsPlaybackStatus.playing)) {
-      _removeTtsListener();
-      _stopBargeInListener();
-      _removeAsrListener();
-      if (!_disposed && _state == VoiceChatState.aiSpeaking) {
-        _startListening();
-      }
+
+    // 1. 明确终结状态（播放完毕 ended 或错误 error）立即切回拾音，绝不拦截！彻底杜绝短回复死锁
+    if (status == TtsPlaybackStatus.ended || status == TtsPlaybackStatus.error) {
+      _finishSpeakingAndListen();
+      return;
+    }
+
+    // 2. 针对非终结的中间状态抖动（如初始空态或未就绪态），在刚调用的前 400ms 内忽略
+    final startTime = _ttsStartTime;
+    if (startTime != null &&
+        DateTime.now().difference(startTime) < const Duration(milliseconds: 400)) {
+      return;
+    }
+
+    // 3. 兜底判定：如果 TTS 已不再发声且不在播放/缓冲/暂停中，切回拾音
+    if (!ttsProvider.isSpeaking &&
+        !ttsProvider.isPaused &&
+        status != TtsPlaybackStatus.buffering &&
+        status != TtsPlaybackStatus.playing) {
+      _finishSpeakingAndListen();
+    }
+  }
+
+  void _finishSpeakingAndListen() {
+    _removeTtsListener();
+    _stopBargeInListener();
+    _removeAsrListener();
+    if (!_disposed && _state == VoiceChatState.aiSpeaking) {
+      _startListening();
     }
   }
 

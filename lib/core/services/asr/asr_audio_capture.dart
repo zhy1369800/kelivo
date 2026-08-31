@@ -47,7 +47,7 @@ final class RecordAsrAudioCapture implements AsrAudioCapture {
         // level meter on desktop and can distort the PCM expected by offline
         // acoustic models.
         autoGain: false,
-        echoCancel: false,
+        echoCancel: true,
         noiseSuppress: false,
         streamBufferSize: 4096,
       ),
