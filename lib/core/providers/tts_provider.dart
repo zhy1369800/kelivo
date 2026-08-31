@@ -143,6 +143,24 @@ class TtsProvider extends ChangeNotifier {
       _bindTtsHandlers();
       _bindAudioPlayerHandlers();
 
+      if (io.Platform.isIOS) {
+        try {
+          await AudioPlayer.global.setAudioContext(
+            AudioContext(
+              iOS: AudioContextIOS(
+                category: AVAudioSessionCategory.playAndRecord,
+                options: const {
+                  AVAudioSessionOptions.defaultToSpeaker,
+                  AVAudioSessionOptions.allowBluetooth,
+                  AVAudioSessionOptions.allowBluetoothA2DP,
+                  AVAudioSessionOptions.mixWithOthers,
+                },
+              ),
+            ),
+          );
+        } catch (_) {}
+      }
+
       await _kickEngine();
       await _ensureBound(timeout: const Duration(seconds: 5));
       await _selectEngine();
@@ -279,6 +297,20 @@ class TtsProvider extends ChangeNotifier {
     try {
       await _tts.setQueueMode(1);
     } catch (_) {}
+    if (io.Platform.isIOS) {
+      try {
+        await _tts.setIosAudioCategory(
+          IosTextToSpeechAudioCategory.playAndRecord,
+          [
+            IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
+            IosTextToSpeechAudioCategoryOptions.allowBluetooth,
+            IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
+            IosTextToSpeechAudioCategoryOptions.mixWithOthers,
+          ],
+          IosTextToSpeechAudioMode.spokenAudio,
+        );
+      } catch (_) {}
+    }
   }
 
   Future<void> _recreateEngine() async {
