@@ -167,16 +167,19 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final isAiSpeaking = widget.controller.state == VoiceChatState.aiSpeaking;
+    final isIdle = widget.controller.state == VoiceChatState.idle;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // 顶部“点击打断”轻提示
+        // 顶部“点击打断 / 轻触唤醒”轻提示
         AnimatedOpacity(
-          opacity: isAiSpeaking ? 1.0 : 0.0,
+          opacity: (isAiSpeaking || isIdle) ? 1.0 : 0.0,
           duration: const Duration(milliseconds: 300),
           child: Text(
-            l10n?.voiceChatClickToInterrupt ?? 'Tap to interrupt',
+            isIdle
+                ? '轻触唤醒'
+                : (l10n?.voiceChatClickToInterrupt ?? 'Tap to interrupt'),
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.45),
               fontSize: 12,
@@ -191,6 +194,8 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
           onTap: () {
             if (isAiSpeaking) {
               widget.controller.interruptTts();
+            } else if (isIdle) {
+              widget.controller.start();
             }
             widget.onTap?.call();
           },

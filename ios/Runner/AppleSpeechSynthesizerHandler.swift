@@ -74,6 +74,8 @@ final class AppleSpeechSynthesizerHandler: NSObject, AVSpeechSynthesizerDelegate
         options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .duckOthers]
       )
       try audioSession.setActive(true)
+      // 强制路由到底部外放扬声器，避免 playAndRecord 默认走顶部听筒导致声音极小
+      try audioSession.overrideOutputAudioPort(.speaker)
     } catch {
       try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
       try? AVAudioSession.sharedInstance().setActive(true)

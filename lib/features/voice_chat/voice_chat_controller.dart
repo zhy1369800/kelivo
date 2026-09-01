@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../core/models/chat_input_data.dart';
 import '../../core/providers/asr_provider.dart';
@@ -14,8 +14,8 @@ import 'utils/voice_text_sanitizer.dart';
 enum VoiceChatState { idle, listening, processing, aiSpeaking }
 
 /// Controller that orchestrates the continuous voice chat loop, iOS Live Activity,
-/// low-power voice barge-in, and auto-idle timeout.
-class VoiceChatController extends ChangeNotifier {
+/// full-duplex background keepalive, and customizable idle timeout / barge-in.
+class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
   VoiceChatController({
     required this.asrProvider,
     required this.ttsProvider,
@@ -30,6 +30,11 @@ class VoiceChatController extends ChangeNotifier {
     this.bargeInThreshold = 0.35,
     this.bargeInDuration = const Duration(milliseconds: 250),
   }) {
+    WidgetsBinding.instance.addObserver(this);
+    final initialLifecycle = WidgetsBinding.instance.lifecycleState;
+    _isInBackground = initialLifecycle != null &&
+        initialLifecycle != AppLifecycleState.resumed;
+
     VoiceChatLiveActivityService.instance.onStopRequested = () {
       if (!_disposed && isActive) {
         stop();
@@ -56,6 +61,7 @@ class VoiceChatController extends ChangeNotifier {
   String _lastAiText = '';
   String? _error;
   bool _disposed = false;
+  bool _isInBackground = false;
 
   Timer? _silenceTimer;
   Timer? _idleTimer;
@@ -71,6 +77,7 @@ class VoiceChatController extends ChangeNotifier {
   String? get error => _error;
   bool get isActive => _state != VoiceChatState.idle;
   double get soundLevel => asrProvider.soundLevel;
+  bool get isInBackground => _isInBackground;
 
   String get stateLabel {
     return switch (_state) {
@@ -79,6 +86,28 @@ class VoiceChatController extends ChangeNotifier {
       VoiceChatState.processing => 'AI 思考中...',
       VoiceChatState.aiSpeaking => 'AI 回复中...',
     };
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_disposed) return;
+    final inBackground = state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden;
+
+    if (inBackground != _isInBackground) {
+      _isInBackground = inBackground;
+      if (_isInBackground) {
+        // 进入后台：取消前台静音超时定时器（后台永不超时断开，对标 Gemini）
+        _idleTimer?.cancel();
+        _idleTimer = null;
+      } else {
+        // 回到前台：如果处于聆听状态且配置了超时，重新启动静音超时计时
+        if (_state == VoiceChatState.listening) {
+          _resetIdleTimer();
+        }
+      }
+    }
   }
 
   Future<void> start() async {
@@ -203,24 +232,23 @@ class VoiceChatController extends ChangeNotifier {
     if (_disposed || _state != VoiceChatState.listening) return;
     final text = _transcript.trim();
     if (text.isEmpty) {
-      await asrProvider.cancel();
-      _removeAsrListener();
-      await _startListening();
+      _resetIdleTimer();
       return;
     }
     _removeAsrListener();
     _idleTimer?.cancel();
     _idleTimer = null;
-    try {
-      final finalText = (await asrProvider.finish()).trim();
-      _lastUserText = finalText.isNotEmpty ? finalText : text;
-    } catch (_) {
-      _lastUserText = text;
-    }
+
+    _lastUserText = text;
     _state = VoiceChatState.processing;
     _transcript = '';
     _syncLiveActivity();
     notifyListeners();
+
+    try {
+      await asrProvider.finish().catchError((_) => text);
+    } catch (_) {}
+
     try {
       await sendMessage(
         ChatInputData(
@@ -237,13 +265,15 @@ class VoiceChatController extends ChangeNotifier {
 
   void _resetIdleTimer() {
     _idleTimer?.cancel();
-    if (_state == VoiceChatState.listening && idleTimeout > Duration.zero) {
+    _idleTimer = null;
+    // 只有在【前台】且【配置了超时大于0】时，才开启前台超时休眠定时器（后台永不超时）
+    if (!_isInBackground && _state == VoiceChatState.listening && idleTimeout > Duration.zero) {
       _idleTimer = Timer(idleTimeout, _onIdleTimeout);
     }
   }
 
   Future<void> _onIdleTimeout() async {
-    if (_disposed || _state != VoiceChatState.listening) return;
+    if (_disposed || _state != VoiceChatState.listening || _isInBackground) return;
     _idleTimer = null;
     _silenceTimer?.cancel();
     _silenceTimer = null;
@@ -264,19 +294,24 @@ class VoiceChatController extends ChangeNotifier {
     _ttsListener = listener;
     ttsProvider.addListener(listener);
 
+    // 全双工底流保活：确保麦克风在 AI 播报期间不被系统冷销毁，以便播报完毕后无缝拾音
+    if (!asrProvider.isActive) {
+      final service = _resolveAsrService();
+      asrProvider.start(service).catchError((_) {});
+    }
+
+    // 语音打断检测：仅在用户开启 enableBargeIn 时挂载打断监听器
     if (enableBargeIn) {
       _startBargeInDetector();
+    } else {
+      _stopBargeInListener();
+      _removeAsrListener();
     }
   }
 
   void _startBargeInDetector() {
     _stopBargeInListener();
     _removeAsrListener();
-
-    if (!asrProvider.isActive) {
-      final service = _resolveAsrService();
-      asrProvider.start(service).catchError((_) {});
-    }
 
     void bargeInListener() => _onBargeInSoundChanged();
     _asrListener = bargeInListener;
@@ -410,6 +445,7 @@ class VoiceChatController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     ttsProvider.suppressFloatingPlayer = false;
     _silenceTimer?.cancel();
     _idleTimer?.cancel();
