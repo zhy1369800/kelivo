@@ -1591,6 +1591,7 @@ class _HomePageState extends State<HomePage>
         ? assistant.name.trim()
         : defaultAssistantName;
     final avatarPath = assistant?.avatar;
+    int lastSentUserMsgIndex = -1;
 
     final controller = VoiceChatController(
       asrProvider: asr,
@@ -1600,6 +1601,7 @@ class _HomePageState extends State<HomePage>
       assistantName: assistantName,
       avatarPath: avatarPath,
       sendMessage: (data) async {
+        lastSentUserMsgIndex = _controller.messages.length;
         await _controller.sendMessage(data);
       },
     );
@@ -1608,10 +1610,10 @@ class _HomePageState extends State<HomePage>
     void onControllerChange() {
       if (controller.state == VoiceChatState.processing) {
         final msgs = _controller.messages;
-        final assistantMsgs = msgs.where((m) => m.role == 'assistant');
-        if (assistantMsgs.isNotEmpty) {
-          final replyText = assistantMsgs.last.content;
-          if (replyText.isNotEmpty) {
+        if (lastSentUserMsgIndex >= 0 && msgs.length > lastSentUserMsgIndex) {
+          final lastMsg = msgs.last;
+          if (lastMsg.role == 'assistant' && lastMsg.content.isNotEmpty) {
+            final replyText = lastMsg.content;
             if (_controller.isCurrentConversationLoading) {
               controller.updateStreamingText(replyText);
             } else {

@@ -62,6 +62,8 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
   _OrbStyle _oldStyle = _resolveStyle(VoiceChatState.idle, 0);
   _OrbStyle _targetStyle = _resolveStyle(VoiceChatState.idle, 0);
 
+  double _continuousPhase = 0.0;
+  int _lastTickTime = 0;
   bool _pressing = false;
   static const int _pointCount = 480;
 
@@ -70,16 +72,16 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 12),
-    )..repeat();
+      duration: const Duration(seconds: 1),
+    )..addListener(_onTick)..repeat();
 
     _transitionCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 380),
+      duration: const Duration(milliseconds: 550),
     );
     _transitionAnim = CurvedAnimation(
       parent: _transitionCtrl,
-      curve: Curves.easeOutCubic,
+      curve: Curves.easeInOutCubic,
     );
     _transitionCtrl.value = 1.0; // 初始无需过渡
 
@@ -89,6 +91,21 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
 
     _basePoints = _generateFibonacciSphere(_pointCount);
     widget.controller.addListener(_onControllerChanged);
+  }
+
+  void _onTick() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    if (_lastTickTime != 0) {
+      final dt = (now - _lastTickTime) / 1000000.0;
+      final clampedDt = dt.clamp(0.0, 0.05);
+      final currentStyle = _OrbStyle.lerp(
+        _oldStyle,
+        _targetStyle,
+        _transitionAnim.value,
+      );
+      _continuousPhase += clampedDt * currentStyle.speed * 2.2;
+    }
+    _lastTickTime = now;
   }
 
   void _onControllerChanged() {
@@ -227,7 +244,7 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
                     size: Size(widget.size, widget.size),
                     painter: _ParticleFluidPainter(
                       points: _basePoints,
-                      progress: _animController.value,
+                      time: _continuousPhase,
                       style: currentStyle,
                       state: widget.controller.state,
                       soundLevel: widget.controller.soundLevel,
@@ -247,14 +264,14 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
 class _ParticleFluidPainter extends CustomPainter {
   _ParticleFluidPainter({
     required this.points,
-    required this.progress,
+    required this.time,
     required this.style,
     required this.state,
     required this.soundLevel,
   });
 
   final List<_SpherePoint> points;
-  final double progress;
+  final double time;
   final _OrbStyle style;
   final VoiceChatState state;
   final double soundLevel;
@@ -266,7 +283,6 @@ class _ParticleFluidPainter extends CustomPainter {
 
     final primaryColor = style.primary;
     final glowColor = style.glow;
-    final waveSpeed = style.speed;
     final waveAmp = style.amp;
 
     // 1. 绘制核心漫反射背景辉光
@@ -283,8 +299,7 @@ class _ParticleFluidPainter extends CustomPainter {
       );
     canvas.drawCircle(center, baseRadius * 1.35, bgGlowPaint);
 
-    // 2. 计算 3D 旋转角度
-    final time = progress * 2 * math.pi * waveSpeed;
+    // 2. 计算 3D 旋转角度 (基于连续时间积分，彻底杜绝速度突变引发的相位跳跃撕裂)
     final rotY = time * 0.45;
     final rotX = math.sin(time * 0.3) * 0.28;
 
@@ -376,7 +391,7 @@ class _ParticleFluidPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ParticleFluidPainter oldDelegate) {
-    return oldDelegate.progress != progress ||
+    return oldDelegate.time != time ||
         oldDelegate.style != style ||
         oldDelegate.state != state ||
         oldDelegate.soundLevel != soundLevel;

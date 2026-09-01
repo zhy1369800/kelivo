@@ -240,6 +240,7 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _idleTimer = null;
 
     _lastUserText = text;
+    _lastAiText = '';
     _state = VoiceChatState.processing;
     _transcript = '';
     _syncLiveActivity();
