@@ -61,6 +61,7 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
   String _lastAiText = '';
   String? _error;
   bool _disposed = false;
+  bool _stopping = false;
   bool _isInBackground = false;
 
   Timer? _silenceTimer;
@@ -122,6 +123,7 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> stop() async {
+    _stopping = true;
     ttsProvider.suppressFloatingPlayer = false;
     _silenceTimer?.cancel();
     _silenceTimer = null;
@@ -136,6 +138,7 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _state = VoiceChatState.idle;
     _transcript = '';
     await VoiceChatLiveActivityService.instance.stop();
+    _stopping = false;
     if (!_disposed) notifyListeners();
   }
 
@@ -173,7 +176,7 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 手动点击唤醒或重启拾音（用于点击 3D 粒子球时强制重置并拉起麦克风）
   Future<void> manualWakeupOrRestart() async {
-    if (_disposed) return;
+    if (_disposed || _stopping) return;
     _error = null;
 
     // 如果正在播报中，停止 TTS
@@ -188,7 +191,7 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _startListening({bool forceRestartAsr = false}) async {
-    if (_disposed) return;
+    if (_disposed || _stopping) return;
     _transcript = '';
     _state = VoiceChatState.listening;
     _resetIdleTimer();
@@ -310,7 +313,13 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _removeTtsListener();
     _ttsStartTime = DateTime.now();
 
-    // 1. 若未开启语音打断：彻底关闭/取消麦克风录音，避免抢占音频焦点导致播报卡顿，同时杜绝扬声器声音被录入
+    // ★ 先立即触发 TTS 播报，确保后台时播报不被 await 阻塞
+    ttsProvider.speak(text);
+    void listener() => _onTtsChanged();
+    _ttsListener = listener;
+    ttsProvider.addListener(listener);
+
+    // 再异步处理麦克风：未开启打断时关闭麦克风，开启时保持全双工
     if (!enableBargeIn) {
       _stopBargeInListener();
       _removeAsrListener();
@@ -318,18 +327,12 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
         await asrProvider.cancel();
       }
     } else {
-      // 2. 若开启语音打断：保持全双工底流并挂载打断检测器
       if (!asrProvider.isActive) {
         final service = _resolveAsrService();
         asrProvider.start(service).catchError((_) {});
       }
       _startBargeInDetector();
     }
-
-    ttsProvider.speak(text);
-    void listener() => _onTtsChanged();
-    _ttsListener = listener;
-    ttsProvider.addListener(listener);
   }
 
   void _startBargeInDetector() {
@@ -401,16 +404,17 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _removeTtsListener();
     _stopBargeInListener();
     _removeAsrListener();
-    if (_disposed || _state != VoiceChatState.aiSpeaking) return;
+    if (_disposed || _stopping || _state != VoiceChatState.aiSpeaking) return;
 
     // 1. 彻底清空可能在播报期间残留在 ASR 缓冲区的脏数据
     if (asrProvider.isActive) {
       await asrProvider.cancel();
     }
+    if (_disposed || _stopping) return;
 
     // 2. 给硬件扬声器 200ms 回声物理消退期，防止扬声器刚停瞬间的残响被拾音
     await Future.delayed(const Duration(milliseconds: 200));
-    if (!_disposed && _state == VoiceChatState.aiSpeaking) {
+    if (!_disposed && !_stopping && _state == VoiceChatState.aiSpeaking) {
       await _startListening(forceRestartAsr: true);
     }
   }
