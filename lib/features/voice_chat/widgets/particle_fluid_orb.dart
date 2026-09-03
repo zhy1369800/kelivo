@@ -209,11 +209,7 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
         // 3D 粒子球区域
         GestureDetector(
           onTap: () {
-            if (isAiSpeaking) {
-              widget.controller.interruptTts();
-            } else if (isIdle) {
-              widget.controller.start();
-            }
+            widget.controller.manualWakeupOrRestart();
             widget.onTap?.call();
           },
           onTapDown: (_) => setState(() => _pressing = true),

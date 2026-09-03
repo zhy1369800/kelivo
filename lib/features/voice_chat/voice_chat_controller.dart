@@ -171,7 +171,23 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     await _startListening();
   }
 
-  Future<void> _startListening() async {
+  /// 手动点击唤醒或重启拾音（用于点击 3D 粒子球时强制重置并拉起麦克风）
+  Future<void> manualWakeupOrRestart() async {
+    if (_disposed) return;
+    _error = null;
+
+    // 如果正在播报中，停止 TTS
+    if (_state == VoiceChatState.aiSpeaking) {
+      _removeTtsListener();
+      _stopBargeInListener();
+      ttsProvider.stop();
+    }
+
+    // 重启拾音，强制重启 ASR 会话拉起麦克风
+    await _startListening(forceRestartAsr: true);
+  }
+
+  Future<void> _startListening({bool forceRestartAsr = false}) async {
     if (_disposed) return;
     _transcript = '';
     _state = VoiceChatState.listening;
@@ -181,6 +197,9 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
 
     final service = _resolveAsrService();
     try {
+      if (forceRestartAsr && asrProvider.isActive) {
+        await asrProvider.cancel();
+      }
       if (!asrProvider.isActive) {
         await asrProvider.start(service);
       }
@@ -287,27 +306,30 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     if (!_disposed) notifyListeners();
   }
 
-  void _startTts(String text) {
+  void _startTts(String text) async {
     _removeTtsListener();
     _ttsStartTime = DateTime.now();
+
+    // 1. 若未开启语音打断：彻底关闭/取消麦克风录音，避免抢占音频焦点导致播报卡顿，同时杜绝扬声器声音被录入
+    if (!enableBargeIn) {
+      _stopBargeInListener();
+      _removeAsrListener();
+      if (asrProvider.isActive) {
+        await asrProvider.cancel();
+      }
+    } else {
+      // 2. 若开启语音打断：保持全双工底流并挂载打断检测器
+      if (!asrProvider.isActive) {
+        final service = _resolveAsrService();
+        asrProvider.start(service).catchError((_) {});
+      }
+      _startBargeInDetector();
+    }
+
     ttsProvider.speak(text);
     void listener() => _onTtsChanged();
     _ttsListener = listener;
     ttsProvider.addListener(listener);
-
-    // 全双工底流保活：确保麦克风在 AI 播报期间不被系统冷销毁，以便播报完毕后无缝拾音
-    if (!asrProvider.isActive) {
-      final service = _resolveAsrService();
-      asrProvider.start(service).catchError((_) {});
-    }
-
-    // 语音打断检测：仅在用户开启 enableBargeIn 时挂载打断监听器
-    if (enableBargeIn) {
-      _startBargeInDetector();
-    } else {
-      _stopBargeInListener();
-      _removeAsrListener();
-    }
   }
 
   void _startBargeInDetector() {
@@ -375,12 +397,21 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  void _finishSpeakingAndListen() {
+  Future<void> _finishSpeakingAndListen() async {
     _removeTtsListener();
     _stopBargeInListener();
     _removeAsrListener();
+    if (_disposed || _state != VoiceChatState.aiSpeaking) return;
+
+    // 1. 彻底清空可能在播报期间残留在 ASR 缓冲区的脏数据
+    if (asrProvider.isActive) {
+      await asrProvider.cancel();
+    }
+
+    // 2. 给硬件扬声器 200ms 回声物理消退期，防止扬声器刚停瞬间的残响被拾音
+    await Future.delayed(const Duration(milliseconds: 200));
     if (!_disposed && _state == VoiceChatState.aiSpeaking) {
-      _startListening();
+      await _startListening(forceRestartAsr: true);
     }
   }
 
