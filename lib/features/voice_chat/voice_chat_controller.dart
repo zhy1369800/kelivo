@@ -313,8 +313,14 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _removeTtsListener();
     _ttsStartTime = DateTime.now();
 
+    final clean = text.trim();
+    if (clean.isEmpty) {
+      _finishSpeakingAndListen();
+      return;
+    }
+
     // ★ 先立即触发 TTS 播报，确保后台时播报不被 await 阻塞
-    ttsProvider.speak(text);
+    ttsProvider.speak(clean);
     void listener() => _onTtsChanged();
     _ttsListener = listener;
     ttsProvider.addListener(listener);

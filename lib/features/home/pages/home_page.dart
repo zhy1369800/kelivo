@@ -1593,7 +1593,8 @@ class _HomePageState extends State<HomePage>
     final avatarPath = assistant?.avatar;
     int lastSentUserMsgIndex = -1;
 
-    final controller = VoiceChatController(
+    late final VoiceChatController controller;
+    controller = VoiceChatController(
       asrProvider: asr,
       ttsProvider: tts,
       preferredAsrService: settings.selectedAsrService,
@@ -1602,7 +1603,25 @@ class _HomePageState extends State<HomePage>
       avatarPath: avatarPath,
       sendMessage: (data) async {
         lastSentUserMsgIndex = _controller.messages.length;
-        await _controller.sendMessage(data);
+        try {
+          await _controller.sendMessage(data);
+        } finally {
+          // 兜底保障：即使在后台监听被系统合并/滞后，只要 sendMessage 完成，
+          // 若仍处于 processing 状态，立即强制拉起播报！
+          if (controller.state == VoiceChatState.processing) {
+            final msgs = _controller.messages;
+            if (lastSentUserMsgIndex >= 0 && msgs.length > lastSentUserMsgIndex) {
+              final lastMsg = msgs.last;
+              if (lastMsg.role == 'assistant' && lastMsg.content.trim().isNotEmpty) {
+                controller.onAiReplyComplete(lastMsg.content);
+              } else {
+                await controller.manualWakeupOrRestart();
+              }
+            } else {
+              await controller.manualWakeupOrRestart();
+            }
+          }
+        }
       },
     );
     _voiceChatController = controller;

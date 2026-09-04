@@ -10,6 +10,21 @@ public class VoiceChatLiveActivityHandler: NSObject {
   private var currentActivity: Activity<VoiceChatActivityAttributes>?
   private var channel: FlutterMethodChannel?
   private var isObservingDarwinNotification = false
+  private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+
+  private func beginBackgroundTask() {
+    endBackgroundTask()
+    backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "KelivoVoiceChatKeepAlive") { [weak self] in
+      self?.endBackgroundTask()
+    }
+  }
+
+  private func endBackgroundTask() {
+    if backgroundTask != .invalid {
+      UIApplication.shared.endBackgroundTask(backgroundTask)
+      backgroundTask = .invalid
+    }
+  }
 
   public func setup(binaryMessenger: FlutterBinaryMessenger) {
     let methodChannel = FlutterMethodChannel(
@@ -103,11 +118,14 @@ public class VoiceChatLiveActivityHandler: NSObject {
   }
 
   public func startActivity(sessionId: String, assistantName: String, avatarPath: String?) {
+    beginBackgroundTask()
+
     guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
     // 先清理已有活动
     if currentActivity != nil {
       stopActivity()
+      beginBackgroundTask()
     }
 
     let attributes = VoiceChatActivityAttributes(
@@ -153,6 +171,11 @@ public class VoiceChatLiveActivityHandler: NSObject {
     waveLevel: Double,
     isFinished: Bool
   ) {
+    // 确保后台任务持续有效
+    if backgroundTask == .invalid && !isFinished {
+      beginBackgroundTask()
+    }
+
     guard let activity = currentActivity else { return }
 
     let contentState = VoiceChatActivityAttributes.ContentState(
@@ -174,6 +197,8 @@ public class VoiceChatLiveActivityHandler: NSObject {
   }
 
   public func stopActivity() {
+    endBackgroundTask()
+
     guard let activity = currentActivity else { return }
 
     Task {
