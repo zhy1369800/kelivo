@@ -1603,25 +1603,7 @@ class _HomePageState extends State<HomePage>
       avatarPath: avatarPath,
       sendMessage: (data) async {
         lastSentUserMsgIndex = _controller.messages.length;
-        try {
-          await _controller.sendMessage(data);
-        } finally {
-          // 兜底保障：即使在后台监听被系统合并/滞后，只要 sendMessage 完成，
-          // 若仍处于 processing 状态，立即强制拉起播报！
-          if (controller.state == VoiceChatState.processing) {
-            final msgs = _controller.messages;
-            if (lastSentUserMsgIndex >= 0 && msgs.length > lastSentUserMsgIndex) {
-              final lastMsg = msgs.last;
-              if (lastMsg.role == 'assistant' && lastMsg.content.trim().isNotEmpty) {
-                controller.onAiReplyComplete(lastMsg.content);
-              } else {
-                await controller.manualWakeupOrRestart();
-              }
-            } else {
-              await controller.manualWakeupOrRestart();
-            }
-          }
-        }
+        await _controller.sendMessage(data);
       },
     );
     _voiceChatController = controller;
@@ -1636,8 +1618,12 @@ class _HomePageState extends State<HomePage>
             if (_controller.isCurrentConversationLoading) {
               controller.updateStreamingText(replyText);
             } else {
+              // 生成已完毕，触发播报
               controller.onAiReplyComplete(replyText);
             }
+          } else if (!_controller.isCurrentConversationLoading) {
+            // 兜底：生成已结束但无有效内容，安全切回拾音
+            controller.manualWakeupOrRestart();
           }
         }
       }
