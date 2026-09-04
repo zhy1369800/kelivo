@@ -4722,8 +4722,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get voiceChatBargeInTitle => '允许语音打断 (Voice Barge-in)';
 
   @override
-  String get voiceChatBargeInSubtitle =>
-      'AI 播报时开口说话可自动打断并重新开始听取；连续 30 秒静音将自动进入休眠省电';
+  String get voiceChatBargeInSubtitle => 'AI 播报时开口说话可自动打断并重新开始听取';
 
   @override
   String get voiceChatStateIdle => '准备就绪';
@@ -4742,6 +4741,12 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get voiceChatClickToInterrupt => '点击打断';
+
+  @override
+  String get voiceChatSilenceSleepPrompt => '30秒静音后自动休眠';
+
+  @override
+  String get voiceChatTapToWake => '轻触唤醒';
 
   @override
   String get ttsServicesPageAddNotImplemented => '新增 TTS 服务暂未实现';
@@ -12640,8 +12645,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get voiceChatBargeInTitle => '允许语音打断 (Voice Barge-in)';
 
   @override
-  String get voiceChatBargeInSubtitle =>
-      'AI 播报时开口说话可自动打断并重新开始听取；连续 30 秒静音将自动进入休眠省电';
+  String get voiceChatBargeInSubtitle => 'AI 播报时开口说话可自动打断并重新开始听取';
 
   @override
   String get voiceChatStateIdle => '准备就绪';
@@ -12660,6 +12664,12 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get voiceChatClickToInterrupt => '点击打断';
+
+  @override
+  String get voiceChatSilenceSleepPrompt => '30秒静音后自动休眠';
+
+  @override
+  String get voiceChatTapToWake => '轻触唤醒';
 
   @override
   String get ttsServicesPageAddNotImplemented => '新增 TTS 服务暂未实现';
@@ -20482,8 +20492,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get voiceChatBargeInTitle => '允許語音打斷 (Voice Barge-in)';
 
   @override
-  String get voiceChatBargeInSubtitle =>
-      'AI 播報時開口說話可自動打斷並重新開始聽取；連續 30 秒靜音將自動進入休眠省電';
+  String get voiceChatBargeInSubtitle => 'AI 播報時開口說話可自動打斷並重新開始聽取';
 
   @override
   String get voiceChatStateIdle => '準備就緒';
@@ -20502,6 +20511,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get voiceChatClickToInterrupt => '點擊打斷';
+
+  @override
+  String get voiceChatSilenceSleepPrompt => '30秒靜音後自動休眠';
+
+  @override
+  String get voiceChatTapToWake => '輕觸喚醒';
 
   @override
   String get ttsServicesPageAddNotImplemented => '新增 TTS 服務暫未實現';

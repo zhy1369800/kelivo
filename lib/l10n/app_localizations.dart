@@ -9064,7 +9064,7 @@ abstract class AppLocalizations {
   /// No description provided for @voiceChatBargeInSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Speaking during AI playback automatically interrupts it; automatically sleeps after 30s of silence'**
+  /// **'Speaking during AI playback automatically interrupts it'**
   String get voiceChatBargeInSubtitle;
 
   /// No description provided for @voiceChatStateIdle.
@@ -9102,6 +9102,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Tap to interrupt'**
   String get voiceChatClickToInterrupt;
+
+  /// No description provided for @voiceChatSilenceSleepPrompt.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleeps after 30s of silence'**
+  String get voiceChatSilenceSleepPrompt;
+
+  /// No description provided for @voiceChatTapToWake.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to wake'**
+  String get voiceChatTapToWake;
 
   /// No description provided for @ttsServicesPageAddNotImplemented.
   ///

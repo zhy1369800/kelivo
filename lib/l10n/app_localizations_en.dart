@@ -4920,7 +4920,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get voiceChatBargeInSubtitle =>
-      'Speaking during AI playback automatically interrupts it; automatically sleeps after 30s of silence';
+      'Speaking during AI playback automatically interrupts it';
 
   @override
   String get voiceChatStateIdle => 'Ready';
@@ -4939,6 +4939,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get voiceChatClickToInterrupt => 'Tap to interrupt';
+
+  @override
+  String get voiceChatSilenceSleepPrompt => 'Sleeps after 30s of silence';
+
+  @override
+  String get voiceChatTapToWake => 'Tap to wake';
 
   @override
   String get ttsServicesPageAddNotImplemented =>

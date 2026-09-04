@@ -183,20 +183,29 @@ class _ParticleFluidOrbState extends State<ParticleFluidOrb>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final isAiSpeaking = widget.controller.state == VoiceChatState.aiSpeaking;
-    final isIdle = widget.controller.state == VoiceChatState.idle;
+    final state = widget.controller.state;
+    final isAiSpeaking = state == VoiceChatState.aiSpeaking;
+    final isIdle = state == VoiceChatState.idle;
+    final isListening = state == VoiceChatState.listening;
+
+    String promptText = '';
+    if (isAiSpeaking) {
+      promptText = l10n?.voiceChatClickToInterrupt ?? '点击打断';
+    } else if (isIdle) {
+      promptText = l10n?.voiceChatTapToWake ?? '轻触唤醒';
+    } else if (isListening) {
+      promptText = l10n?.voiceChatSilenceSleepPrompt ?? '30秒静音后自动休眠';
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // 顶部“点击打断 / 轻触唤醒”轻提示
+        // 顶部轻提示：根据状态展示“30秒静音后自动休眠 / 点击打断 / 轻触唤醒”
         AnimatedOpacity(
-          opacity: (isAiSpeaking || isIdle) ? 1.0 : 0.0,
+          opacity: promptText.isNotEmpty ? 1.0 : 0.0,
           duration: const Duration(milliseconds: 300),
           child: Text(
-            isIdle
-                ? '轻触唤醒'
-                : (l10n?.voiceChatClickToInterrupt ?? 'Tap to interrupt'),
+            promptText,
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.45),
               fontSize: 12,
