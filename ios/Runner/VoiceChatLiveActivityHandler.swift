@@ -11,6 +11,7 @@ public class VoiceChatLiveActivityHandler: NSObject {
   private var channel: FlutterMethodChannel?
   private var isObservingDarwinNotification = false
   private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+  private var audioPlayer: AVAudioPlayer?
 
   private func beginBackgroundTask() {
     endBackgroundTask()
@@ -23,6 +24,79 @@ public class VoiceChatLiveActivityHandler: NSObject {
     if backgroundTask != .invalid {
       UIApplication.shared.endBackgroundTask(backgroundTask)
       backgroundTask = .invalid
+    }
+  }
+
+  private func startAudioKeepAlive() {
+    do {
+      let session = AVAudioSession.sharedInstance()
+      try session.setCategory(
+        .playAndRecord,
+        mode: .voiceChat,
+        options: [.defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP, .mixWithOthers]
+      )
+      try session.setActive(true)
+      try session.overrideOutputAudioPort(.speaker)
+
+      if audioPlayer == nil {
+        audioPlayer = createSilentAudioPlayer()
+      }
+      audioPlayer?.numberOfLoops = -1
+      audioPlayer?.volume = 0.001
+      audioPlayer?.play()
+    } catch {
+      NSLog("VoiceChat startAudioKeepAlive failed: \(error)")
+    }
+  }
+
+  private func stopAudioKeepAlive() {
+    audioPlayer?.stop()
+    audioPlayer = nil
+  }
+
+  private func createSilentAudioPlayer() -> AVAudioPlayer? {
+    let sampleRate: Double = 44100.0
+    let duration: Double = 1.0
+    let numSamples = Int(sampleRate * duration)
+    let numChannels: Int = 1
+    let bitsPerSample: Int = 16
+    let byteRate = Int(sampleRate * Double(numChannels * bitsPerSample / 8))
+    let blockAlign = numChannels * bitsPerSample / 8
+    let subchunk2Size = numSamples * blockAlign
+    let chunkSize = 36 + subchunk2Size
+
+    var data = Data()
+    data.append(contentsOf: "RIFF".utf8)
+    var chunkSizeBytes = UInt32(chunkSize).littleEndian
+    data.append(Data(bytes: &chunkSizeBytes, count: 4))
+    data.append(contentsOf: "WAVE".utf8)
+    data.append(contentsOf: "fmt ".utf8)
+    var subchunk1Size = UInt32(16).littleEndian
+    data.append(Data(bytes: &subchunk1Size, count: 4))
+    var audioFormat = UInt16(1).littleEndian
+    data.append(Data(bytes: &audioFormat, count: 2))
+    var channels = UInt16(numChannels).littleEndian
+    data.append(Data(bytes: &channels, count: 2))
+    var sampleRateVal = UInt32(sampleRate).littleEndian
+    data.append(Data(bytes: &sampleRateVal, count: 4))
+    var byteRateVal = UInt32(byteRate).littleEndian
+    data.append(Data(bytes: &byteRateVal, count: 4))
+    var blockAlignVal = UInt16(blockAlign).littleEndian
+    data.append(Data(bytes: &blockAlignVal, count: 2))
+    var bitsPerSampleVal = UInt16(bitsPerSample).littleEndian
+    data.append(Data(bytes: &bitsPerSampleVal, count: 2))
+    data.append(contentsOf: "data".utf8)
+    var subchunk2SizeBytes = UInt32(subchunk2Size).littleEndian
+    data.append(Data(bytes: &subchunk2SizeBytes, count: 4))
+    data.append(Data(repeating: 0, count: subchunk2Size))
+
+    do {
+      let p = try AVAudioPlayer(data: data)
+      p.prepareToPlay()
+      return p
+    } catch {
+      NSLog("Error creating silent audio player: \(error)")
+      return nil
     }
   }
 
@@ -119,6 +193,7 @@ public class VoiceChatLiveActivityHandler: NSObject {
 
   public func startActivity(sessionId: String, assistantName: String, avatarPath: String?) {
     beginBackgroundTask()
+    startAudioKeepAlive()
 
     guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
@@ -126,6 +201,7 @@ public class VoiceChatLiveActivityHandler: NSObject {
     if currentActivity != nil {
       stopActivity()
       beginBackgroundTask()
+      startAudioKeepAlive()
     }
 
     let attributes = VoiceChatActivityAttributes(
@@ -198,6 +274,7 @@ public class VoiceChatLiveActivityHandler: NSObject {
 
   public func stopActivity() {
     endBackgroundTask()
+    stopAudioKeepAlive()
 
     guard let activity = currentActivity else { return }
 
