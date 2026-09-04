@@ -1,4 +1,5 @@
 import ActivityKit
+import AVFoundation
 import Flutter
 import Foundation
 import UIKit
