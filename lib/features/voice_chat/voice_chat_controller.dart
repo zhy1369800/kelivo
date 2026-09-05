@@ -342,16 +342,25 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _ttsListener = listener;
     ttsProvider.addListener(listener);
 
-    // 再异步处理麦克风：
-    // 后台模式下强制全双工常开（小黄灯常亮保活并支持打断），前台模式下若未开启打断则关闭麦克风
-    if (!enableBargeIn && !_isInBackground) {
+    // 处理麦克风：
+    if (!enableBargeIn) {
       _stopBargeInListener();
       _removeAsrListener();
-      if (asrProvider.isActive) {
-        await asrProvider.cancel();
+      if (_isInBackground) {
+        // 后台且未开启打断：保持麦克风开启保活小黄灯，但不挂载打断监听
+        if (!asrProvider.isActive && !_stopping) {
+          final service = _resolveAsrService();
+          asrProvider.start(service).catchError((_) {});
+        }
+      } else {
+        // 前台且未开启打断：关闭麦克风
+        if (asrProvider.isActive) {
+          await asrProvider.cancel();
+        }
       }
     } else {
-      if (!asrProvider.isActive) {
+      // 开启了人声打断：无论前台还是后台，全双工保持麦克风并挂载打断监听（由 iOS 硬件 AEC 消除扬声器回声）
+      if (!asrProvider.isActive && !_stopping) {
         final service = _resolveAsrService();
         asrProvider.start(service).catchError((_) {});
       }
@@ -371,19 +380,19 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
   void _onBargeInSoundChanged() {
     if (_disposed || _state != VoiceChatState.aiSpeaking) return;
 
-    // 1. 声学滤波器收敛免扰期（前 600ms 内不触发打断，防止扬声器启动瞬态冲击）
+    // 1. 声学滤波器收敛免扰期（前 700ms 内不触发打断，防止扬声器启动瞬态冲击并等待硬件 AEC 滤波器收敛）
     final startTime = _ttsStartTime;
     if (startTime != null &&
-        DateTime.now().difference(startTime) < const Duration(milliseconds: 600)) {
+        DateTime.now().difference(startTime) < const Duration(milliseconds: 700)) {
       return;
     }
 
     // 2. 自适应近场人声突刺阈值（防回音保底 0.55，并兼容用户调高的自定义配置）
     final level = asrProvider.soundLevel;
     final effectiveThreshold = math.max(bargeInThreshold, 0.55);
-    final effectiveDuration = bargeInDuration > const Duration(milliseconds: 300)
+    final effectiveDuration = bargeInDuration > const Duration(milliseconds: 350)
         ? bargeInDuration
-        : const Duration(milliseconds: 300);
+        : const Duration(milliseconds: 350);
 
     if (level > effectiveThreshold) {
       _bargeInTimer ??= Timer(effectiveDuration, () {

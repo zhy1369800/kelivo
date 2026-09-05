@@ -308,7 +308,7 @@ class TtsProvider extends ChangeNotifier {
             IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
             IosTextToSpeechAudioCategoryOptions.mixWithOthers,
           ],
-          IosTextToSpeechAudioMode.spokenAudio,
+          IosTextToSpeechAudioMode.voiceChat,
         );
       } catch (_) {}
     }
