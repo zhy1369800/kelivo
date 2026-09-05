@@ -36,6 +36,9 @@ import '../../../core/services/native_speech_recognizer_service.dart';
 import '../../../core/services/native_speech_synthesizer_service.dart';
 import '../../../core/services/native_shortcut_automation_service.dart';
 import '../../../core/services/native_file_system_service.dart';
+import '../../../utils/app_directories.dart';
+import '../../../utils/kelivo_file_uri.dart';
+import 'package:path/path.dart' as p;
 import 'ask_user_interaction_service.dart';
 import 'built_in_tool_names.dart';
 import 'local_tools_service.dart';
@@ -3028,6 +3031,7 @@ class ToolHandlerService {
     final params = args['params']?.toString();
     final taskId = args['taskId']?.toString();
 
+
     final result = await NativeShortcutAutomationService.executeTask(
       action: action,
       shortcut: shortcut,
@@ -3050,7 +3054,13 @@ class ToolHandlerService {
       );
     }
     try {
-      final normalized = Map<String, dynamic>.from(args)..['action'] = action;
+      // Resolve kelivo:// and kelivo-file:/// virtual paths to absolute paths
+      // before forwarding to the native layer which only understands POSIX paths.
+      final rawPath = args['path']?.toString();
+      final resolvedPath = await _resolveFileSystemPath(rawPath);
+      final normalized = Map<String, dynamic>.from(args)
+        ..['action'] = action
+        ..['path'] = resolvedPath ?? rawPath;
       final data = await NativeFileSystemService.invoke(normalized);
       return jsonEncode({
         'success': data['error'] == null,
@@ -3071,4 +3081,39 @@ class ToolHandlerService {
       );
     }
   }
+
+  /// Resolves kelivo:// and kelivo-file:/// virtual URI schemes to absolute
+  /// local file paths that the native file system layer can consume.
+  /// Returns the input unchanged for ordinary absolute paths and file:// URIs.
+  static Future<String?> _resolveFileSystemPath(String? raw) async {
+    if (raw == null || raw.trim().isEmpty) return raw;
+    final trimmed = raw.trim();
+
+    // kelivo-file:///upload/photo.png  →  <AppData>/upload/photo.png
+    if (KelivoFileUri.isKelivoFileUri(trimmed)) {
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        final resolved =
+            KelivoFileUri.resolveToAbsolute(trimmed, root: appDataDir.path);
+        if (resolved != null) return resolved;
+      } catch (_) {}
+    }
+
+    // kelivo://logs/debug.txt  →  <AppData>/logs/debug.txt
+    if (trimmed.startsWith('kelivo://')) {
+      final uri = Uri.tryParse(trimmed);
+      if (uri != null && uri.host.isNotEmpty) {
+        try {
+          final appDataDir = await AppDirectories.getAppDataDirectory();
+          final namespace = uri.host;
+          final subpath =
+              uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
+          return p.join(appDataDir.path, namespace, subpath);
+        } catch (_) {}
+      }
+    }
+
+    return trimmed;
+  }
 }
+
