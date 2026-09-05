@@ -1031,6 +1031,8 @@ class ToolHandlerService {
                 fsAction == 'append' ||
                 fsAction == 'mkdir' ||
                 fsAction == 'delete' ||
+                fsAction == 'copy' ||
+                fsAction == 'move' ||
                 fsAction == 'pick_file' ||
                 fsAction == 'pick_directory',
           );
@@ -3078,11 +3080,18 @@ class ToolHandlerService {
     try {
       // Resolve kelivo://, kelivo-file:///, Files App aliases, or sandbox shortcuts
       // to absolute paths before forwarding to native layer.
-      final rawPath = args['path']?.toString();
+      final rawPath =
+          (args['path'] ?? args['from_path'] ?? args['source'])?.toString();
       final resolvedPath = await _resolveFileSystemPath(rawPath);
+      final rawDestination =
+          (args['destination'] ?? args['to_path'] ?? args['dst'])?.toString();
+      final resolvedDestination = await _resolveFileSystemPath(rawDestination);
       final normalized = Map<String, dynamic>.from(args)
         ..['action'] = action
         ..['path'] = resolvedPath ?? rawPath;
+      if (resolvedDestination != null) {
+        normalized['destination'] = resolvedDestination;
+      }
       final data = await NativeFileSystemService.invoke(normalized);
       final mutableData = Map<String, dynamic>.from(data);
       final appDataDir = await AppDirectories.getAppDataDirectory();
@@ -3091,6 +3100,13 @@ class ToolHandlerService {
       if (mutableData['path'] is String) {
         mutableData['display_path'] = _formatDisplayPath(
           mutableData['path'] as String,
+          appDataDir.path,
+        );
+      }
+      // Attach user-friendly display_destination for destination target
+      if (mutableData['destination'] is String) {
+        mutableData['display_destination'] = _formatDisplayPath(
+          mutableData['destination'] as String,
           appDataDir.path,
         );
       }

@@ -1209,14 +1209,17 @@ class LocalToolsService {
                   'stat',
                   'list',
                   'mkdir',
+                  'copy',
+                  'move',
                   'delete'
                 ],
-                'description': 'Operation to perform (delete requires user approval and only deletes a single file or empty directory).',
+                'description':
+                    'Operation to perform: copy, move (requires approval), delete (requires approval and only deletes a single file or empty directory), write, append, read, stat, list, mkdir, pick_file, pick_directory, get_sandbox_path.',
               },
               'path': {
                 'type': 'string',
                 'description':
-                    'File or directory path. Leave empty or pass "sandbox", ".", or "kelivo://" to target the app sandbox Documents root directly without prompt. '
+                    'Source file or directory path. Leave empty or pass "sandbox", ".", or "kelivo://" to target the app sandbox Documents root directly without prompt. '
                     'Supported formats: '
                     '(1) "sandbox" or "" (app sandbox Documents root, NO picker needed), '
                     '(2) absolute POSIX path (e.g. /var/mobile/.../Documents/a.txt), '
@@ -1225,6 +1228,11 @@ class LocalToolsService {
                     '(5) kelivo:// URI for any app-data namespace (e.g. kelivo://logs/debug.txt), '
                     '(6) iOS Files app path alias (e.g. "我的 iPhone/Kelivo/logs/a.txt", "On My iPhone/Kelivo/logs/a.txt", or "Kelivo/logs/a.txt"). '
                     'pick_file or pick_directory is ONLY required for external paths outside the app sandbox.',
+              },
+              'destination': {
+                'type': 'string',
+                'description':
+                    'Target file or directory path for copy or move actions. Supports the same formats as "path".',
               },
               'content': {
                 'type': 'string',

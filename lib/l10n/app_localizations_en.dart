@@ -5920,6 +5920,16 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String fileSystemActionCopy(String name) {
+    return 'Copy: $name';
+  }
+
+  @override
+  String fileSystemActionMove(String name) {
+    return 'Move: $name';
+  }
+
+  @override
   String get fileSystemManageAuthorizedPathsTitle => 'Manage Authorized Paths';
 
   @override

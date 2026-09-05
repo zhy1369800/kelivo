@@ -785,6 +785,16 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
         let out = self?.delete(args: args) ?? ["success": false, "error": "deallocated"]
         DispatchQueue.main.async { result(out) }
       }
+    case "copy":
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let out = self?.transfer(args: args, isMove: false) ?? ["success": false, "error": "deallocated"]
+        DispatchQueue.main.async { result(out) }
+      }
+    case "move":
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let out = self?.transfer(args: args, isMove: true) ?? ["success": false, "error": "deallocated"]
+        DispatchQueue.main.async { result(out) }
+      }
     case "revoke":
       let path = (args["path"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       var registry = loadBookmarks()
@@ -1037,9 +1047,68 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
       }
       do {
         try FileManager.default.removeItem(at: url)
+        var registry = loadBookmarks()
+        if registry.removeValue(forKey: url.path) != nil {
+          UserDefaults.standard.set(registry, forKey: bookmarkKey)
+        }
         return payload(["path": url.path, "deleted": true])
       } catch {
         return errorPayload("delete_failed", error.localizedDescription)
+      }
+    }
+  }
+
+  private func transfer(args: [String: Any], isMove: Bool) -> [String: Any] {
+    let srcRaw = args["path"] ?? args["from_path"] ?? args["source"]
+    let dstRaw = args["destination"] ?? args["to_path"] ?? args["dst"]
+    let overwrite = boolArg(args["overwrite"]) ?? false
+
+    guard normalizeUrl(srcRaw) != nil else {
+      return errorPayload("invalid_parameters", "Source path is required.")
+    }
+    guard normalizeUrl(dstRaw) != nil else {
+      return errorPayload("invalid_parameters", "Destination path is required.")
+    }
+
+    return accessPath(srcRaw, write: isMove) { srcUrl in
+      return accessPath(dstRaw, write: true) { dstUrl in
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: srcUrl.path, isDirectory: &isDir) else {
+          return errorPayload("not_found", "Source file or directory does not exist.")
+        }
+        if FileManager.default.fileExists(atPath: dstUrl.path) {
+          if !overwrite {
+            return errorPayload("already_exists", "Destination already exists. Set overwrite=true to replace it.")
+          }
+          do {
+            try FileManager.default.removeItem(at: dstUrl)
+          } catch {
+            return errorPayload("overwrite_failed", "Failed to remove existing destination: \(error.localizedDescription)")
+          }
+        }
+        do {
+          let parent = dstUrl.deletingLastPathComponent()
+          try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+          if isMove {
+            try FileManager.default.moveItem(at: srcUrl, to: dstUrl)
+            var registry = loadBookmarks()
+            if let oldBookmark = registry.removeValue(forKey: srcUrl.path) {
+              registry[dstUrl.path] = oldBookmark
+              UserDefaults.standard.set(registry, forKey: bookmarkKey)
+            }
+          } else {
+            try FileManager.default.copyItem(at: srcUrl, to: dstUrl)
+          }
+          return payload([
+            "path": srcUrl.path,
+            "destination": dstUrl.path,
+            "is_move": isMove,
+            "success": true,
+          ])
+        } catch {
+          let op = isMove ? "move" : "copy"
+          return errorPayload("\(op)_failed", error.localizedDescription)
+        }
       }
     }
   }

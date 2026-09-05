@@ -2495,6 +2495,22 @@
       }
     }
   },
+  "fileSystemActionCopy": "Copy: {name}",
+  "@fileSystemActionCopy": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileSystemActionMove": "Move: {name}",
+  "@fileSystemActionMove": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "fileSystemManageAuthorizedPathsTitle": "Manage Authorized Paths",
   "fileSystemManageAuthorizedPathsSubtitle": "View and revoke external folders or files granted to this assistant.",
   "fileSystemAuthorizedPathsSheetTitle": "Authorized Paths",

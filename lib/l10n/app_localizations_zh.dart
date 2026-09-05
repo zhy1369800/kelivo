@@ -5685,6 +5685,16 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String fileSystemActionCopy(String name) {
+    return '复制文件：$name';
+  }
+
+  @override
+  String fileSystemActionMove(String name) {
+    return '移动文件：$name';
+  }
+
+  @override
   String get fileSystemManageAuthorizedPathsTitle => '管理已授权路径';
 
   @override

@@ -398,6 +398,14 @@ String _fileSystemToolTitleFor(
       return fileName.isNotEmpty
           ? l10n.fileSystemActionDelete(fileName)
           : l10n.assistantEditLocalToolFileSystemTitle;
+    case 'copy':
+      return fileName.isNotEmpty
+          ? l10n.fileSystemActionCopy(fileName)
+          : l10n.assistantEditLocalToolFileSystemTitle;
+    case 'move':
+      return fileName.isNotEmpty
+          ? l10n.fileSystemActionMove(fileName)
+          : l10n.assistantEditLocalToolFileSystemTitle;
     default:
       return l10n.assistantEditLocalToolFileSystemTitle;
   }

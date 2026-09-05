@@ -10837,6 +10837,18 @@ abstract class AppLocalizations {
   /// **'Delete: {name}'**
   String fileSystemActionDelete(String name);
 
+  /// No description provided for @fileSystemActionCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy: {name}'**
+  String fileSystemActionCopy(String name);
+
+  /// No description provided for @fileSystemActionMove.
+  ///
+  /// In en, this message translates to:
+  /// **'Move: {name}'**
+  String fileSystemActionMove(String name);
+
   /// No description provided for @fileSystemManageAuthorizedPathsTitle.
   ///
   /// In en, this message translates to:
