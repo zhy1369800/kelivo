@@ -356,12 +356,289 @@ class _LocalToolsTab extends StatelessWidget {
               onChanged: (value) =>
                   updateTool(LocalToolNames.fileSystem, value),
             ),
+            if (fileSystemEnabled && NativeFileSystemService.isSupported) ...[
+              _iosDivider(context),
+              _LocalToolSubActionRow(
+                icon: Lucide.FolderOpen,
+                title: l10n.fileSystemManageAuthorizedPathsTitle,
+                subtitle: l10n.fileSystemManageAuthorizedPathsSubtitle,
+                onTap: () => _showAuthorizedPathsModal(context),
+              ),
+            ],
           ],
         ),
       ],
     );
   }
+
+  void _showAuthorizedPathsModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => const _AuthorizedPathsSheet(),
+    );
+  }
 }
+
+class _LocalToolSubActionRow extends StatelessWidget {
+  const _LocalToolSubActionRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return _TactileRow(
+      onTap: onTap,
+      builder: (pressed) {
+        final baseColor = cs.onSurface.withValues(alpha: 0.9);
+        return _AnimatedPressColor(
+          pressed: pressed,
+          base: baseColor,
+          builder: (color) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 36,
+                    child: Icon(
+                      icon,
+                      size: 18,
+                      color: cs.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: color,
+                            fontWeight: AppFontWeights.medium,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.25,
+                            color: cs.onSurface.withValues(alpha: 0.62),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Lucide.ChevronRight,
+                    size: 16,
+                    color: cs.onSurface.withValues(alpha: 0.4),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _AuthorizedPathsSheet extends StatefulWidget {
+  const _AuthorizedPathsSheet();
+
+  @override
+  State<_AuthorizedPathsSheet> createState() => _AuthorizedPathsSheetState();
+}
+
+class _AuthorizedPathsSheetState extends State<_AuthorizedPathsSheet> {
+  List<Map<String, dynamic>> _items = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final list = await NativeFileSystemService.listBookmarks();
+    if (!mounted) return;
+    setState(() {
+      _items = list;
+      _loading = false;
+    });
+  }
+
+  Future<void> _revoke(String path, String name, AppLocalizations l10n) async {
+    final ok = await NativeFileSystemService.revokeBookmark(path);
+    if (!mounted) return;
+    if (ok) {
+      setState(() {
+        _items = _items.where((e) => e['path'] != path).toList();
+      });
+      showAppSnackBar(
+        context,
+        message: l10n.fileSystemRevokeSuccess(name),
+        type: NotificationType.success,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.75,
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: cs.onSurface.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            l10n.fileSystemAuthorizedPathsSheetTitle,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: AppFontWeights.emphasis,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            l10n.fileSystemAuthorizedPathsSheetSubtitle,
+            style: TextStyle(
+              fontSize: 13,
+              color: cs.onSurface.withValues(alpha: 0.62),
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: CircularProgressIndicator.adaptive()),
+            )
+          else if (_items.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    Lucide.Folder,
+                    size: 36,
+                    color: cs.onSurface.withValues(alpha: 0.4),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    l10n.fileSystemAuthorizedPathsEmpty,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurface.withValues(alpha: 0.65),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: _items.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final item = _items[index];
+                  final path = (item['path'] ?? '').toString();
+                  final name = (item['name'] ?? '').toString();
+                  final isDir = item['is_directory'] == true;
+
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: cs.primaryContainer,
+                      child: Icon(
+                        isDir ? Lucide.Folder : Lucide.FileText,
+                        size: 18,
+                        color: cs.primary,
+                      ),
+                    ),
+                    title: Text(
+                      name.isNotEmpty ? name : path,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: AppFontWeights.medium,
+                      ),
+                    ),
+                    subtitle: Text(
+                      path,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurface.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    trailing: IconButton(
+                      icon: Icon(
+                        Lucide.Trash2,
+                        size: 18,
+                        color: cs.error,
+                      ),
+                      onPressed: () =>
+                          _revoke(path, name.isNotEmpty ? name : path, l10n),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 
 class _LocalToolRow extends StatelessWidget {
   const _LocalToolRow({

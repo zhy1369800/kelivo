@@ -58,6 +58,7 @@ import '../../../theme/design_tokens.dart';
 import '../../../utils/avatar_cache.dart';
 import '../../../utils/brand_assets.dart';
 import '../../../utils/platform_utils.dart';
+import '../../../core/services/native_file_system_service.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../utils/assistant_edit_tab_layout.dart';
 import 'assistant_regex_tab.dart';

@@ -5685,6 +5685,26 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get fileSystemManageAuthorizedPathsTitle => '管理已授权路径';
+
+  @override
+  String get fileSystemManageAuthorizedPathsSubtitle => '查看并撤销已授权该助手访问的外部文件与目录';
+
+  @override
+  String get fileSystemAuthorizedPathsSheetTitle => '已授权路径';
+
+  @override
+  String get fileSystemAuthorizedPathsSheetSubtitle => '此助手通过安全书签有权访问的外部文件和目录';
+
+  @override
+  String get fileSystemAuthorizedPathsEmpty => '暂无已授权的外部路径（应用沙盒内部文件免授权直接读写）';
+
+  @override
+  String fileSystemRevokeSuccess(String path) {
+    return '已移除对 $path 的访问权限';
+  }
+
+  @override
   String get shortcutAutomationNotificationTitle => '自动化任务';
 
   @override

@@ -793,6 +793,19 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
         UserDefaults.standard.set(registry, forKey: bookmarkKey)
       }
       result(payload(["revoked": removed, "path": path]))
+    case "list_bookmarks":
+      let registry = loadBookmarks()
+      let list = registry.keys.sorted().map { path -> [String: Any] in
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+        return [
+          "path": path,
+          "name": URL(fileURLWithPath: path).lastPathComponent,
+          "is_directory": isDir.boolValue,
+          "exists": exists,
+        ]
+      }
+      result(payload(["bookmarks": list, "count": list.count]))
     case "stat":
       DispatchQueue.global(qos: .userInitiated).async { [weak self] in
         let out = self?.stat(args: args) ?? ["success": false, "error": "deallocated"]
@@ -866,6 +879,12 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
       var isDir: ObjCBool = false
       guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return errorPayload("not_found", "File does not exist.") }
       guard !isDir.boolValue else { return errorPayload("is_directory", "Path is a directory.") }
+      if let values = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
+         values.isUbiquitousItem == true,
+         values.ubiquitousItemDownloadingStatus == .notDownloaded {
+        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+        return errorPayload("file_not_downloaded", "The file is stored in iCloud and has not been downloaded to the device yet. Download has been triggered. Please wait a moment and try again.")
+      }
       do {
         let data = try Data(contentsOf: url)
         guard offset <= data.count else { return errorPayload("invalid_range", "offset is beyond end of file.") }

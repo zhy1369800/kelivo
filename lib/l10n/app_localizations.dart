@@ -10837,6 +10837,42 @@ abstract class AppLocalizations {
   /// **'Delete: {name}'**
   String fileSystemActionDelete(String name);
 
+  /// No description provided for @fileSystemManageAuthorizedPathsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage Authorized Paths'**
+  String get fileSystemManageAuthorizedPathsTitle;
+
+  /// No description provided for @fileSystemManageAuthorizedPathsSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'View and revoke external folders or files granted to this assistant.'**
+  String get fileSystemManageAuthorizedPathsSubtitle;
+
+  /// No description provided for @fileSystemAuthorizedPathsSheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Authorized Paths'**
+  String get fileSystemAuthorizedPathsSheetTitle;
+
+  /// No description provided for @fileSystemAuthorizedPathsSheetSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'External files and directories accessible by this assistant via Security-Scoped Bookmarks.'**
+  String get fileSystemAuthorizedPathsSheetSubtitle;
+
+  /// No description provided for @fileSystemAuthorizedPathsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No external paths have been authorized yet. (App sandbox documents do not require authorization)'**
+  String get fileSystemAuthorizedPathsEmpty;
+
+  /// No description provided for @fileSystemRevokeSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoked access for {path}'**
+  String fileSystemRevokeSuccess(String path);
+
   /// No description provided for @shortcutAutomationNotificationTitle.
   ///
   /// In en, this message translates to:

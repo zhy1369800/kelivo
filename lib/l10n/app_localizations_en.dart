@@ -5920,6 +5920,29 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get fileSystemManageAuthorizedPathsTitle => 'Manage Authorized Paths';
+
+  @override
+  String get fileSystemManageAuthorizedPathsSubtitle =>
+      'View and revoke external folders or files granted to this assistant.';
+
+  @override
+  String get fileSystemAuthorizedPathsSheetTitle => 'Authorized Paths';
+
+  @override
+  String get fileSystemAuthorizedPathsSheetSubtitle =>
+      'External files and directories accessible by this assistant via Security-Scoped Bookmarks.';
+
+  @override
+  String get fileSystemAuthorizedPathsEmpty =>
+      'No external paths have been authorized yet. (App sandbox documents do not require authorization)';
+
+  @override
+  String fileSystemRevokeSuccess(String path) {
+    return 'Revoked access for $path';
+  }
+
+  @override
   String get shortcutAutomationNotificationTitle => 'Automation Task';
 
   @override

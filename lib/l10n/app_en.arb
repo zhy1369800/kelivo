@@ -2495,6 +2495,19 @@
       }
     }
   },
+  "fileSystemManageAuthorizedPathsTitle": "Manage Authorized Paths",
+  "fileSystemManageAuthorizedPathsSubtitle": "View and revoke external folders or files granted to this assistant.",
+  "fileSystemAuthorizedPathsSheetTitle": "Authorized Paths",
+  "fileSystemAuthorizedPathsSheetSubtitle": "External files and directories accessible by this assistant via Security-Scoped Bookmarks.",
+  "fileSystemAuthorizedPathsEmpty": "No external paths have been authorized yet. (App sandbox documents do not require authorization)",
+  "fileSystemRevokeSuccess": "Revoked access for {path}",
+  "@fileSystemRevokeSuccess": {
+    "placeholders": {
+      "path": {
+        "type": "String"
+      }
+    }
+  },
   "shortcutAutomationNotificationTitle": "Automation Task",
   "shortcutAutomationListBody": "List all shortcuts",
   "shortcutAutomationExecBody": "Execute shortcut: {shortcut}",
