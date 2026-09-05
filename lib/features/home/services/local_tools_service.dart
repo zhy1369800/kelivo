@@ -1188,9 +1188,10 @@ class LocalToolsService {
         'function': {
           'name': LocalToolNames.fileSystem,
           'description':
-              'Read and write user-authorized files and directories on iOS Files app, iCloud Drive, or On My iPhone. '
-              'Use pick_file or pick_directory first when access has not been granted. '
-              'Only authorized paths and app sandbox paths are accessible. '
+              'Read and write files and directories on iOS. '
+              'The app sandbox Documents directory is fully accessible without user authorization. '
+              'To inspect or list files in the app sandbox, call action="get_sandbox_path", or call action="list" directly with path="sandbox" or path="" — DO NOT call pick_directory for the sandbox. '
+              'Only call pick_file or pick_directory when accessing external files outside the app sandbox (e.g. iCloud Drive or other apps). '
               'Text uses UTF-8 by default; binary data uses base64.',
           'parameters': {
             'type': 'object',
@@ -1198,6 +1199,7 @@ class LocalToolsService {
               'action': {
                 'type': 'string',
                 'enum': [
+                  'get_sandbox_path',
                   'pick_file',
                   'pick_directory',
                   'read',
@@ -1212,13 +1214,15 @@ class LocalToolsService {
               'path': {
                 'type': 'string',
                 'description':
-                    'File or directory path. Supported formats: '
-                    '(1) absolute POSIX path (e.g. /var/mobile/.../Documents/a.txt), '
-                    '(2) file:// URL (e.g. file:///var/mobile/.../a.txt), '
-                    '(3) kelivo-file:/// URI for app-managed assets (e.g. kelivo-file:///upload/photo.png — roots: upload, images, avatars, fonts), '
-                    '(4) kelivo:// URI for any app-data namespace (e.g. kelivo://logs/debug.txt), '
-                    '(5) iOS Files app path alias (e.g. "我的 iPhone/Kelivo/logs/a.txt", "On My iPhone/Kelivo/logs/a.txt", or "Kelivo/logs/a.txt" which automatically map to the app Documents directory). '
-                    'pick_file or pick_directory must be called first for paths outside the app sandbox.',
+                    'File or directory path. Leave empty or pass "sandbox", ".", or "kelivo://" to target the app sandbox Documents root directly without prompt. '
+                    'Supported formats: '
+                    '(1) "sandbox" or "" (app sandbox Documents root, NO picker needed), '
+                    '(2) absolute POSIX path (e.g. /var/mobile/.../Documents/a.txt), '
+                    '(3) file:// URL (e.g. file:///var/mobile/.../a.txt), '
+                    '(4) kelivo-file:/// URI for app-managed assets (e.g. kelivo-file:///upload/photo.png — roots: upload, images, avatars, fonts), '
+                    '(5) kelivo:// URI for any app-data namespace (e.g. kelivo://logs/debug.txt), '
+                    '(6) iOS Files app path alias (e.g. "我的 iPhone/Kelivo/logs/a.txt", "On My iPhone/Kelivo/logs/a.txt", or "Kelivo/logs/a.txt"). '
+                    'pick_file or pick_directory is ONLY required for external paths outside the app sandbox.',
               },
               'content': {
                 'type': 'string',

@@ -3053,9 +3053,29 @@ class ToolHandlerService {
         tool: LocalToolNames.fileSystem,
       );
     }
+    if (action == 'get_sandbox_path') {
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        return jsonEncode({
+          'success': true,
+          'action': 'get_sandbox_path',
+          'path': appDataDir.path,
+          'files_app_alias': '我的 iPhone/Kelivo',
+          'uri_scheme': 'kelivo://',
+          'description':
+              'App sandbox Documents directory. Fully accessible without pick_file or pick_directory.',
+        });
+      } catch (e) {
+        return _toolError(
+          error: 'sandbox_path_error',
+          message: e.toString(),
+          tool: LocalToolNames.fileSystem,
+        );
+      }
+    }
     try {
-      // Resolve kelivo:// and kelivo-file:/// virtual paths to absolute paths
-      // before forwarding to the native layer which only understands POSIX paths.
+      // Resolve kelivo://, kelivo-file:///, Files App aliases, or sandbox shortcuts
+      // to absolute paths before forwarding to native layer.
       final rawPath = args['path']?.toString();
       final resolvedPath = await _resolveFileSystemPath(rawPath);
       final normalized = Map<String, dynamic>.from(args)
@@ -3082,12 +3102,24 @@ class ToolHandlerService {
     }
   }
 
-  /// Resolves kelivo:// and kelivo-file:/// virtual URI schemes to absolute
-  /// local file paths that the native file system layer can consume.
+  /// Resolves kelivo:// and kelivo-file:/// virtual URI schemes, Files App aliases,
+  /// or "sandbox"/empty shortcuts to absolute local file paths.
   /// Returns the input unchanged for ordinary absolute paths and file:// URIs.
   static Future<String?> _resolveFileSystemPath(String? raw) async {
-    if (raw == null || raw.trim().isEmpty) return raw;
-    final trimmed = raw.trim();
+    final trimmed = raw?.trim() ?? '';
+
+    // Empty path, ".", "sandbox", or "kelivo://" directly resolves to the app sandbox Documents root
+    if (trimmed.isEmpty ||
+        trimmed == '.' ||
+        trimmed.toLowerCase() == 'sandbox' ||
+        trimmed == 'kelivo://') {
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        return appDataDir.path;
+      } catch (_) {
+        return trimmed.isEmpty ? null : trimmed;
+      }
+    }
 
     // kelivo-file:///upload/photo.png  →  <AppData>/upload/photo.png
     if (KelivoFileUri.isKelivoFileUri(trimmed)) {
