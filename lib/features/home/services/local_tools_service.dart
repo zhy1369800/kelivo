@@ -1192,6 +1192,7 @@ class LocalToolsService {
               'The app sandbox Documents directory is fully accessible without user authorization. '
               'To inspect or list files in the app sandbox, call action="get_sandbox_path", or call action="list" directly with path="sandbox" or path="" — DO NOT call pick_directory for the sandbox. '
               'Only call pick_file or pick_directory when accessing external files outside the app sandbox (e.g. iCloud Drive or other apps). '
+              'All returned JSON payloads contain a user-friendly "display_path" (e.g. "我的 iPhone/Kelivo/logs/app.log" or "iCloud 云盘/..."). When replying to the user, ALWAYS prefer mentioning display_path rather than the internal physical POSIX path. '
               'Text uses UTF-8 by default; binary data uses base64.',
           'parameters': {
             'type': 'object',

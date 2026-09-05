@@ -3060,6 +3060,7 @@ class ToolHandlerService {
           'success': true,
           'action': 'get_sandbox_path',
           'path': appDataDir.path,
+          'display_path': '我的 iPhone/Kelivo',
           'files_app_alias': '我的 iPhone/Kelivo',
           'uri_scheme': 'kelivo://',
           'description':
@@ -3082,10 +3083,37 @@ class ToolHandlerService {
         ..['action'] = action
         ..['path'] = resolvedPath ?? rawPath;
       final data = await NativeFileSystemService.invoke(normalized);
+      final mutableData = Map<String, dynamic>.from(data);
+      final appDataDir = await AppDirectories.getAppDataDirectory();
+
+      // Attach user-friendly display_path for root target
+      if (mutableData['path'] is String) {
+        mutableData['display_path'] = _formatDisplayPath(
+          mutableData['path'] as String,
+          appDataDir.path,
+        );
+      }
+      // Attach user-friendly display_path for each child item (in list action)
+      if (mutableData['items'] is List) {
+        mutableData['items'] = (mutableData['items'] as List).map((item) {
+          if (item is Map) {
+            final itemMap = Map<String, dynamic>.from(item);
+            if (itemMap['path'] is String) {
+              itemMap['display_path'] = _formatDisplayPath(
+                itemMap['path'] as String,
+                appDataDir.path,
+              );
+            }
+            return itemMap;
+          }
+          return item;
+        }).toList();
+      }
+
       return jsonEncode({
-        'success': data['error'] == null,
+        'success': mutableData['error'] == null,
         'action': action,
-        ...data,
+        ...mutableData,
       });
     } on PlatformException catch (e) {
       return _toolError(
@@ -3164,6 +3192,33 @@ class ToolHandlerService {
     }
 
     return trimmed;
+  }
+
+  /// Converts a physical system path into a user-friendly display path
+  /// (e.g. "我的 iPhone/Kelivo/logs/app.log" or "iCloud 云盘/docs/note.txt").
+  static String _formatDisplayPath(String path, String appDataPath) {
+    if (path.isEmpty) return path;
+    final normPath = path.replaceAll('\\', '/');
+    final normApp = appDataPath.replaceAll('\\', '/');
+
+    // 1. App sandbox Documents root or child path
+    if (normPath == normApp) {
+      return '我的 iPhone/Kelivo';
+    }
+    if (normPath.startsWith('$normApp/')) {
+      final sub = normPath.substring(normApp.length + 1);
+      return '我的 iPhone/Kelivo/$sub';
+    }
+
+    // 2. iCloud Drive documents
+    const icloudMarker = 'Mobile Documents/com~apple~CloudDocs/';
+    final icloudIdx = normPath.indexOf(icloudMarker);
+    if (icloudIdx != -1) {
+      final sub = normPath.substring(icloudIdx + icloudMarker.length);
+      return 'iCloud 云盘/$sub';
+    }
+
+    return path;
   }
 }
 
