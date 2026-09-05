@@ -5631,6 +5631,13 @@ class AppLocalizationsZh extends AppLocalizations {
       '通过本地通知触发 iOS 快捷指令自动化，并接收 JSON 执行结果文件。';
 
   @override
+  String get assistantEditLocalToolFileSystemTitle => '文件读写';
+
+  @override
+  String get assistantEditLocalToolFileSystemSubtitle =>
+      '读写 iOS Files/iCloud 中已授权的文件和目录。';
+
+  @override
   String get shortcutAutomationNotificationTitle => '自动化任务';
 
   @override

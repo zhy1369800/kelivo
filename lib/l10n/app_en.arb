@@ -2433,6 +2433,8 @@
   "assistantEditLocalToolSpeechSynthesizerSubtitle": "Allow the assistant to perform fast on-device offline text-to-speech playback and audio file synthesis via Apple AVSpeechSynthesizer.",
   "assistantEditLocalToolShortcutAutomationTitle": "Shortcuts Automation",
   "assistantEditLocalToolShortcutAutomationSubtitle": "Trigger iOS Shortcuts automations via local notifications and receive JSON result files.",
+  "assistantEditLocalToolFileSystemTitle": "File System Read/Write",
+  "assistantEditLocalToolFileSystemSubtitle": "Read and write user-authorized files and directories in iOS Files and iCloud Drive.",
   "shortcutAutomationNotificationTitle": "Automation Task",
   "shortcutAutomationListBody": "List all shortcuts",
   "shortcutAutomationExecBody": "Execute shortcut: {shortcut}",

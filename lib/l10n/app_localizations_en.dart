@@ -5866,6 +5866,13 @@ class AppLocalizationsEn extends AppLocalizations {
       'Trigger iOS Shortcuts automations via local notifications and receive JSON result files.';
 
   @override
+  String get assistantEditLocalToolFileSystemTitle => 'File System Read/Write';
+
+  @override
+  String get assistantEditLocalToolFileSystemSubtitle =>
+      'Read and write user-authorized files and directories in iOS Files and iCloud Drive.';
+
+  @override
   String get shortcutAutomationNotificationTitle => 'Automation Task';
 
   @override

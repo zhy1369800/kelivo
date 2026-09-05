@@ -78,6 +78,9 @@ class _LocalToolsTab extends StatelessWidget {
     final shortcutAutomationEnabled = assistant.localToolIds.contains(
       LocalToolNames.shortcutAutomation,
     );
+    final fileSystemEnabled = assistant.localToolIds.contains(
+      LocalToolNames.fileSystem,
+    );
 
     Future<void> updateTool(String toolId, bool value) {
       final ids = assistant.localToolIds.toSet();
@@ -343,6 +346,15 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: shortcutAutomationEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.shortcutAutomation, value),
+            ),
+            _iosDivider(context),
+            _LocalToolRow(
+              icon: Lucide.FolderOpen,
+              title: l10n.assistantEditLocalToolFileSystemTitle,
+              subtitle: l10n.assistantEditLocalToolFileSystemSubtitle,
+              enabled: fileSystemEnabled,
+              onChanged: (value) =>
+                  updateTool(LocalToolNames.fileSystem, value),
             ),
           ],
         ),

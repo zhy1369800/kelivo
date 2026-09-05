@@ -305,6 +305,7 @@ IconData? _localToolIconFor(String name, Map<String, dynamic> args) {
     LocalToolNames.reminderTask => Lucide.CheckSquare,
     LocalToolNames.alarmTimer => Lucide.clock,
     LocalToolNames.shortcutAutomation => Lucide.Zap,
+    LocalToolNames.fileSystem => Lucide.FolderOpen,
     _ => null,
   };
 }
@@ -343,6 +344,7 @@ String? _localToolTitleFor(
     LocalToolNames.reminderTask => l10n.assistantEditLocalToolReminderTaskTitle,
     LocalToolNames.alarmTimer => l10n.assistantEditLocalToolAlarmTimerTitle,
     LocalToolNames.shortcutAutomation => l10n.assistantEditLocalToolShortcutAutomationTitle,
+    LocalToolNames.fileSystem => l10n.assistantEditLocalToolFileSystemTitle,
     _ => null,
   };
 }

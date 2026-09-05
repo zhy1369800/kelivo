@@ -34,6 +34,7 @@ class LocalToolNames {
   static const String speechRecognizer = 'speech_recognizer_tool';
   static const String speechSynthesizer = 'speech_synthesizer_tool';
   static const String shortcutAutomation = 'shortcut_automation_tool';
+  static const String fileSystem = 'file_system_tool';
 
   static const List<String> all = [
     timeInfo,
@@ -59,6 +60,7 @@ class LocalToolNames {
     speechRecognizer,
     speechSynthesizer,
     shortcutAutomation,
+    fileSystem,
   ];
 }
 
@@ -1173,6 +1175,70 @@ class LocalToolsService {
                 'type': 'string',
                 'description':
                     'Optional input parameters or text to pass to the shortcut when executing. Can be a plain string (e.g. "Hello") or a JSON string for multiple key-value parameters (e.g. "{\\"name\\": \\"Alice\\", \\"message\\": \\"Hi\\"}").',
+              },
+            },
+            'required': ['action'],
+          },
+        },
+      });
+    }
+    if (assistant.localToolIds.contains(LocalToolNames.fileSystem)) {
+      tools.add(const {
+        'type': 'function',
+        'function': {
+          'name': LocalToolNames.fileSystem,
+          'description':
+              'Read and write user-authorized files and directories on iOS Files app, iCloud Drive, or On My iPhone. Use pick_file or pick_directory first when access has not been granted. Only authorized paths and app sandbox paths are accessible. Text uses UTF-8 by default; binary data uses base64.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'action': {
+                'type': 'string',
+                'enum': [
+                  'pick_file',
+                  'pick_directory',
+                  'read',
+                  'write',
+                  'append',
+                  'stat',
+                  'list',
+                  'mkdir'
+                ],
+                'description': 'Operation to perform.',
+              },
+              'path': {
+                'type': 'string',
+                'description':
+                    'Authorized absolute local path, file:// URL, or a child path under an authorized directory.',
+              },
+              'content': {
+                'type': 'string',
+                'description': 'UTF-8 text for write or append.',
+              },
+              'base64': {
+                'type': 'string',
+                'description': 'Base64 bytes for binary write or append.',
+              },
+              'encoding': {
+                'type': 'string',
+                'enum': ['utf8', 'base64'],
+                'description': 'Read output encoding. Default utf8.',
+              },
+              'offset': {
+                'type': 'integer',
+                'description': 'Read byte offset. Default 0.',
+              },
+              'length': {
+                'type': 'integer',
+                'description': 'Maximum bytes to read.',
+              },
+              'overwrite': {
+                'type': 'boolean',
+                'description': 'Allow write to replace an existing file. Default false.',
+              },
+              'recursive': {
+                'type': 'boolean',
+                'description': 'Create parent directories for mkdir. Default true.',
               },
             },
             'required': ['action'],

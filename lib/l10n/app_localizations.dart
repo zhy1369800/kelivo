@@ -10759,6 +10759,18 @@ abstract class AppLocalizations {
   /// **'Trigger iOS Shortcuts automations via local notifications and receive JSON result files.'**
   String get assistantEditLocalToolShortcutAutomationSubtitle;
 
+  /// No description provided for @assistantEditLocalToolFileSystemTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'File System Read/Write'**
+  String get assistantEditLocalToolFileSystemTitle;
+
+  /// No description provided for @assistantEditLocalToolFileSystemSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Read and write user-authorized files and directories in iOS Files and iCloud Drive.'**
+  String get assistantEditLocalToolFileSystemSubtitle;
+
   /// No description provided for @shortcutAutomationNotificationTitle.
   ///
   /// In en, this message translates to:

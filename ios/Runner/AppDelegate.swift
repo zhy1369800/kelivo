@@ -5,6 +5,7 @@
  import UserNotifications
  import ActivityKit
  import EventKit
+ import UniformTypeIdentifiers
 
 private let backgroundRefreshIdentifier = "psyche.kelivo.background-generation.refresh"
 private let backgroundProcessingIdentifier = "psyche.kelivo.background-generation.processing"
@@ -27,6 +28,7 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
   private let appleVisionHandler = AppleVisionHandler()
   private let appleSpeechRecognizerHandler = AppleSpeechRecognizerHandler()
   private let appleSpeechSynthesizerHandler = AppleSpeechSynthesizerHandler()
+  private let fileSystemHandler = FileSystemHandler()
 
   override func application(
     _ application: UIApplication,
@@ -143,6 +145,12 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       let speechSynthesizerChannel = FlutterMethodChannel(name: "app.speech_synthesizer", binaryMessenger: controller.binaryMessenger)
       speechSynthesizerChannel.setMethodCallHandler { [weak self] call, result in
         self?.appleSpeechSynthesizerHandler.handle(call: call, result: result)
+      }
+
+      let fileSystemChannel = FlutterMethodChannel(name: "app.file_system", binaryMessenger: controller.binaryMessenger)
+      fileSystemHandler.presentingViewController = controller
+      fileSystemChannel.setMethodCallHandler { [weak self] call, result in
+        self?.fileSystemHandler.handle(call: call, result: result)
       }
 
       if #available(iOS 16.1, *) {
@@ -741,6 +749,302 @@ private final class NativeFileSaveHandler: NSObject, UIDocumentPickerDelegate {
       return topViewController(from: presented)
     }
     return controller
+  }
+}
+
+private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
+  weak var presentingViewController: UIViewController?
+
+  private var pendingResult: FlutterResult?
+  private var pendingPickDirectory = false
+  private let bookmarkKey = "file_system_bookmarks_v1"
+  private let maxReadBytes = 5 * 1024 * 1024
+
+  func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
+    let args = (call.arguments as? [String: Any]) ?? [:]
+    switch call.method {
+    case "pick_file":
+      pick(directory: false, result: result)
+    case "pick_directory":
+      pick(directory: true, result: result)
+    case "read":
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let out = self?.read(args: args) ?? ["success": false, "error": "deallocated"]
+        DispatchQueue.main.async { result(out) }
+      }
+    case "write":
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let out = self?.write(args: args, append: false) ?? ["success": false, "error": "deallocated"]
+        DispatchQueue.main.async { result(out) }
+      }
+    case "append":
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let out = self?.write(args: args, append: true) ?? ["success": false, "error": "deallocated"]
+        DispatchQueue.main.async { result(out) }
+      }
+    case "stat":
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let out = self?.stat(args: args) ?? ["success": false, "error": "deallocated"]
+        DispatchQueue.main.async { result(out) }
+      }
+    case "list":
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let out = self?.list(args: args) ?? ["success": false, "error": "deallocated"]
+        DispatchQueue.main.async { result(out) }
+      }
+    case "mkdir":
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let out = self?.mkdir(args: args) ?? ["success": false, "error": "deallocated"]
+        DispatchQueue.main.async { result(out) }
+      }
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func pick(directory: Bool, result: @escaping FlutterResult) {
+    guard pendingResult == nil else {
+      result(errorPayload("busy", "Another document picker is already active."))
+      return
+    }
+    pendingResult = result
+    pendingPickDirectory = directory
+    let picker: UIDocumentPickerViewController
+    if directory {
+      if #available(iOS 14.0, *) {
+        picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
+      } else {
+        picker = UIDocumentPickerViewController(documentTypes: ["public.folder"], in: .open)
+      }
+    } else {
+      if #available(iOS 14.0, *) {
+        picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: false)
+      } else {
+        picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .open)
+      }
+    }
+    picker.delegate = self
+    picker.allowsMultipleSelection = false
+    topViewController(from: presentingViewController)?.present(picker, animated: true)
+  }
+
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    finishPick(errorPayload("cancelled", "The user cancelled the document picker."))
+  }
+
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    guard let url = urls.first else {
+      finishPick(errorPayload("not_found", "No file was selected."))
+      return
+    }
+    do {
+      let bookmark = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+      var registry = loadBookmarks()
+      registry[url.path] = bookmark.base64EncodedString()
+      UserDefaults.standard.set(registry, forKey: bookmarkKey)
+      finishPick(payload([
+        "path": url.path,
+        "url": url.absoluteString,
+        "name": url.lastPathComponent,
+        "scope": pendingPickDirectory ? "directory" : "file",
+      ]))
+    } catch {
+      finishPick(errorPayload("bookmark_failed", "Failed to save security-scoped bookmark: \(error.localizedDescription)"))
+    }
+  }
+
+  private func read(args: [String: Any]) -> [String: Any] {
+    let encoding = ((args["encoding"] as? String) ?? "utf8").lowercased()
+    let offset = max(intArg(args["offset"]) ?? 0, 0)
+    let length = min(max(intArg(args["length"]) ?? maxReadBytes, 1), maxReadBytes)
+    return accessPath(args["path"]) { url in
+      var isDir: ObjCBool = false
+      guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return errorPayload("not_found", "File does not exist.") }
+      guard !isDir.boolValue else { return errorPayload("is_directory", "Path is a directory.") }
+      do {
+        let data = try Data(contentsOf: url)
+        guard offset <= data.count else { return errorPayload("invalid_range", "offset is beyond end of file.") }
+        let slice = data.subdata(in: offset..<min(offset + length, data.count))
+        if encoding == "base64" {
+          return payload(["path": url.path, "encoding": "base64", "base64": slice.base64EncodedString(), "bytes": slice.count, "total_bytes": data.count])
+        }
+        guard let text = String(data: slice, encoding: .utf8) else { return errorPayload("encoding_error", "File content is not valid UTF-8. Retry with encoding=base64.") }
+        return payload(["path": url.path, "encoding": "utf8", "content": text, "bytes": slice.count, "total_bytes": data.count])
+      } catch {
+        return errorPayload("read_failed", error.localizedDescription)
+      }
+    }
+  }
+
+  private func write(args: [String: Any], append: Bool) -> [String: Any] {
+    return accessPath(args["path"]) { url in
+      let overwrite = boolArg(args["overwrite"]) ?? false
+      let bytes: Data?
+      if let b64 = args["base64"] as? String {
+        bytes = Data(base64Encoded: b64)
+      } else if let content = args["content"] as? String {
+        bytes = content.data(using: .utf8)
+      } else {
+        return errorPayload("invalid_parameters", "Provide content or base64.")
+      }
+      guard let data = bytes else { return errorPayload("encoding_error", "Could not decode write content.") }
+      do {
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        if append {
+          if FileManager.default.fileExists(atPath: url.path) {
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+            try handle.close()
+          } else {
+            try data.write(to: url, options: .atomic)
+          }
+        } else {
+          if FileManager.default.fileExists(atPath: url.path), !overwrite {
+            return errorPayload("already_exists", "File already exists. Set overwrite=true to replace it.")
+          }
+          try data.write(to: url, options: .atomic)
+        }
+        return payload(["path": url.path, "bytes": data.count])
+      } catch {
+        return errorPayload("write_failed", error.localizedDescription)
+      }
+    }
+  }
+
+  private func stat(args: [String: Any]) -> [String: Any] {
+    accessPath(args["path"]) { url in
+      do {
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
+        return payload(["path": url.path, "name": url.lastPathComponent, "is_directory": values.isDirectory ?? false, "size": values.fileSize ?? 0, "modified": values.contentModificationDate?.timeIntervalSince1970 ?? 0])
+      } catch {
+        return errorPayload("not_found", error.localizedDescription)
+      }
+    }
+  }
+
+  private func list(args: [String: Any]) -> [String: Any] {
+    accessPath(args["path"]) { url in
+      do {
+        let items = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: [.skipsHiddenFiles]).map { child -> [String: Any] in
+          let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+          return ["name": child.lastPathComponent, "path": child.path, "is_directory": values?.isDirectory ?? false, "size": values?.fileSize ?? 0]
+        }
+        return payload(["path": url.path, "count": items.count, "items": items])
+      } catch {
+        return errorPayload("not_directory", error.localizedDescription)
+      }
+    }
+  }
+
+  private func mkdir(args: [String: Any]) -> [String: Any] {
+    accessPath(args["path"]) { url in
+      do {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: boolArg(args["recursive"]) ?? true)
+        return payload(["path": url.path])
+      } catch {
+        return errorPayload("write_failed", error.localizedDescription)
+      }
+    }
+  }
+
+  private func accessPath(_ raw: Any?, body: (URL) -> [String: Any]) -> [String: Any] {
+    guard let url = normalizeUrl(raw), url.isFileURL else { return errorPayload("invalid_path", "A valid local file path is required.") }
+    guard url.pathComponents.contains("..") == false else { return errorPayload("invalid_path", "Path traversal is not allowed.") }
+    var bookmarks = loadBookmarks()
+    var stale = false
+    var scopeUrl: URL?
+    var matchedRootPath: String?
+    for (rootPath, encoded) in bookmarks where url.path == rootPath || url.path.hasPrefix(rootPath + "/") {
+      if let data = Data(base64Encoded: encoded),
+         let resolved = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &stale) {
+        if stale {
+          if let newBookmark = try? resolved.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
+            bookmarks[rootPath] = newBookmark.base64EncodedString()
+            UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
+          }
+        }
+        scopeUrl = resolved
+        matchedRootPath = rootPath
+        break
+      }
+    }
+    guard scopeUrl != nil || isAppSandboxPath(url) else {
+      return errorPayload("permission_denied", "Path is not in the app sandbox and has not been authorized. Use pick_file or pick_directory first.")
+    }
+    let targetUrl: URL
+    if let scope = scopeUrl {
+      if url.path == scope.path {
+        targetUrl = scope
+      } else if let root = matchedRootPath, url.path.hasPrefix(root + "/") {
+        let relative = String(url.path.dropFirst((root + "/").count))
+        targetUrl = scope.appendingPathComponent(relative)
+      } else {
+        targetUrl = url
+      }
+    } else {
+      targetUrl = url
+    }
+    let accessed = scopeUrl?.startAccessingSecurityScopedResource() ?? false
+    defer { if accessed { scopeUrl?.stopAccessingSecurityScopedResource() } }
+    return body(targetUrl)
+  }
+
+  private func isAppSandboxPath(_ url: URL) -> Bool {
+    let path = url.standardizedFileURL.path
+    let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL.path
+    return path == home || path.hasPrefix(home + "/") || path == tmp || path.hasPrefix(tmp + "/")
+  }
+
+  private func normalizeUrl(_ raw: Any?) -> URL? {
+    guard let text = (raw as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+    if text.hasPrefix("file://") { return URL(string: text) }
+    return URL(fileURLWithPath: text)
+  }
+
+  private func loadBookmarks() -> [String: String] {
+    (UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: String]) ?? [:]
+  }
+
+  private func finishPick(_ value: [String: Any]) {
+    let result = pendingResult
+    pendingResult = nil
+    result?(value)
+  }
+
+  private func topViewController(from controller: UIViewController?) -> UIViewController? {
+    if let navigation = controller as? UINavigationController { return topViewController(from: navigation.visibleViewController) }
+    if let tab = controller as? UITabBarController { return topViewController(from: tab.selectedViewController) }
+    if let presented = controller?.presentedViewController { return topViewController(from: presented) }
+    return controller
+  }
+
+  private func intArg(_ value: Any?) -> Int? {
+    if let number = value as? Int { return number }
+    if let number = value as? Double { return Int(number) }
+    if let text = value as? String { return Int(text.trimmingCharacters(in: .whitespaces)) }
+    return nil
+  }
+
+  private func boolArg(_ value: Any?) -> Bool? {
+    if let flag = value as? Bool { return flag }
+    if let text = (value as? String)?.lowercased() {
+      if text == "true" { return true }
+      if text == "false" { return false }
+    }
+    return nil
+  }
+
+  private func payload(_ value: [String: Any]) -> [String: Any] {
+    var out = value
+    out["success"] = true
+    return out
+  }
+
+  private func errorPayload(_ error: String, _ message: String) -> [String: Any] {
+    ["success": false, "error": error, "message": message]
   }
 }
  

@@ -2018,6 +2018,8 @@
   "assistantEditLocalToolSpeechSynthesizerSubtitle": "允许大模型基于 AVSpeechSynthesizer 在端侧离线合成高品质语音朗读文本 (TTS)、导出音频文件及查询高级音色。",
   "assistantEditLocalToolShortcutAutomationTitle": "快捷指令自动化",
   "assistantEditLocalToolShortcutAutomationSubtitle": "通过本地通知触发 iOS 快捷指令自动化，并接收 JSON 执行结果文件。",
+  "assistantEditLocalToolFileSystemTitle": "文件读写",
+  "assistantEditLocalToolFileSystemSubtitle": "读写 iOS Files/iCloud 中已授权的文件和目录。",
   "shortcutAutomationNotificationTitle": "自动化任务",
   "shortcutAutomationListBody": "列出全部快捷指令",
   "shortcutAutomationExecBody": "执行快捷指令：{shortcut}",

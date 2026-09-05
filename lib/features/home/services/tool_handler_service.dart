@@ -35,6 +35,7 @@ import '../../../utils/sandbox_path_resolver.dart';
 import '../../../core/services/native_speech_recognizer_service.dart';
 import '../../../core/services/native_speech_synthesizer_service.dart';
 import '../../../core/services/native_shortcut_automation_service.dart';
+import '../../../core/services/native_file_system_service.dart';
 import 'ask_user_interaction_service.dart';
 import 'built_in_tool_names.dart';
 import 'local_tools_service.dart';
@@ -1007,6 +1008,39 @@ class ToolHandlerService {
           return await _handleShortcutAutomationTool(args: args);
         }
 
+        // Handle file_system_tool
+        if (name == LocalToolNames.fileSystem) {
+          if (assistant == null ||
+              !assistant.localToolIds.contains(LocalToolNames.fileSystem)) {
+            return _toolError(
+              error: 'tool_disabled',
+              message: 'The file_system_tool is disabled for this assistant.',
+              tool: name,
+            );
+          }
+          final fsAction = (args['action'] ?? '')
+              .toString()
+              .trim()
+              .toLowerCase();
+          final approval = await checkSystemPermission(
+            name,
+            defaultRequiresApproval: fsAction == 'write' ||
+                fsAction == 'append' ||
+                fsAction == 'mkdir' ||
+                fsAction == 'pick_file' ||
+                fsAction == 'pick_directory',
+          );
+          if (!approval.approved) {
+            return _toolError(
+              error: 'approval_denied',
+              message:
+                  approval.denyReason ?? 'User denied FileSystem operation.',
+              tool: name,
+            );
+          }
+          return await _handleFileSystemTool(args: args);
+        }
+
         return await approveAndExecuteMcp(name, args);
       } catch (e) {
         // Catch unexpected exceptions and return error JSON to LLM
@@ -1217,7 +1251,7 @@ class ToolHandlerService {
           final isBoundToAssistant =
               assistant?.mcpServerIds.contains(s.id) ?? false;
           final isBoundToConv = convMcpIds.contains(s.id);
-          final isConnected = mcp.statusFor(s.id) == McpStatus.connected;
+
 
           // Redact header values to protect sensitive secrets
           final Map<String, String> redactedHeaders = {};
@@ -1737,7 +1771,7 @@ class ToolHandlerService {
         final results = locations.map((loc) => {
           'latitude': loc.latitude,
           'longitude': loc.longitude,
-          'timestamp': loc.timestamp?.toIso8601String(),
+          'timestamp': loc.timestamp.toIso8601String(),
         }).toList();
 
         return jsonEncode({
@@ -2032,8 +2066,8 @@ class ToolHandlerService {
 
     try {
       final data = await NativeWeatherKitService.getWeather(
-        latitude: lat!,
-        longitude: lng!,
+        latitude: lat,
+        longitude: lng,
       );
 
       if (resolvedLocationName.isNotEmpty) {
@@ -3002,5 +3036,39 @@ class ToolHandlerService {
     );
 
     return jsonEncode(result);
+  }
+
+  static Future<String> _handleFileSystemTool({
+    required Map<String, dynamic> args,
+  }) async {
+    final action = (args['action'] ?? '').toString().trim().toLowerCase();
+    if (action.isEmpty) {
+      return _toolError(
+        error: 'invalid_parameters',
+        message: 'Parameter "action" is required for file_system_tool.',
+        tool: LocalToolNames.fileSystem,
+      );
+    }
+    try {
+      final normalized = Map<String, dynamic>.from(args)..['action'] = action;
+      final data = await NativeFileSystemService.invoke(normalized);
+      return jsonEncode({
+        'success': data['error'] == null,
+        'action': action,
+        ...data,
+      });
+    } on PlatformException catch (e) {
+      return _toolError(
+        error: e.code,
+        message: e.message ?? e.toString(),
+        tool: LocalToolNames.fileSystem,
+      );
+    } on Exception catch (e) {
+      return _toolError(
+        error: 'file_system_error',
+        message: e.toString(),
+        tool: LocalToolNames.fileSystem,
+      );
+    }
   }
 }
