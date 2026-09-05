@@ -5873,6 +5873,48 @@ class AppLocalizationsEn extends AppLocalizations {
       'Read and write user-authorized files and directories in iOS Files and iCloud Drive.';
 
   @override
+  String get fileSystemActionGetSandboxPath => 'Get Sandbox Path';
+
+  @override
+  String get fileSystemActionPickFile => 'Select External File';
+
+  @override
+  String get fileSystemActionPickDirectory => 'Select External Directory';
+
+  @override
+  String get fileSystemActionListSandbox => 'Browse Sandbox Files';
+
+  @override
+  String fileSystemActionListDirectory(String name) {
+    return 'Browse Directory: $name';
+  }
+
+  @override
+  String fileSystemActionMkdir(String name) {
+    return 'Create Directory: $name';
+  }
+
+  @override
+  String fileSystemActionRead(String name) {
+    return 'Read File: $name';
+  }
+
+  @override
+  String fileSystemActionWrite(String name) {
+    return 'Write File: $name';
+  }
+
+  @override
+  String fileSystemActionAppend(String name) {
+    return 'Append File: $name';
+  }
+
+  @override
+  String fileSystemActionStat(String name) {
+    return 'File Info: $name';
+  }
+
+  @override
   String get shortcutAutomationNotificationTitle => 'Automation Task';
 
   @override

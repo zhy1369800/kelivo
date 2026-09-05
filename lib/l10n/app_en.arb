@@ -2435,6 +2435,58 @@
   "assistantEditLocalToolShortcutAutomationSubtitle": "Trigger iOS Shortcuts automations via local notifications and receive JSON result files.",
   "assistantEditLocalToolFileSystemTitle": "File System Read/Write",
   "assistantEditLocalToolFileSystemSubtitle": "Read and write user-authorized files and directories in iOS Files and iCloud Drive.",
+  "fileSystemActionGetSandboxPath": "Get Sandbox Path",
+  "fileSystemActionPickFile": "Select External File",
+  "fileSystemActionPickDirectory": "Select External Directory",
+  "fileSystemActionListSandbox": "Browse Sandbox Files",
+  "fileSystemActionListDirectory": "Browse Directory: {name}",
+  "@fileSystemActionListDirectory": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileSystemActionMkdir": "Create Directory: {name}",
+  "@fileSystemActionMkdir": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileSystemActionRead": "Read File: {name}",
+  "@fileSystemActionRead": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileSystemActionWrite": "Write File: {name}",
+  "@fileSystemActionWrite": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileSystemActionAppend": "Append File: {name}",
+  "@fileSystemActionAppend": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileSystemActionStat": "File Info: {name}",
+  "@fileSystemActionStat": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "shortcutAutomationNotificationTitle": "Automation Task",
   "shortcutAutomationListBody": "List all shortcuts",
   "shortcutAutomationExecBody": "Execute shortcut: {shortcut}",

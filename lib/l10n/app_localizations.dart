@@ -10771,6 +10771,66 @@ abstract class AppLocalizations {
   /// **'Read and write user-authorized files and directories in iOS Files and iCloud Drive.'**
   String get assistantEditLocalToolFileSystemSubtitle;
 
+  /// No description provided for @fileSystemActionGetSandboxPath.
+  ///
+  /// In en, this message translates to:
+  /// **'Get Sandbox Path'**
+  String get fileSystemActionGetSandboxPath;
+
+  /// No description provided for @fileSystemActionPickFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Select External File'**
+  String get fileSystemActionPickFile;
+
+  /// No description provided for @fileSystemActionPickDirectory.
+  ///
+  /// In en, this message translates to:
+  /// **'Select External Directory'**
+  String get fileSystemActionPickDirectory;
+
+  /// No description provided for @fileSystemActionListSandbox.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse Sandbox Files'**
+  String get fileSystemActionListSandbox;
+
+  /// No description provided for @fileSystemActionListDirectory.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse Directory: {name}'**
+  String fileSystemActionListDirectory(String name);
+
+  /// No description provided for @fileSystemActionMkdir.
+  ///
+  /// In en, this message translates to:
+  /// **'Create Directory: {name}'**
+  String fileSystemActionMkdir(String name);
+
+  /// No description provided for @fileSystemActionRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Read File: {name}'**
+  String fileSystemActionRead(String name);
+
+  /// No description provided for @fileSystemActionWrite.
+  ///
+  /// In en, this message translates to:
+  /// **'Write File: {name}'**
+  String fileSystemActionWrite(String name);
+
+  /// No description provided for @fileSystemActionAppend.
+  ///
+  /// In en, this message translates to:
+  /// **'Append File: {name}'**
+  String fileSystemActionAppend(String name);
+
+  /// No description provided for @fileSystemActionStat.
+  ///
+  /// In en, this message translates to:
+  /// **'File Info: {name}'**
+  String fileSystemActionStat(String name);
+
   /// No description provided for @shortcutAutomationNotificationTitle.
   ///
   /// In en, this message translates to:

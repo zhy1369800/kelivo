@@ -755,7 +755,7 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
   private var pendingResult: FlutterResult?
   private var pendingPickDirectory = false
   private let bookmarkKey = "file_system_bookmarks_v1"
-  private let maxReadBytes = 5 * 1024 * 1024
+  private let maxReadBytes = 100 * 1024
 
   func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = (call.arguments as? [String: Any]) ?? [:]
@@ -857,12 +857,28 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
       do {
         let data = try Data(contentsOf: url)
         guard offset <= data.count else { return errorPayload("invalid_range", "offset is beyond end of file.") }
-        let slice = data.subdata(in: offset..<min(offset + length, data.count))
+        let end = min(offset + length, data.count)
+        let slice = data.subdata(in: offset..<end)
+        let hasMore = end < data.count
+        var res: [String: Any] = [
+          "path": url.path,
+          "bytes": slice.count,
+          "total_bytes": data.count,
+          "offset": offset,
+          "has_more": hasMore,
+        ]
+        if hasMore {
+          res["next_offset"] = end
+        }
         if encoding == "base64" {
-          return payload(["path": url.path, "encoding": "base64", "base64": slice.base64EncodedString(), "bytes": slice.count, "total_bytes": data.count])
+          res["encoding"] = "base64"
+          res["base64"] = slice.base64EncodedString()
+          return payload(res)
         }
         guard let text = String(data: slice, encoding: .utf8) else { return errorPayload("encoding_error", "File content is not valid UTF-8. Retry with encoding=base64.") }
-        return payload(["path": url.path, "encoding": "utf8", "content": text, "bytes": slice.count, "total_bytes": data.count])
+        res["encoding"] = "utf8"
+        res["content"] = text
+        return payload(res)
       } catch {
         return errorPayload("read_failed", error.localizedDescription)
       }
@@ -899,7 +915,15 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
           }
           try data.write(to: url, options: .atomic)
         }
-        return payload(["path": url.path, "bytes": data.count])
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let totalBytes = values?.fileSize ?? data.count
+        let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
+        return payload([
+          "path": url.path,
+          "bytes": data.count,
+          "total_bytes": totalBytes,
+          "modified": modified,
+        ])
       } catch {
         return errorPayload("write_failed", error.localizedDescription)
       }

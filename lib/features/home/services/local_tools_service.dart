@@ -1244,11 +1244,15 @@ class LocalToolsService {
               },
               'length': {
                 'type': 'integer',
-                'description': 'Maximum bytes to read.',
+                'description':
+                    'Maximum bytes to read. Defaults to 102400 (100KB, also the max per chunk). '
+                    'If the file has more content, the response returns has_more=true and next_offset to read subsequent chunks.',
               },
               'overwrite': {
                 'type': 'boolean',
-                'description': 'Allow write to replace an existing file. Default false.',
+                'description':
+                    'Allow write to replace an existing file. Default false. '
+                    'Write and append actions return both written "bytes" and resulting "total_bytes".',
               },
               'recursive': {
                 'type': 'boolean',

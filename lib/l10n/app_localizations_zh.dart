@@ -5638,6 +5638,48 @@ class AppLocalizationsZh extends AppLocalizations {
       '读写 iOS Files/iCloud 中已授权的文件和目录。';
 
   @override
+  String get fileSystemActionGetSandboxPath => '获取沙盒路径';
+
+  @override
+  String get fileSystemActionPickFile => '选取外部文件';
+
+  @override
+  String get fileSystemActionPickDirectory => '选取外部目录';
+
+  @override
+  String get fileSystemActionListSandbox => '浏览沙盒文件';
+
+  @override
+  String fileSystemActionListDirectory(String name) {
+    return '浏览目录：$name';
+  }
+
+  @override
+  String fileSystemActionMkdir(String name) {
+    return '创建目录：$name';
+  }
+
+  @override
+  String fileSystemActionRead(String name) {
+    return '读取文件：$name';
+  }
+
+  @override
+  String fileSystemActionWrite(String name) {
+    return '写入文件：$name';
+  }
+
+  @override
+  String fileSystemActionAppend(String name) {
+    return '追加写入：$name';
+  }
+
+  @override
+  String fileSystemActionStat(String name) {
+    return '查看信息：$name';
+  }
+
+  @override
   String get shortcutAutomationNotificationTitle => '自动化任务';
 
   @override

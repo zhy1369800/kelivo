@@ -38,6 +38,8 @@ import '../../../core/models/assistant_regex.dart';
 import '../../../shared/widgets/custom_bottom_sheet.dart';
 import '../../../shared/widgets/ios_checkbox.dart';
 import '../../../shared/widgets/ios_tactile.dart';
+import 'package:path/path.dart' as p;
+import '../../../core/services/preview/resource_preview_service.dart';
 import '../../../desktop/desktop_context_menu.dart';
 import '../../../desktop/menu_anchor.dart';
 import '../../../shared/widgets/emoji_text.dart';
@@ -344,9 +346,57 @@ String? _localToolTitleFor(
     LocalToolNames.reminderTask => l10n.assistantEditLocalToolReminderTaskTitle,
     LocalToolNames.alarmTimer => l10n.assistantEditLocalToolAlarmTimerTitle,
     LocalToolNames.shortcutAutomation => l10n.assistantEditLocalToolShortcutAutomationTitle,
-    LocalToolNames.fileSystem => l10n.assistantEditLocalToolFileSystemTitle,
+    LocalToolNames.fileSystem => _fileSystemToolTitleFor(l10n, args),
     _ => null,
   };
+}
+
+String _fileSystemToolTitleFor(
+  AppLocalizations l10n,
+  Map<String, dynamic> args,
+) {
+  final action = (args['action'] ?? '').toString().trim().toLowerCase();
+  final path = (args['path'] ?? '').toString().trim();
+  final fileName = path.isNotEmpty ? p.basename(path) : '';
+
+  switch (action) {
+    case 'get_sandbox_path':
+      return l10n.fileSystemActionGetSandboxPath;
+    case 'pick_file':
+      return l10n.fileSystemActionPickFile;
+    case 'pick_directory':
+      return l10n.fileSystemActionPickDirectory;
+    case 'list':
+      if (fileName.isEmpty ||
+          fileName == '.' ||
+          fileName.toLowerCase() == 'sandbox' ||
+          fileName.startsWith('kelivo:')) {
+        return l10n.fileSystemActionListSandbox;
+      }
+      return l10n.fileSystemActionListDirectory(fileName);
+    case 'mkdir':
+      return fileName.isNotEmpty
+          ? l10n.fileSystemActionMkdir(fileName)
+          : l10n.assistantEditLocalToolFileSystemTitle;
+    case 'read':
+      return fileName.isNotEmpty
+          ? l10n.fileSystemActionRead(fileName)
+          : l10n.assistantEditLocalToolFileSystemTitle;
+    case 'write':
+      return fileName.isNotEmpty
+          ? l10n.fileSystemActionWrite(fileName)
+          : l10n.assistantEditLocalToolFileSystemTitle;
+    case 'append':
+      return fileName.isNotEmpty
+          ? l10n.fileSystemActionAppend(fileName)
+          : l10n.assistantEditLocalToolFileSystemTitle;
+    case 'stat':
+      return fileName.isNotEmpty
+          ? l10n.fileSystemActionStat(fileName)
+          : l10n.assistantEditLocalToolFileSystemTitle;
+    default:
+      return l10n.assistantEditLocalToolFileSystemTitle;
+  }
 }
 
 String _textToSpeechToolText(Map<String, dynamic> args) {
@@ -4896,6 +4946,76 @@ class _ToolCallItemState extends State<_ToolCallItem> {
     return _toolTitleFor(context, name, args, isResult: isResult);
   }
 
+  Widget _buildFileSystemPreviewLinkRow(
+    BuildContext context, {
+    required Color accentColor,
+  }) {
+    final content = widget.part.content?.trim() ?? '';
+    if (content.isEmpty) return const SizedBox.shrink();
+
+    String? filePath;
+    String? displayPath;
+    try {
+      final obj = jsonDecode(content);
+      if (obj is Map<String, dynamic> && obj['success'] == true) {
+        final action = (obj['action'] ?? '').toString();
+        if (action == 'write' ||
+            action == 'append' ||
+            action == 'read' ||
+            action == 'stat' ||
+            action == 'pick_file') {
+          final p = obj['path']?.toString();
+          if (p != null && p.isNotEmpty) {
+            filePath = p;
+            displayPath = obj['display_path']?.toString() ?? p;
+          }
+        }
+      }
+    } catch (_) {}
+
+    if (filePath == null || filePath.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final targetDisplay = displayPath ?? filePath;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          unawaited(
+            ResourcePreviewService.instance.openResource(
+              target: filePath!,
+              context: context,
+            ),
+          );
+        },
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(Lucide.ExternalLink, size: 12, color: accentColor),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                targetDisplay,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: accentColor,
+                  decoration: TextDecoration.underline,
+                  decorationColor: accentColor,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Build a short argument summary for display in the approval card.
   String _argsSummary(Map<String, dynamic> args) {
     if (args.isEmpty) return '';
@@ -5063,6 +5183,11 @@ class _ToolCallItemState extends State<_ToolCallItem> {
                   );
                 },
               ),
+            ],
+            if (!widget.part.loading &&
+                !isPendingApproval &&
+                widget.part.toolName == LocalToolNames.fileSystem) ...[
+              _buildFileSystemPreviewLinkRow(context, accentColor: fg.accent),
             ],
             // Argument summary so users know what the tool is about to do
             if (isPendingApproval && widget.part.arguments.isNotEmpty) ...[
