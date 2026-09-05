@@ -299,6 +299,7 @@ class TtsProvider extends ChangeNotifier {
     } catch (_) {}
     if (io.Platform.isIOS) {
       try {
+        await _tts.setSharedInstance(true);
         await _tts.setIosAudioCategory(
           IosTextToSpeechAudioCategory.playAndRecord,
           [
@@ -810,6 +811,11 @@ class TtsProvider extends ChangeNotifier {
 
   Future<bool> _trySpeak(String text) async {
     await _ensureBound();
+    if (io.Platform.isIOS) {
+      try {
+        await _tts.setSharedInstance(true);
+      } catch (_) {}
+    }
     try {
       await _tts.setSpeechRate(
         TtsPlaybackSpeed.toSystemRate(_playbackState.speed),

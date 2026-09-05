@@ -345,6 +345,11 @@ class AsrProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void resetTranscript() {
+    _transcript = '';
+    notifyListeners();
+  }
+
   Future<void> _finishSystemSession(int generation) async {
     final deadline = DateTime.now().add(const Duration(seconds: 2));
     while (_isCurrent(generation) &&

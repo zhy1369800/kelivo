@@ -102,6 +102,11 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
         // 进入后台：取消前台静音超时定时器（后台永不超时断开，对标 Gemini）
         _idleTimer?.cancel();
         _idleTimer = null;
+        // 若处于活跃会话且麦克风未激活，立即确保拉起麦克风保持后台活跃（麦克风小黄灯常亮）
+        if (isActive && !asrProvider.isActive && !_stopping) {
+          final service = _resolveAsrService();
+          asrProvider.start(service).catchError((_) {});
+        }
       } else {
         // 回到前台：如果处于聆听状态且配置了超时，重新启动静音超时计时
         if (_state == VoiceChatState.listening) {
@@ -205,6 +210,8 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
       }
       if (!asrProvider.isActive) {
         await asrProvider.start(service);
+      } else {
+        asrProvider.resetTranscript();
       }
     } catch (e) {
       _error = e.toString();
@@ -268,9 +275,19 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _syncLiveActivity();
     notifyListeners();
 
-    try {
-      await asrProvider.finish().catchError((_) => text);
-    } catch (_) {}
+    if (!_isInBackground) {
+      // 前台模式：正常关闭麦克风，等待回复
+      try {
+        await asrProvider.finish().catchError((_) => text);
+      } catch (_) {}
+    } else {
+      // 后台模式：绝不关闭麦克风，麦克风小黄灯持续常亮，保活进程不被系统挂起
+      asrProvider.resetTranscript();
+      if (!asrProvider.isActive && !_stopping) {
+        final service = _resolveAsrService();
+        asrProvider.start(service).catchError((_) {});
+      }
+    }
 
     try {
       await sendMessage(
@@ -325,8 +342,9 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _ttsListener = listener;
     ttsProvider.addListener(listener);
 
-    // 再异步处理麦克风：未开启打断时关闭麦克风，开启时保持全双工
-    if (!enableBargeIn) {
+    // 再异步处理麦克风：
+    // 后台模式下强制全双工常开（小黄灯常亮保活并支持打断），前台模式下若未开启打断则关闭麦克风
+    if (!enableBargeIn && !_isInBackground) {
       _stopBargeInListener();
       _removeAsrListener();
       if (asrProvider.isActive) {
@@ -412,16 +430,27 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _removeAsrListener();
     if (_disposed || _stopping || _state != VoiceChatState.aiSpeaking) return;
 
-    // 1. 彻底清空可能在播报期间残留在 ASR 缓冲区的脏数据
-    if (asrProvider.isActive) {
-      await asrProvider.cancel();
-    }
-    if (_disposed || _stopping) return;
+    if (!_isInBackground) {
+      // 前台模式：
+      // 1. 彻底清空可能在播报期间残留在 ASR 缓冲区的脏数据
+      if (asrProvider.isActive) {
+        await asrProvider.cancel();
+      }
+      if (_disposed || _stopping) return;
 
-    // 2. 给硬件扬声器 200ms 回声物理消退期，防止扬声器刚停瞬间的残响被拾音
-    await Future.delayed(const Duration(milliseconds: 200));
-    if (!_disposed && !_stopping && _state == VoiceChatState.aiSpeaking) {
-      await _startListening(forceRestartAsr: true);
+      // 2. 给硬件扬声器 200ms 回声物理消退期，防止扬声器刚停瞬间的残响被拾音
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (!_disposed && !_stopping && _state == VoiceChatState.aiSpeaking) {
+        await _startListening(forceRestartAsr: true);
+      }
+    } else {
+      // 后台模式：
+      // 绝不调用 cancel() 导致麦克风小黄灯熄灭，给硬件扬声器 120ms 缓冲后无缝切回拾音
+      asrProvider.resetTranscript();
+      await Future.delayed(const Duration(milliseconds: 120));
+      if (!_disposed && !_stopping && _state == VoiceChatState.aiSpeaking) {
+        await _startListening(forceRestartAsr: false);
+      }
     }
   }
 
