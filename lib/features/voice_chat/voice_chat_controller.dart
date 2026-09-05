@@ -63,6 +63,7 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
   bool _disposed = false;
   bool _stopping = false;
   bool _isInBackground = false;
+  bool _isTransitioningToListening = false; // 防止重复触发切回拾音的标志位
 
   Timer? _silenceTimer;
   Timer? _idleTimer;
@@ -409,6 +410,9 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
   void _onTtsChanged() {
     if (_disposed || _state != VoiceChatState.aiSpeaking) return;
 
+    // ★ 防止重复触发：如果已经在切换中，忽略后续的 TTS 状态回调
+    if (_isTransitioningToListening) return;
+
     final status = ttsProvider.playbackState.status;
 
     // 1. 明确终结状态（播放完毕 ended 或错误 error）立即切回拾音，绝不拦截！彻底杜绝短回复死锁
@@ -437,7 +441,13 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _removeTtsListener();
     _stopBargeInListener();
     _removeAsrListener();
-    if (_disposed || _stopping || _state != VoiceChatState.aiSpeaking) return;
+
+    // ★ 防止重复触发：如果已经在切换中，直接返回
+    if (_disposed || _stopping || _isTransitioningToListening) return;
+    if (_state != VoiceChatState.aiSpeaking) return;
+
+    // ★ 标记正在切换，防止 TTS 多次回调导致的重复执行
+    _isTransitioningToListening = true;
 
     if (!_isInBackground) {
       // 前台模式：
@@ -445,21 +455,41 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
       if (asrProvider.isActive) {
         await asrProvider.cancel();
       }
-      if (_disposed || _stopping) return;
+      if (_disposed || _stopping) {
+        _isTransitioningToListening = false;
+        return;
+      }
 
       // 2. 给硬件扬声器 200ms 回声物理消退期，防止扬声器刚停瞬间的残响被拾音
       await Future.delayed(const Duration(milliseconds: 200));
-      if (!_disposed && !_stopping && _state == VoiceChatState.aiSpeaking) {
-        await _startListening(forceRestartAsr: true);
+      if (_disposed || _stopping) {
+        _isTransitioningToListening = false;
+        return;
       }
+
+      // ★ 移除过于严格的状态检查，只要没被停止就执行
+      await _startListening(forceRestartAsr: true);
+      _isTransitioningToListening = false;
     } else {
       // 后台模式：
       // 绝不调用 cancel() 导致麦克风小黄灯熄灭，给硬件扬声器 120ms 缓冲后无缝切回拾音
       asrProvider.resetTranscript();
-      await Future.delayed(const Duration(milliseconds: 120));
-      if (!_disposed && !_stopping && _state == VoiceChatState.aiSpeaking) {
-        await _startListening(forceRestartAsr: false);
+
+      // ★ 关键修复：确保后台模式下麦克风始终保持激活状态
+      if (!asrProvider.isActive && !_stopping) {
+        final service = _resolveAsrService();
+        asrProvider.start(service).catchError((_) {});
       }
+
+      await Future.delayed(const Duration(milliseconds: 120));
+      if (_disposed || _stopping) {
+        _isTransitioningToListening = false;
+        return;
+      }
+
+      // ★ 移除过于严格的状态检查，直接切回拾音保证小黄灯不灭
+      await _startListening(forceRestartAsr: false);
+      _isTransitioningToListening = false;
     }
   }
 
