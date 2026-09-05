@@ -1188,7 +1188,10 @@ class LocalToolsService {
         'function': {
           'name': LocalToolNames.fileSystem,
           'description':
-              'Read and write user-authorized files and directories on iOS Files app, iCloud Drive, or On My iPhone. Use pick_file or pick_directory first when access has not been granted. Only authorized paths and app sandbox paths are accessible. Text uses UTF-8 by default; binary data uses base64.',
+              'Read and write user-authorized files and directories on iOS Files app, iCloud Drive, or On My iPhone. '
+              'Use pick_file or pick_directory first when access has not been granted. '
+              'Only authorized paths and app sandbox paths are accessible. '
+              'Text uses UTF-8 by default; binary data uses base64.',
           'parameters': {
             'type': 'object',
             'properties': {
@@ -1209,7 +1212,12 @@ class LocalToolsService {
               'path': {
                 'type': 'string',
                 'description':
-                    'Authorized absolute local path, file:// URL, or a child path under an authorized directory.',
+                    'File or directory path. Supported formats: '
+                    '(1) absolute POSIX path (e.g. /var/mobile/.../Documents/a.txt), '
+                    '(2) file:// URL (e.g. file:///var/mobile/.../a.txt), '
+                    '(3) kelivo-file:/// URI for app-managed assets (e.g. kelivo-file:///upload/photo.png — roots: upload, images, avatars, fonts), '
+                    '(4) kelivo:// URI for any app-data namespace (e.g. kelivo://logs/debug.txt). '
+                    'pick_file or pick_directory must be called first for paths outside the app sandbox.',
               },
               'content': {
                 'type': 'string',
