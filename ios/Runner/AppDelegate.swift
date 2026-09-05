@@ -148,7 +148,6 @@ private let backgroundProcessingIdentifier = "psyche.kelivo.background-generatio
       }
 
       let fileSystemChannel = FlutterMethodChannel(name: "app.file_system", binaryMessenger: controller.binaryMessenger)
-      fileSystemHandler.presentingViewController = controller
       fileSystemChannel.setMethodCallHandler { [weak self] call, result in
         self?.fileSystemHandler.handle(call: call, result: result)
       }
@@ -753,8 +752,6 @@ private final class NativeFileSaveHandler: NSObject, UIDocumentPickerDelegate {
 }
 
 private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
-  weak var presentingViewController: UIViewController?
-
   private var pendingResult: FlutterResult?
   private var pendingPickDirectory = false
   private let bookmarkKey = "file_system_bookmarks_v1"
@@ -809,23 +806,19 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
     }
     pendingResult = result
     pendingPickDirectory = directory
-    let picker: UIDocumentPickerViewController
-    if directory {
-      if #available(iOS 14.0, *) {
-        picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
-      } else {
-        picker = UIDocumentPickerViewController(documentTypes: ["public.folder"], in: .open)
-      }
-    } else {
-      if #available(iOS 14.0, *) {
-        picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: false)
-      } else {
-        picker = UIDocumentPickerViewController(documentTypes: ["public.item"], in: .open)
-      }
-    }
+    let contentType: UTType = directory ? .folder : .item
+    let picker = UIDocumentPickerViewController(forOpeningContentTypes: [contentType], asCopy: false)
     picker.delegate = self
     picker.allowsMultipleSelection = false
-    topViewController(from: presentingViewController)?.present(picker, animated: true)
+    topViewController(from: activeRootViewController())?.present(picker, animated: true)
+  }
+
+  private func activeRootViewController() -> UIViewController? {
+    UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .first(where: { $0.activationState == .foregroundActive })?
+      .windows.first(where: { $0.isKeyWindow })?
+      .rootViewController
   }
 
   func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
@@ -838,7 +831,7 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
       return
     }
     do {
-      let bookmark = try url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+      let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
       var registry = loadBookmarks()
       registry[url.path] = bookmark.base64EncodedString()
       UserDefaults.standard.set(registry, forKey: bookmarkKey)
@@ -958,9 +951,9 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
     var matchedRootPath: String?
     for (rootPath, encoded) in bookmarks where url.path == rootPath || url.path.hasPrefix(rootPath + "/") {
       if let data = Data(base64Encoded: encoded),
-         let resolved = try? URL(resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &stale) {
+         let resolved = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) {
         if stale {
-          if let newBookmark = try? resolved.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
+          if let newBookmark = try? resolved.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
             bookmarks[rootPath] = newBookmark.base64EncodedString()
             UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
           }
@@ -993,7 +986,7 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
 
   private func isAppSandboxPath(_ url: URL) -> Bool {
     let path = url.standardizedFileURL.path
-    let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+    let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
     let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL.path
     return path == home || path.hasPrefix(home + "/") || path == tmp || path.hasPrefix(tmp + "/")
   }
