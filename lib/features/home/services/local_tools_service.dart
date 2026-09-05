@@ -1216,7 +1216,8 @@ class LocalToolsService {
                     '(1) absolute POSIX path (e.g. /var/mobile/.../Documents/a.txt), '
                     '(2) file:// URL (e.g. file:///var/mobile/.../a.txt), '
                     '(3) kelivo-file:/// URI for app-managed assets (e.g. kelivo-file:///upload/photo.png — roots: upload, images, avatars, fonts), '
-                    '(4) kelivo:// URI for any app-data namespace (e.g. kelivo://logs/debug.txt). '
+                    '(4) kelivo:// URI for any app-data namespace (e.g. kelivo://logs/debug.txt), '
+                    '(5) iOS Files app path alias (e.g. "我的 iPhone/Kelivo/logs/a.txt", "On My iPhone/Kelivo/logs/a.txt", or "Kelivo/logs/a.txt" which automatically map to the app Documents directory). '
                     'pick_file or pick_directory must be called first for paths outside the app sandbox.',
               },
               'content': {

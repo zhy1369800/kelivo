@@ -3113,6 +3113,24 @@ class ToolHandlerService {
       }
     }
 
+    // iOS Files App UI display path aliases:
+    // "我的iphone/Kelivo/...", "我的 iPhone/Kelivo/...", "On My iPhone/Kelivo/...", "Kelivo/..."
+    // All align to the app sandbox Documents directory.
+    final aliasMatch = RegExp(
+      r'^(?:/)?(?:(?:我的\s*iphone|on\s*my\s*iphone)/kelivo|kelivo)(?:/(.*))?$',
+      caseSensitive: false,
+    ).firstMatch(trimmed.replaceAll('\\', '/'));
+
+    if (aliasMatch != null) {
+      final subpath = aliasMatch.group(1) ?? '';
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        return subpath.isEmpty
+            ? appDataDir.path
+            : p.join(appDataDir.path, subpath);
+      } catch (_) {}
+    }
+
     return trimmed;
   }
 }
