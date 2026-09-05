@@ -1030,6 +1030,7 @@ class ToolHandlerService {
             defaultRequiresApproval: fsAction == 'write' ||
                 fsAction == 'append' ||
                 fsAction == 'mkdir' ||
+                fsAction == 'delete' ||
                 fsAction == 'pick_file' ||
                 fsAction == 'pick_directory',
           );

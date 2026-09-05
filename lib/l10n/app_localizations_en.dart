@@ -5915,6 +5915,11 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String fileSystemActionDelete(String name) {
+    return 'Delete: $name';
+  }
+
+  @override
   String get shortcutAutomationNotificationTitle => 'Automation Task';
 
   @override

@@ -756,6 +756,7 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
   private var pendingPickDirectory = false
   private let bookmarkKey = "file_system_bookmarks_v1"
   private let maxReadBytes = 100 * 1024
+  private let maxBookmarkCount = 50
 
   func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = (call.arguments as? [String: Any]) ?? [:]
@@ -779,6 +780,19 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
         let out = self?.write(args: args, append: true) ?? ["success": false, "error": "deallocated"]
         DispatchQueue.main.async { result(out) }
       }
+    case "delete":
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let out = self?.delete(args: args) ?? ["success": false, "error": "deallocated"]
+        DispatchQueue.main.async { result(out) }
+      }
+    case "revoke":
+      let path = (args["path"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      var registry = loadBookmarks()
+      let removed = registry.removeValue(forKey: path) != nil
+      if removed {
+        UserDefaults.standard.set(registry, forKey: bookmarkKey)
+      }
+      result(payload(["revoked": removed, "path": path]))
     case "stat":
       DispatchQueue.global(qos: .userInitiated).async { [weak self] in
         let out = self?.stat(args: args) ?? ["success": false, "error": "deallocated"]
@@ -832,9 +846,7 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
     }
     do {
       let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-      var registry = loadBookmarks()
-      registry[url.path] = bookmark.base64EncodedString()
-      UserDefaults.standard.set(registry, forKey: bookmarkKey)
+      saveBookmark(path: url.path, bookmarkBase64: bookmark.base64EncodedString())
       finishPick(payload([
         "path": url.path,
         "url": url.absoluteString,
@@ -992,6 +1004,27 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
     }
   }
 
+  private func delete(args: [String: Any]) -> [String: Any] {
+    accessPath(args["path"], write: true) { url in
+      var isDir: ObjCBool = false
+      guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
+        return errorPayload("not_found", "File or directory does not exist.")
+      }
+      if isDir.boolValue {
+        let items = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []
+        if !items.isEmpty {
+          return errorPayload("not_empty", "Directory is not empty. Recursive deletion is prohibited for safety.")
+        }
+      }
+      do {
+        try FileManager.default.removeItem(at: url)
+        return payload(["path": url.path, "deleted": true])
+      } catch {
+        return errorPayload("delete_failed", error.localizedDescription)
+      }
+    }
+  }
+
   private func accessPath(_ raw: Any?, write: Bool = false, body: (URL) -> [String: Any]) -> [String: Any] {
     guard let url = normalizeUrl(raw), url.isFileURL else { return errorPayload("invalid_path", "A valid local file path is required.") }
     guard url.pathComponents.contains("..") == false else { return errorPayload("invalid_path", "Path traversal is not allowed.") }
@@ -1011,6 +1044,10 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
         scopeUrl = resolved
         matchedRootPath = rootPath
         break
+      } else if !FileManager.default.fileExists(atPath: rootPath) {
+        // Auto-heal stale/deleted bookmark
+        bookmarks.removeValue(forKey: rootPath)
+        UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
       }
     }
     guard scopeUrl != nil || isAppSandboxPath(url) else {
@@ -1066,6 +1103,20 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
 
   private func loadBookmarks() -> [String: String] {
     (UserDefaults.standard.dictionary(forKey: bookmarkKey) as? [String: String]) ?? [:]
+  }
+
+  private func saveBookmark(path: String, bookmarkBase64: String) {
+    var registry = loadBookmarks()
+    registry[path] = bookmarkBase64
+    if registry.count > maxBookmarkCount {
+      let excess = registry.count - maxBookmarkCount
+      for _ in 0..<excess {
+        if let firstKey = registry.keys.first {
+          registry.removeValue(forKey: firstKey)
+        }
+      }
+    }
+    UserDefaults.standard.set(registry, forKey: bookmarkKey)
   }
 
   private func finishPick(_ value: [String: Any]) {

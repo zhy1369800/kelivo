@@ -1208,9 +1208,10 @@ class LocalToolsService {
                   'append',
                   'stat',
                   'list',
-                  'mkdir'
+                  'mkdir',
+                  'delete'
                 ],
-                'description': 'Operation to perform.',
+                'description': 'Operation to perform (delete requires user approval and only deletes a single file or empty directory).',
               },
               'path': {
                 'type': 'string',

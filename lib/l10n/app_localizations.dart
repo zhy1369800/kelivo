@@ -10831,6 +10831,12 @@ abstract class AppLocalizations {
   /// **'File Info: {name}'**
   String fileSystemActionStat(String name);
 
+  /// No description provided for @fileSystemActionDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete: {name}'**
+  String fileSystemActionDelete(String name);
+
   /// No description provided for @shortcutAutomationNotificationTitle.
   ///
   /// In en, this message translates to:

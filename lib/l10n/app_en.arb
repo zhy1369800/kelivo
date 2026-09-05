@@ -2487,6 +2487,14 @@
       }
     }
   },
+  "fileSystemActionDelete": "Delete: {name}",
+  "@fileSystemActionDelete": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "shortcutAutomationNotificationTitle": "Automation Task",
   "shortcutAutomationListBody": "List all shortcuts",
   "shortcutAutomationExecBody": "Execute shortcut: {shortcut}",

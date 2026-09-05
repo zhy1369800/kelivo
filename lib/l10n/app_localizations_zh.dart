@@ -5680,6 +5680,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String fileSystemActionDelete(String name) {
+    return '删除文件：$name';
+  }
+
+  @override
   String get shortcutAutomationNotificationTitle => '自动化任务';
 
   @override
