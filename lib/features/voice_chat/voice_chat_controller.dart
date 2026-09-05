@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
@@ -8,6 +9,8 @@ import '../../core/providers/asr_provider.dart';
 import '../../core/providers/tts_provider.dart';
 import '../../core/services/asr/asr_service_options.dart';
 import '../../core/services/tts/tts_playback_models.dart';
+import '../../core/services/android_background.dart';
+import '../../core/services/ios_background_generation.dart';
 import 'services/live_activity_service.dart';
 import 'utils/voice_text_sanitizer.dart';
 
@@ -121,6 +124,10 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     if (_state != VoiceChatState.idle) return;
     _error = null;
     ttsProvider.suppressFloatingPlayer = true;
+
+    // ★ 关键修复：启用后台保活机制
+    await _enableBackgroundExecution();
+
     await VoiceChatLiveActivityService.instance.start(
       assistantName: assistantName,
       avatarPath: avatarPath,
@@ -144,6 +151,10 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _state = VoiceChatState.idle;
     _transcript = '';
     await VoiceChatLiveActivityService.instance.stop();
+
+    // ★ 关键修复：停止后台保活机制
+    await _disableBackgroundExecution();
+
     _stopping = false;
     if (!_disposed) notifyListeners();
   }
@@ -562,7 +573,44 @@ class VoiceChatController extends ChangeNotifier with WidgetsBindingObserver {
     _bargeInTimer?.cancel();
     _removeAsrListener();
     _removeTtsListener();
+
+    // ★ 确保销毁时清理后台保活
+    _disableBackgroundExecution();
+
     VoiceChatLiveActivityService.instance.onStopRequested = null;
     super.dispose();
+  }
+
+  /// 启用后台保活机制（Android 通知保活 + iOS 后台任务）
+  Future<void> _enableBackgroundExecution() async {
+    try {
+      if (Platform.isAndroid) {
+        // Android: 使用前台通知服务保活
+        await AndroidBackgroundManager.ensureInitialized(
+          notificationTitle: '语音聊天进行中',
+          notificationText: '$assistantName 正在与您对话',
+        );
+        await AndroidBackgroundManager.setEnabled(true);
+      } else if (Platform.isIOS) {
+        // iOS: Live Activity 已经在 start() 中启动，这里可以增强保活
+        // iOS 通过 Live Activity + 音频会话保持后台运行
+        // 麦克风激活本身就是保活机制，无需额外处理
+      }
+    } catch (e) {
+      // 保活失败不影响主流程，只是可能在后台被杀
+      debugPrint('[VoiceChat] Background execution setup failed: $e');
+    }
+  }
+
+  /// 禁用后台保活机制
+  Future<void> _disableBackgroundExecution() async {
+    try {
+      if (Platform.isAndroid) {
+        await AndroidBackgroundManager.setEnabled(false);
+      }
+      // iOS 的 Live Activity 已经在 stop() 中停止，无需额外处理
+    } catch (e) {
+      debugPrint('[VoiceChat] Background execution cleanup failed: $e');
+    }
   }
 }
