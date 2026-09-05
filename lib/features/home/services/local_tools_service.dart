@@ -1240,12 +1240,18 @@ class LocalToolsService {
               },
               'offset': {
                 'type': 'integer',
-                'description': 'Read byte offset. Default 0.',
+                'description': 'Read byte offset, or directory listing item index offset. Default 0.',
+              },
+              'limit': {
+                'type': 'integer',
+                'description':
+                    'Maximum directory entries to return for list action. Default 100 (max 500). '
+                    'If the directory has more items, response returns has_more=true and next_offset.',
               },
               'length': {
                 'type': 'integer',
                 'description':
-                    'Maximum bytes to read. Defaults to 102400 (100KB, also the max per chunk). '
+                    'Maximum bytes to read for read action. Defaults to 102400 (100KB, also the max per chunk). '
                     'If the file has more content, the response returns has_more=true and next_offset to read subsequent chunks.',
               },
               'overwrite': {

@@ -886,7 +886,7 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
   }
 
   private func write(args: [String: Any], append: Bool) -> [String: Any] {
-    return accessPath(args["path"]) { url in
+    return accessPath(args["path"], write: true) { url in
       let overwrite = boolArg(args["overwrite"]) ?? false
       let bytes: Data?
       if let b64 = args["base64"] as? String {
@@ -944,11 +944,37 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
   private func list(args: [String: Any]) -> [String: Any] {
     accessPath(args["path"]) { url in
       do {
-        let items = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: [.skipsHiddenFiles]).map { child -> [String: Any] in
+        let allUrls = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: [.skipsHiddenFiles])
+        let totalCount = allUrls.count
+        let offset = max(intArg(args["offset"]) ?? 0, 0)
+        let limit = min(max(intArg(args["limit"]) ?? 100, 1), 500)
+
+        let pagedUrls: [URL]
+        if offset >= totalCount {
+          pagedUrls = []
+        } else {
+          let end = min(offset + limit, totalCount)
+          pagedUrls = Array(allUrls[offset..<end])
+        }
+
+        let items = pagedUrls.map { child -> [String: Any] in
           let values = try? child.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
           return ["name": child.lastPathComponent, "path": child.path, "is_directory": values?.isDirectory ?? false, "size": values?.fileSize ?? 0]
         }
-        return payload(["path": url.path, "count": items.count, "items": items])
+        let hasMore = (offset + items.count) < totalCount
+        var res: [String: Any] = [
+          "path": url.path,
+          "count": items.count,
+          "total_count": totalCount,
+          "offset": offset,
+          "limit": limit,
+          "has_more": hasMore,
+          "items": items,
+        ]
+        if hasMore {
+          res["next_offset"] = offset + items.count
+        }
+        return payload(res)
       } catch {
         return errorPayload("not_directory", error.localizedDescription)
       }
@@ -956,7 +982,7 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
   }
 
   private func mkdir(args: [String: Any]) -> [String: Any] {
-    accessPath(args["path"]) { url in
+    accessPath(args["path"], write: true) { url in
       do {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: boolArg(args["recursive"]) ?? true)
         return payload(["path": url.path])
@@ -966,7 +992,7 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
     }
   }
 
-  private func accessPath(_ raw: Any?, body: (URL) -> [String: Any]) -> [String: Any] {
+  private func accessPath(_ raw: Any?, write: Bool = false, body: (URL) -> [String: Any]) -> [String: Any] {
     guard let url = normalizeUrl(raw), url.isFileURL else { return errorPayload("invalid_path", "A valid local file path is required.") }
     guard url.pathComponents.contains("..") == false else { return errorPayload("invalid_path", "Path traversal is not allowed.") }
     var bookmarks = loadBookmarks()
@@ -1003,6 +1029,11 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
     } else {
       targetUrl = url
     }
+    if write && scopeUrl == nil {
+      guard isWritableSandboxPath(targetUrl) else {
+        return errorPayload("permission_denied", "Writing to sensitive app system directories (e.g. Library/Preferences) is prohibited. Only Documents and tmp are writable.")
+      }
+    }
     let accessed = scopeUrl?.startAccessingSecurityScopedResource() ?? false
     defer { if accessed { scopeUrl?.stopAccessingSecurityScopedResource() } }
     return body(targetUrl)
@@ -1013,6 +1044,18 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
     let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
     let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL.path
     return path == home || path.hasPrefix(home + "/") || path == tmp || path.hasPrefix(tmp + "/")
+  }
+
+  private func isWritableSandboxPath(_ url: URL) -> Bool {
+    let path = url.standardizedFileURL.path
+    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.standardizedFileURL.path ?? (URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents").standardizedFileURL.path)
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL.path
+    let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.standardizedFileURL.path ?? ""
+
+    if path == docs || path.hasPrefix(docs + "/") { return true }
+    if path == tmp || path.hasPrefix(tmp + "/") { return true }
+    if !caches.isEmpty && (path == caches || path.hasPrefix(caches + "/")) { return true }
+    return false
   }
 
   private func normalizeUrl(_ raw: Any?) -> URL? {
