@@ -1219,20 +1219,22 @@ class LocalToolsService {
               'path': {
                 'type': 'string',
                 'description':
-                    'Source file or directory path. Leave empty or pass "sandbox", ".", or "kelivo://" to target the app sandbox Documents root directly without prompt. '
+                    'Source file or directory path. '
+                    'Relative paths (e.g. "hello.html", "logs/log.txt", "sandbox/a.txt") are automatically resolved within the app sandbox Documents root without requiring authorization. '
                     'Supported formats: '
-                    '(1) "sandbox" or "" (app sandbox Documents root, NO picker needed), '
-                    '(2) absolute POSIX path (e.g. /var/mobile/.../Documents/a.txt), '
-                    '(3) file:// URL (e.g. file:///var/mobile/.../a.txt), '
-                    '(4) kelivo-file:/// URI for app-managed assets (e.g. kelivo-file:///upload/photo.png — roots: upload, images, avatars, fonts), '
-                    '(5) kelivo:// URI for any app-data namespace (e.g. kelivo://logs/debug.txt), '
-                    '(6) iOS Files app path alias (e.g. "我的 iPhone/Kelivo/logs/a.txt", "On My iPhone/Kelivo/logs/a.txt", or "Kelivo/logs/a.txt"). '
+                    '(1) relative path or filename (e.g. "hello.html", "logs/log.txt" — auto maps to sandbox, NO picker needed), '
+                    '(2) "sandbox" or "" (app sandbox Documents root, NO picker needed), '
+                    '(3) absolute POSIX path (e.g. /var/mobile/.../Documents/a.txt), '
+                    '(4) file:// URL (e.g. file:///var/mobile/.../a.txt), '
+                    '(5) kelivo-file:/// URI for app-managed assets (e.g. kelivo-file:///upload/photo.png — roots: upload, images, avatars, fonts), '
+                    '(6) kelivo:// URI for any app-data namespace (e.g. kelivo://logs/debug.txt), '
+                    '(7) iOS Files app path alias (e.g. "我的 iPhone/Kelivo/logs/a.txt", "On My iPhone/Kelivo/logs/a.txt", or "Kelivo/logs/a.txt"). '
                     'pick_file or pick_directory is ONLY required for external paths outside the app sandbox.',
               },
               'destination': {
                 'type': 'string',
                 'description':
-                    'Target file or directory path for copy or move actions. Supports the same formats as "path".',
+                    'Target file or directory path for copy or move actions. Supports relative paths (e.g. "backup/hello.html") and all other formats supported by "path".',
               },
               'content': {
                 'type': 'string',

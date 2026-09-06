@@ -3208,6 +3208,40 @@ class ToolHandlerService {
       } catch (_) {}
     }
 
+    // "sandbox/..." or "sandbox\..."  →  <AppData>/...
+    final normalizedSlash = trimmed.replaceAll('\\', '/');
+    if (RegExp(r'^sandbox/(.*)$', caseSensitive: false).hasMatch(normalizedSlash)) {
+      final subpath = normalizedSlash.substring('sandbox/'.length);
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        return subpath.isEmpty ? appDataDir.path : p.join(appDataDir.path, subpath);
+      } catch (_) {}
+    }
+
+    // Relative path or single filename (e.g. "hello.html", "./hello.html", "logs/log.txt")
+    // If not an absolute path (starts with / or \ or has Windows drive C:),
+    // and not a URI scheme (file://, http://, kelivo://, etc.),
+    // and does not contain path traversal "..":
+    // automatically resolve relative to the app sandbox Documents root.
+    final isUriScheme = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://').hasMatch(trimmed);
+    final isAbsolutePath = trimmed.startsWith('/') ||
+        trimmed.startsWith('\\') ||
+        RegExp(r'^[a-zA-Z]:[/\\]').hasMatch(trimmed);
+    final hasTraversal = normalizedSlash.split('/').contains('..');
+
+    if (!isUriScheme && !isAbsolutePath && !hasTraversal) {
+      var rel = normalizedSlash;
+      if (rel.startsWith('./')) {
+        rel = rel.substring(2);
+      }
+      if (rel.isNotEmpty) {
+        try {
+          final appDataDir = await AppDirectories.getAppDataDirectory();
+          return p.join(appDataDir.path, rel);
+        } catch (_) {}
+      }
+    }
+
     return trimmed;
   }
 
