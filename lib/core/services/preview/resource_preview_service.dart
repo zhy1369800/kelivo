@@ -201,17 +201,16 @@ class ResourcePreviewService extends ChangeNotifier {
       } catch (_) {}
     }
 
-    // 3. kelivo:// scheme (e.g. kelivo://workspace/test.html or kelivo://upload/photo.png)
+    // 3. kelivo:// scheme (e.g. kelivo://hello.html, kelivo://workspace/test.html, kelivo://upload/photo.png)
     if (trimmed.startsWith('kelivo://')) {
-      final uri = Uri.tryParse(trimmed);
-      if (uri != null && uri.host.isNotEmpty) {
-        try {
-          final appDataDir = await AppDirectories.getAppDataDirectory();
-          final namespace = uri.host;
-          final subpath = uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
-          return p.join(appDataDir.path, namespace, subpath);
-        } catch (_) {}
+      var rest = trimmed.substring('kelivo://'.length);
+      while (rest.startsWith('/')) {
+        rest = rest.substring(1);
       }
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        return rest.isEmpty ? appDataDir.path : p.join(appDataDir.path, rest);
+      } catch (_) {}
     }
 
     // 4. Absolute path

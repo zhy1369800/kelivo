@@ -72,6 +72,16 @@ class SandboxPathResolver {
       return KelivoFileUri.resolveToAbsolute(path, root: docs) ?? path;
     }
 
+    if (path.startsWith('kelivo://')) {
+      final docs = _docsDir;
+      if (docs == null || docs.isEmpty) return path;
+      var rest = path.substring('kelivo://'.length);
+      while (rest.startsWith('/')) {
+        rest = rest.substring(1);
+      }
+      return rest.isEmpty ? docs : '$docs/$rest';
+    }
+
     // Decode file:// percent-escapes before remapping (avoid %20 → %2520).
     // Non-local / UNC file: URIs must not be remapped or probed (SMB risk).
     final String raw0 = _decodeFileUri(path);

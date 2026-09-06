@@ -93,8 +93,30 @@ Uri? _tryNormalizeExternalUri(String raw) {
 ///
 /// Destinations may contain parentheses (e.g. `/tmp/run (1)/image.png`); the
 /// parser finds `![...](` then scans balanced parentheses to the matching `)`.
+bool _isMcpImageExtension(String path) {
+  final clean = path.split('?').first.split('#').first.trim().toLowerCase();
+  const imgExts = {
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.gif',
+    '.webp',
+    '.bmp',
+    '.heic',
+    '.svg',
+  };
+  for (final ext in imgExts) {
+    if (clean.endsWith(ext)) return true;
+  }
+  return clean.startsWith('data:image/');
+}
+
 (String, List<String>) _parseMcpImagePaths(String? content) {
   if (content == null || content.isEmpty) return ('', const []);
+
+  final trimmed = content.trim();
+  final isJson = (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+      (trimmed.startsWith('[') && trimmed.endsWith(']'));
 
   final images = <String>[];
   final buffer = StringBuffer();
@@ -120,11 +142,13 @@ Uri? _tryNormalizeExternalUri(String raw) {
         }
         if (depth == 0 && j < content.length) {
           final path = content.substring(destStart, j).trim();
-          if (path.isNotEmpty && path != 'generated') {
+          if (path.isNotEmpty && path != 'generated' && _isMcpImageExtension(path)) {
             images.add(path);
           }
-          i = j + 1;
-          continue;
+          if (!isJson) {
+            i = j + 1;
+            continue;
+          }
         }
       }
     }
@@ -132,7 +156,7 @@ Uri? _tryNormalizeExternalUri(String raw) {
     i += 1;
   }
 
-  return (buffer.toString().trim(), images);
+  return (isJson ? content : buffer.toString().trim(), images);
 }
 
 @visibleForTesting

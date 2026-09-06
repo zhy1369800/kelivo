@@ -3233,17 +3233,16 @@ class ToolHandlerService {
     }
 
     // kelivo://logs/debug.txt  →  <AppData>/logs/debug.txt
+    // kelivo://hello.html       →  <AppData>/hello.html
     if (trimmed.startsWith('kelivo://')) {
-      final uri = Uri.tryParse(trimmed);
-      if (uri != null && uri.host.isNotEmpty) {
-        try {
-          final appDataDir = await AppDirectories.getAppDataDirectory();
-          final namespace = uri.host;
-          final subpath =
-              uri.path.startsWith('/') ? uri.path.substring(1) : uri.path;
-          return p.join(appDataDir.path, namespace, subpath);
-        } catch (_) {}
+      var rest = trimmed.substring('kelivo://'.length);
+      while (rest.startsWith('/')) {
+        rest = rest.substring(1);
       }
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        return rest.isEmpty ? appDataDir.path : p.join(appDataDir.path, rest);
+      } catch (_) {}
     }
 
     // iOS Files App UI display path aliases:
