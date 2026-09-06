@@ -22,6 +22,7 @@ import '../../utils/clipboard_images.dart';
 import '../../features/chat/pages/image_viewer_page.dart';
 import '../../features/chat/pages/html_preview_page.dart';
 import '../../core/services/preview/resource_preview_service.dart';
+import 'inline_media_player.dart';
 import 'snackbar.dart';
 import 'ios_tactile.dart';
 import 'mermaid_bridge.dart';
@@ -338,6 +339,12 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
         components: [DetailsHtmlMd(detailsRegistry), ...components],
         inlineComponents: inlineComponents,
         imageBuilder: (ctx, url, width, height) {
+          if (InlineMediaDetector.isAudio(url)) {
+            return InlineAudioPlayer(source: url);
+          }
+          if (InlineMediaDetector.isVideo(url)) {
+            return InlineVideoCard(source: url);
+          }
           final imgs = imageUrls.isNotEmpty ? imageUrls : <String>[url];
           final idx = imgs.indexOf(url);
           final initial = idx >= 0 ? idx : 0;
@@ -2302,7 +2309,7 @@ List<String> _extractImageUrls(String md) {
   return re
       .allMatches(md)
       .map((m) => (m.group(1) ?? '').trim())
-      .where((s) => s.isNotEmpty)
+      .where((s) => s.isNotEmpty && !InlineMediaDetector.isAudio(s) && !InlineMediaDetector.isVideo(s))
       .toList();
 }
 

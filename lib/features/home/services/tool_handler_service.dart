@@ -3124,7 +3124,14 @@ class ToolHandlerService {
             final sub = cleanTarget.startsWith('$cleanApp/')
                 ? cleanTarget.substring(cleanApp.length + 1)
                 : cleanTarget;
-            mutableData['preview_link'] = '[$fileName](kelivo://$sub)';
+            const mediaExts = {
+              '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic',
+              '.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.opus',
+              '.mp4', '.mov', '.mkv', '.webm', '.m4v',
+            };
+            final ext = p.extension(fileName).toLowerCase();
+            final mdPrefix = mediaExts.contains(ext) ? '!' : '';
+            mutableData['preview_link'] = '$mdPrefix[$fileName](kelivo://$sub)';
           }
         }
       }
@@ -3159,7 +3166,14 @@ class ToolHandlerService {
                     : normApp;
                 if (cleanChild.startsWith('$cleanApp/')) {
                   final sub = cleanChild.substring(cleanApp.length + 1);
-                  itemMap['preview_link'] = '[$fileName](kelivo://$sub)';
+                  const mediaExts = {
+                    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic',
+                    '.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.opus',
+                    '.mp4', '.mov', '.mkv', '.webm', '.m4v',
+                  };
+                  final ext = p.extension(fileName).toLowerCase();
+                  final mdPrefix = mediaExts.contains(ext) ? '!' : '';
+                  itemMap['preview_link'] = '$mdPrefix[$fileName](kelivo://$sub)';
                 }
               }
             }

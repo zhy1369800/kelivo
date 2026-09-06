@@ -178,6 +178,9 @@ class ResourcePreviewService extends ChangeNotifier {
     );
   }
 
+  /// Public helper to resolve any resource path (kelivo://, relative, sandbox) to an absolute path.
+  static Future<String> resolvePath(String path) => instance._resolveLocalPath(path);
+
   /// Resolves custom schemes and relative paths to a canonical absolute local file path.
   Future<String> _resolveLocalPath(String input) async {
     final trimmed = input.trim();
