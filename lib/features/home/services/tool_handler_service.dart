@@ -3096,6 +3096,12 @@ class ToolHandlerService {
       final mutableData = Map<String, dynamic>.from(data);
       final appDataDir = await AppDirectories.getAppDataDirectory();
 
+      final isDirectoryOperation = action == 'list' ||
+          action == 'mkdir' ||
+          action == 'get_sandbox_path' ||
+          action == 'pick_directory' ||
+          mutableData['is_directory'] == true;
+
       // Attach user-friendly display_path for root target
       if (mutableData['path'] is String) {
         final rawTarget = mutableData['path'] as String;
@@ -3103,14 +3109,23 @@ class ToolHandlerService {
           rawTarget,
           appDataDir.path,
         );
-        final fileName = p.basename(rawTarget);
-        if (fileName.isNotEmpty) {
-          final normTarget = rawTarget.replaceAll('\\', '/');
-          final normApp = appDataDir.path.replaceAll('\\', '/');
-          final sub = normTarget.startsWith('$normApp/')
-              ? normTarget.substring(normApp.length + 1)
-              : rawTarget;
-          mutableData['preview_link'] = '[$fileName](kelivo://$sub)';
+        // Only attach preview_link for actual files (NOT directories)
+        if (!isDirectoryOperation) {
+          final fileName = p.basename(rawTarget);
+          if (fileName.isNotEmpty) {
+            final normTarget = rawTarget.replaceAll('\\', '/');
+            final normApp = appDataDir.path.replaceAll('\\', '/');
+            final cleanTarget = normTarget.startsWith('/private/')
+                ? normTarget.substring('/private'.length)
+                : normTarget;
+            final cleanApp = normApp.startsWith('/private/')
+                ? normApp.substring('/private'.length)
+                : normApp;
+            final sub = cleanTarget.startsWith('$cleanApp/')
+                ? cleanTarget.substring(cleanApp.length + 1)
+                : cleanTarget;
+            mutableData['preview_link'] = '[$fileName](kelivo://$sub)';
+          }
         }
       }
       // Attach user-friendly display_destination for destination target
@@ -3126,10 +3141,27 @@ class ToolHandlerService {
           if (item is Map) {
             final itemMap = Map<String, dynamic>.from(item);
             if (itemMap['path'] is String) {
+              final childPath = itemMap['path'] as String;
               itemMap['display_path'] = _formatDisplayPath(
-                itemMap['path'] as String,
+                childPath,
                 appDataDir.path,
               );
+              if (itemMap['is_directory'] != true) {
+                final fileName =
+                    itemMap['name']?.toString() ?? p.basename(childPath);
+                final normChild = childPath.replaceAll('\\', '/');
+                final normApp = appDataDir.path.replaceAll('\\', '/');
+                final cleanChild = normChild.startsWith('/private/')
+                    ? normChild.substring('/private'.length)
+                    : normChild;
+                final cleanApp = normApp.startsWith('/private/')
+                    ? normApp.substring('/private'.length)
+                    : normApp;
+                if (cleanChild.startsWith('$cleanApp/')) {
+                  final sub = cleanChild.substring(cleanApp.length + 1);
+                  itemMap['preview_link'] = '[$fileName](kelivo://$sub)';
+                }
+              }
             }
             return itemMap;
           }
@@ -3262,12 +3294,20 @@ class ToolHandlerService {
     final normPath = path.replaceAll('\\', '/');
     final normApp = appDataPath.replaceAll('\\', '/');
 
+    // Strip iOS symlinked /private prefix for robust matching (/var vs /private/var)
+    final cleanPath = normPath.startsWith('/private/')
+        ? normPath.substring('/private'.length)
+        : normPath;
+    final cleanApp = normApp.startsWith('/private/')
+        ? normApp.substring('/private'.length)
+        : normApp;
+
     // 1. App sandbox Documents root or child path
-    if (normPath == normApp) {
+    if (cleanPath == cleanApp) {
       return '我的 iPhone/Kelivo';
     }
-    if (normPath.startsWith('$normApp/')) {
-      final sub = normPath.substring(normApp.length + 1);
+    if (cleanPath.startsWith('$cleanApp/')) {
+      final sub = cleanPath.substring(cleanApp.length + 1);
       return '我的 iPhone/Kelivo/$sub';
     }
 
