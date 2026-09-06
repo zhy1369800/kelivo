@@ -21,6 +21,7 @@ import '../../utils/sandbox_path_resolver.dart';
 import '../../utils/clipboard_images.dart';
 import '../../features/chat/pages/image_viewer_page.dart';
 import '../../features/chat/pages/html_preview_page.dart';
+import '../../core/services/preview/resource_preview_service.dart';
 import 'snackbar.dart';
 import 'ios_tactile.dart';
 import 'mermaid_bridge.dart';
@@ -664,9 +665,31 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
   }
 
   Future<void> _handleLinkTap(BuildContext context, String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return;
+
+    // Direct in-app preview for kelivo://, kelivo-file:///, file://, or local/sandbox file paths
+    if (_isLocalOrCustomScheme(trimmed)) {
+      final res = await ResourcePreviewService.instance.openResource(
+        target: trimmed,
+        context: context,
+      );
+      if (!res.success && context.mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        showAppSnackBar(
+          context,
+          message: res.message.isNotEmpty
+              ? res.message
+              : l10n.chatMessageWidgetOpenLinkError,
+          type: NotificationType.error,
+        );
+      }
+      return;
+    }
+
     Uri uri;
     try {
-      uri = _normalizeUrl(url);
+      uri = _normalizeUrl(trimmed);
     } catch (_) {
       final l10n = AppLocalizations.of(context)!;
       showAppSnackBar(
@@ -685,6 +708,38 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
         type: NotificationType.error,
       );
     }
+  }
+
+  static bool _isLocalOrCustomScheme(String url) {
+    final u = url.trim();
+    if (u.startsWith('kelivo://') ||
+        u.startsWith('kelivo-file://') ||
+        u.startsWith('file://')) {
+      return true;
+    }
+    if (u.startsWith('http://') ||
+        u.startsWith('https://') ||
+        u.startsWith('mailto:') ||
+        u.startsWith('tel:') ||
+        u.startsWith('sms:')) {
+      return false;
+    }
+    // Absolute paths (POSIX or Windows drive)
+    if (u.startsWith('/') ||
+        u.startsWith('\\') ||
+        RegExp(r'^[a-zA-Z]:[/\\]').hasMatch(u)) {
+      return true;
+    }
+    // Sandboxed aliases (e.g. "我的 iPhone/Kelivo/...", "sandbox/...")
+    final normalized = u.replaceAll('\\', '/');
+    if (RegExp(
+      r'^(?:/)?(?:(?:我的\s*iphone|on\s*my\s*iphone)/kelivo|kelivo|sandbox)',
+      caseSensitive: false,
+    ).hasMatch(normalized)) {
+      return true;
+    }
+    // Has common local file extensions (e.g. .html, .txt, .md, .png, etc.)
+    return RegExp(r'\.[a-zA-Z0-9]{1,8}(?:[?#].*)?$').hasMatch(u);
   }
 
   Uri _normalizeUrl(String url) {

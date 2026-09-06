@@ -3098,10 +3098,20 @@ class ToolHandlerService {
 
       // Attach user-friendly display_path for root target
       if (mutableData['path'] is String) {
+        final rawTarget = mutableData['path'] as String;
         mutableData['display_path'] = _formatDisplayPath(
-          mutableData['path'] as String,
+          rawTarget,
           appDataDir.path,
         );
+        final fileName = p.basename(rawTarget);
+        if (fileName.isNotEmpty) {
+          final normTarget = rawTarget.replaceAll('\\', '/');
+          final normApp = appDataDir.path.replaceAll('\\', '/');
+          final sub = normTarget.startsWith('$normApp/')
+              ? normTarget.substring(normApp.length + 1)
+              : rawTarget;
+          mutableData['preview_link'] = '[$fileName](kelivo://$sub)';
+        }
       }
       // Attach user-friendly display_destination for destination target
       if (mutableData['destination'] is String) {

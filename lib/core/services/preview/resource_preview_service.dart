@@ -216,10 +216,37 @@ class ResourcePreviewService extends ChangeNotifier {
       return SandboxPathResolver.fix(trimmed);
     }
 
-    // 5. Relative path (e.g. workspace/test.html, upload/image.png)
+    // 5. iOS Files App UI display path aliases: "我的 iPhone/Kelivo/...", "Kelivo/..."
+    final aliasMatch = RegExp(
+      r'^(?:/)?(?:(?:我的\s*iphone|on\s*my\s*iphone)/kelivo|kelivo)(?:/(.*))?$',
+      caseSensitive: false,
+    ).firstMatch(trimmed.replaceAll('\\', '/'));
+    if (aliasMatch != null) {
+      final subpath = aliasMatch.group(1) ?? '';
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        return subpath.isEmpty
+            ? appDataDir.path
+            : p.join(appDataDir.path, subpath);
+      } catch (_) {}
+    }
+
+    // 6. "sandbox/..."
+    final normalizedSlash = trimmed.replaceAll('\\', '/');
+    if (RegExp(r'^sandbox/(.*)$', caseSensitive: false).hasMatch(normalizedSlash)) {
+      final subpath = normalizedSlash.substring('sandbox/'.length);
+      try {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        return subpath.isEmpty ? appDataDir.path : p.join(appDataDir.path, subpath);
+      } catch (_) {}
+    }
+
+    // 7. Relative path (e.g. workspace/test.html, upload/image.png, hello.html)
     try {
       final appDataDir = await AppDirectories.getAppDataDirectory();
-      return p.join(appDataDir.path, trimmed);
+      var rel = normalizedSlash;
+      if (rel.startsWith('./')) rel = rel.substring(2);
+      return p.join(appDataDir.path, rel);
     } catch (_) {}
 
     return SandboxPathResolver.fix(trimmed);
