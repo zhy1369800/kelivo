@@ -23,14 +23,16 @@ final class IntentFlutterBridge {
         assistantId: String?,
         sessionId: String?,
         modelId: String?,
-        filePaths: [String]
+        filePaths: [String],
+        saveToSession: Bool = true
     ) async throws -> IntentChatResult {
         let args: [String: Any?] = [
             "prompt": prompt,
             "assistantId": assistantId,
             "sessionId": sessionId,
             "modelId": modelId,
-            "filePaths": filePaths
+            "filePaths": filePaths,
+            "saveToSession": saveToSession
         ]
 
         // 1. 优先检测主 App 是否已在运行（前台或后台唤醒中）

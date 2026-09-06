@@ -84,6 +84,7 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
   final existingSessionId = args['sessionId'] as String?;
   final modelOverride = args['modelId'] as String?;
   final filePaths = (args['filePaths'] as List?)?.map((e) => e.toString()).toList() ?? [];
+  final saveToSession = args['saveToSession'] as bool? ?? true;
 
   final appDir = await AppDirectories.getAppDataDirectory();
   final dbFile = File('${appDir.path}/${AppDatabase.databaseFileName}');
@@ -122,15 +123,17 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
     conversationId = existingSessionId;
   } else {
     conversationId = const Uuid().v4();
-    final now = DateTime.now();
-    final newConv = Conversation(
-      id: conversationId,
-      title: prompt.length > 20 ? '${prompt.substring(0, 20)}...' : prompt,
-      createdAt: now,
-      updatedAt: now,
-      assistantId: assistant.id,
-    );
-    await dbRepo.putConversation(newConv);
+    if (saveToSession) {
+      final now = DateTime.now();
+      final newConv = Conversation(
+        id: conversationId,
+        title: prompt.length > 20 ? '${prompt.substring(0, 20)}...' : prompt,
+        createdAt: now,
+        updatedAt: now,
+        assistantId: assistant.id,
+      );
+      await dbRepo.putConversation(newConv);
+    }
   }
 
   // 3. 构建用户消息
@@ -164,21 +167,25 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
     }
   }
 
-  final userMsg = ChatMessage(
-    id: userMessageId,
-    conversationId: conversationId,
-    role: 'user',
-    content: effectivePrompt,
-    parts: userParts,
-  );
-  await dbRepo.putMessage(userMsg);
+  if (saveToSession) {
+    final userMsg = ChatMessage(
+      id: userMessageId,
+      conversationId: conversationId,
+      role: 'user',
+      content: effectivePrompt,
+      parts: userParts,
+    );
+    await dbRepo.putMessage(userMsg);
+  }
 
   // 4. 读取历史消息以形成上下文
-  final history = await dbRepo.getSelectedContextMessages(
-    conversationId,
-    truncateIndex: -1,
-    limit: 100,
-  );
+  final history = (existingSessionId != null && existingSessionId.isNotEmpty)
+      ? await dbRepo.getSelectedContextMessages(
+          conversationId,
+          truncateIndex: -1,
+          limit: 100,
+        )
+      : <ChatMessage>[];
   final apiMessages = <Map<String, dynamic>>[];
 
   // 注入助手 System Prompt
@@ -209,6 +216,12 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
       });
     }
   }
+
+  // 追加当前用户输入
+  apiMessages.add({
+    'role': 'user',
+    'content': effectivePrompt,
+  });
 
   // 4.1 记忆系统 (Memory System) 动态上下文注入
   if (assistant.enableMemory) {
@@ -543,21 +556,23 @@ Future<Map<String, dynamic>> handleExecuteIntent(Map<String, dynamic> args) asyn
 
   final assistantResponse = await completer.future;
 
-  // 8. 保存 Assistant 消息到数据库
-  final assistantMessageId = const Uuid().v4();
-  final assistantMsg = ChatMessage(
-    id: assistantMessageId,
-    conversationId: conversationId,
-    role: 'assistant',
-    content: assistantResponse,
-    parts: [TextPart(assistantResponse)],
-    modelId: selectedModel,
-    providerId: providerKey,
-  );
-  await dbRepo.putMessage(assistantMsg);
+  // 8. 保存 Assistant 消息到数据库（根据 saveToSession 开关决定）
+  if (saveToSession) {
+    final assistantMessageId = const Uuid().v4();
+    final assistantMsg = ChatMessage(
+      id: assistantMessageId,
+      conversationId: conversationId,
+      role: 'assistant',
+      content: assistantResponse,
+      parts: [TextPart(assistantResponse)],
+      modelId: selectedModel,
+      providerId: providerKey,
+    );
+    await dbRepo.putMessage(assistantMsg);
+  }
 
     return {
-      'sessionId': conversationId,
+      'sessionId': (saveToSession || existingSessionId != null) ? conversationId : '',
       'response': assistantResponse,
       'assistantName': assistant.name,
       'modelName': selectedModel,

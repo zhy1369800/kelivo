@@ -50,6 +50,13 @@ struct AskAIIntent: AppIntent {
     )
     var waitForResult: Bool
 
+    @Parameter(
+        title: "保存到会话",
+        description: "开启后将对话内容保存到会话中；关闭则仅在快捷指令中返回结果，不保存任何历史记录",
+        default: true
+    )
+    var saveToSession: Bool
+
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<String> {
         // 1. 开启后台音频保活
@@ -91,7 +98,8 @@ struct AskAIIntent: AppIntent {
                     assistantId: assistantId,
                     sessionId: sessionId,
                     modelId: modelId,
-                    filePaths: tempFilePaths
+                    filePaths: tempFilePaths,
+                    saveToSession: saveToSession
                 )
 
                 let jsonDict: [String: Any] = [
@@ -138,13 +146,14 @@ struct AskAIIntent: AppIntent {
                     assistantId: assistantId,
                     sessionId: sessionId,
                     modelId: modelId,
-                    filePaths: tempFilePaths
+                    filePaths: tempFilePaths,
+                    saveToSession: saveToSession
                 )
 
                 // 仅异步模式有结果返回时才推送通知
                 NativeNotificationHelper.shared.sendNotification(
-                    title: "\(result.assistantName) 已回复",
-                    body: result.response
+                    title: "Kelivo 后台任务完成",
+                    body: ""
                 )
             } catch {
                 NativeNotificationHelper.shared.sendNotification(
