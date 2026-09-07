@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../features/chat/pages/image_viewer_page.dart';
 import '../../../shared/pages/webview_page.dart';
+import '../../../shared/widgets/audio_preview_modal.dart';
 import '../../../shared/widgets/resource_preview_modal.dart';
 import '../../../shared/widgets/snackbar.dart';
 
@@ -45,6 +46,17 @@ class ResourcePreviewService extends ChangeNotifier {
   ResourcePreviewService._();
   static final ResourcePreviewService instance = ResourcePreviewService._();
   factory ResourcePreviewService() => instance;
+
+  static const Set<String> _audioExtensions = {
+    '.mp3',
+    '.wav',
+    '.m4a',
+    '.aac',
+    '.ogg',
+    '.flac',
+    '.opus',
+    '.wma',
+  };
 
   static const Set<String> _imageExtensions = {
     '.png',
@@ -340,6 +352,27 @@ class ResourcePreviewService extends ChangeNotifier {
       }
     }
 
+    // In-app Audio Player for audio web URLs
+    final urlPath = uri.path.toLowerCase();
+    final urlExt = p.extension(urlPath);
+    if (_audioExtensions.contains(urlExt)) {
+      if (effectiveContext != null && effectiveContext.mounted) {
+        unawaited(
+          AudioPreviewModal.show(
+            effectiveContext,
+            source: urlString,
+            title: title ?? p.basename(urlPath),
+          ),
+        );
+        return ResourceOpenResult(
+          success: true,
+          message: 'Opened audio URL in in-app Audio Player: $urlString',
+          target: urlString,
+          openedAs: 'audio_player',
+        );
+      }
+    }
+
     // In-app WebView preview (default)
     // 1. Check if an existing WebViewPage is already mounted -> update in place
     final activeWebState = WebViewPage.activeState;
@@ -449,7 +482,27 @@ class ResourcePreviewService extends ChangeNotifier {
     }
 
     // Auto or in_app_preview: Route by extension
-    // 1. Image formats
+    // 1. Audio formats
+    if (_audioExtensions.contains(ext)) {
+      if (effectiveContext != null && effectiveContext.mounted) {
+        unawaited(
+          AudioPreviewModal.show(
+            effectiveContext,
+            source: file.path,
+            title: effectiveTitle,
+          ),
+        );
+        return ResourceOpenResult(
+          success: true,
+          message: 'Opened in in-app Audio Player: $effectivePath',
+          target: effectivePath,
+          openedAs: 'audio_player',
+        );
+      }
+      return _openWithSystemDefault(file.path, effectivePath);
+    }
+
+    // 2. Image formats
     if (_imageExtensions.contains(ext)) {
       if (effectiveContext != null && effectiveContext.mounted) {
         _dismissActivePreviewRoute();

@@ -19,6 +19,7 @@ class WebViewPage extends StatefulWidget {
   final String? contentBase64; // HTML string in Base64
 
   /// Global handle to currently mounted WebViewPage instance (if any).
+  // ignore: library_private_types_in_public_api
   static _WebViewPageState? activeState;
 
   @override
@@ -270,6 +271,7 @@ class _WebViewPageState extends State<WebViewPage>
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
+    final topPadding = math.max(MediaQuery.paddingOf(context).top + 8, 38.0);
 
     return PopScope(
       canPop: !_canGoBack,
@@ -279,13 +281,26 @@ class _WebViewPageState extends State<WebViewPage>
           _controller.goBack();
         }
       },
-      child: Transform.translate(
-        offset: Offset(0, _dragDy),
-        child: ClipRRect(
-          borderRadius: _dragDy > 0
-              ? const BorderRadius.vertical(top: Radius.circular(20))
-              : BorderRadius.zero,
-          child: Scaffold(
+      child: Padding(
+        padding: EdgeInsets.only(top: topPadding),
+        child: Transform.translate(
+          offset: Offset(0, _dragDy),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(20)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 28,
+                  offset: const Offset(0, -6),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(20)),
+              child: Scaffold(
             appBar: PreferredSize(
               preferredSize: const Size.fromHeight(56),
               child: GestureDetector(
@@ -544,6 +559,8 @@ class _WebViewPageState extends State<WebViewPage>
       ),
     ),
   ),
+),
+),
 );
   }
 }

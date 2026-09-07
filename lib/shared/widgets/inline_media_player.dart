@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import '../../core/services/audio/global_audio_player_service.dart';
 import '../../icons/lucide_adapter.dart';
 import 'package:path/path.dart' as p;
 import '../../core/services/preview/resource_preview_service.dart';
@@ -80,6 +81,14 @@ class _InlineAudioPlayerState extends State<InlineAudioPlayer> {
     super.initState();
     _player = AudioPlayer();
     _initSubscriptions();
+    GlobalAudioPlayerService.instance.addListener(_onGlobalAudioChanged);
+  }
+
+  void _onGlobalAudioChanged() {
+    if (!mounted) return;
+    if (GlobalAudioPlayerService.instance.isPlaying && _isPlaying) {
+      _player.pause();
+    }
   }
 
   void _initSubscriptions() {
@@ -110,6 +119,10 @@ class _InlineAudioPlayerState extends State<InlineAudioPlayer> {
     if (_isPlaying) {
       await _player.pause();
       return;
+    }
+
+    if (GlobalAudioPlayerService.instance.isPlaying) {
+      await GlobalAudioPlayerService.instance.pause();
     }
 
     try {
@@ -152,6 +165,7 @@ class _InlineAudioPlayerState extends State<InlineAudioPlayer> {
 
   @override
   void dispose() {
+    GlobalAudioPlayerService.instance.removeListener(_onGlobalAudioChanged);
     _stateSub?.cancel();
     _posSub?.cancel();
     _durSub?.cancel();

@@ -201,4 +201,6 @@ class Lucide {
   static const IconData Wallet = lucide.LucideIcons.walletMinimal;
   static const IconData Coins = lucide.LucideIcons.coins;
   static const IconData Server = lucide.LucideIcons.server;
+  static const IconData Gauge = lucide.LucideIcons.gauge;
+  static const IconData Minimize2 = lucide.LucideIcons.minimize2;
 }
