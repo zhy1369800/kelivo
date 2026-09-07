@@ -181,7 +181,7 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
     final cs = Theme.of(context).colorScheme;
-    final sanitizedText = _sanitizeImageLinks(_renderText);
+    final sanitizedText = _sanitizeImageAndMediaLinks(_renderText);
     final imageUrls = _extractImageUrls(sanitizedText);
     String normalize(String source, {required bool streaming}) {
       final cacheKey =
@@ -2404,6 +2404,21 @@ String _sanitizeImageLinks(String input) {
     }
 
     return '![$alt]($safeUrl)';
+  });
+}
+
+String _sanitizeImageAndMediaLinks(String input) {
+  final safeImages = _sanitizeImageLinks(input);
+  // Auto-upgrade audio and video links [title](url) to ![title](url)
+  // so they render as interactive inline players instead of plain text links.
+  final linkRe = RegExp(r'(?<!\!)\[([^\]]*)\]\(([^)]+)\)', multiLine: true);
+  return safeImages.replaceAllMapped(linkRe, (m) {
+    final title = m.group(1) ?? '';
+    final inside = (m.group(2) ?? '').trim();
+    if (InlineMediaDetector.isAudio(inside) || InlineMediaDetector.isVideo(inside)) {
+      return '![$title]($inside)';
+    }
+    return m[0]!;
   });
 }
 
