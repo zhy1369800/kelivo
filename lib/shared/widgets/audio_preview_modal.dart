@@ -7,6 +7,7 @@ import '../../core/services/audio/global_audio_player_service.dart';
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../icons/lucide_adapter.dart';
 import '../../theme/app_font_weights.dart';
+import 'snackbar.dart';
 
 /// Full card audio preview sheet (matches OpenMinis `MinisAudioPreviewView`).
 ///
@@ -78,19 +79,55 @@ class _AudioPreviewModalState extends State<AudioPreviewModal> {
     return '${rate.toStringAsFixed(2).replaceAll(RegExp(r'\.0+$'), '')}x';
   }
 
-  Future<void> _shareCurrentFile(BuildContext context) async {
+  Future<void> _shareCurrentFile(BuildContext btnContext) async {
     final src = _audio.activeSource ?? widget.source;
     try {
+      final box = btnContext.findRenderObject() as RenderBox?;
+      final anchor = box != null && box.hasSize
+          ? box.localToGlobal(Offset.zero) & box.size
+          : Rect.fromCenter(
+              center: MediaQuery.sizeOf(context).center(Offset.zero),
+              width: 10,
+              height: 10,
+            );
+
       if (src.startsWith('http://') || src.startsWith('https://')) {
-        await SharePlus.instance.share(ShareParams(uri: Uri.tryParse(src)));
+        await SharePlus.instance.share(
+          ShareParams(
+            uri: Uri.tryParse(src),
+            sharePositionOrigin: anchor,
+          ),
+        );
       } else {
-        final resolved = await ResourcePreviewService.resolvePath(src);
-        final file = File(resolved);
+        String finalPath = src;
+        if (!File(finalPath).existsSync()) {
+          finalPath = await ResourcePreviewService.resolvePath(src);
+        }
+        final file = File(finalPath);
         if (file.existsSync()) {
-          await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+          await SharePlus.instance.share(
+            ShareParams(
+              files: [XFile(file.path)],
+              sharePositionOrigin: anchor,
+            ),
+          );
+        } else if (mounted) {
+          showAppSnackBar(
+            context,
+            message: '音频文件不存在，无法分享',
+            type: NotificationType.error,
+          );
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        showAppSnackBar(
+          context,
+          message: '分享失败: $e',
+          type: NotificationType.error,
+        );
+      }
+    }
   }
 
   @override
@@ -153,14 +190,16 @@ class _AudioPreviewModalState extends State<AudioPreviewModal> {
                       ),
                     ),
                     // Action Buttons (Share)
-                    IconButton.filledTonal(
-                      onPressed: () => _shareCurrentFile(context),
-                      icon: const Icon(Lucide.Share, size: 18),
-                      style: IconButton.styleFrom(
-                        backgroundColor:
-                            cs.surfaceContainerHighest.withValues(alpha: 0.8),
-                        foregroundColor: cs.onSurface,
-                        shape: const CircleBorder(),
+                    Builder(
+                      builder: (btnContext) => IconButton.filledTonal(
+                        onPressed: () => _shareCurrentFile(btnContext),
+                        icon: const Icon(Lucide.Share, size: 18),
+                        style: IconButton.styleFrom(
+                          backgroundColor:
+                              cs.surfaceContainerHighest.withValues(alpha: 0.8),
+                          foregroundColor: cs.onSurface,
+                          shape: const CircleBorder(),
+                        ),
                       ),
                     ),
                   ],

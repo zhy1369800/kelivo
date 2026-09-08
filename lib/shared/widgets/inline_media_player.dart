@@ -80,6 +80,7 @@ class _InlineAudioPlayerState extends State<InlineAudioPlayer> {
   void initState() {
     super.initState();
     _player = AudioPlayer();
+    _player.setAudioContext(GlobalAudioPlayerService.mediaAudioContext).catchError((_) {});
     _initSubscriptions();
     GlobalAudioPlayerService.instance.addListener(_onGlobalAudioChanged);
   }
@@ -126,6 +127,7 @@ class _InlineAudioPlayerState extends State<InlineAudioPlayer> {
     }
 
     try {
+      await _player.setAudioContext(GlobalAudioPlayerService.mediaAudioContext);
       setState(() {
         _isLoading = true;
         _hasError = false;

@@ -68,10 +68,13 @@ class _AudioFloatingCapsuleState extends State<AudioFloatingCapsule> {
 
         final cs = Theme.of(context).colorScheme;
 
-        return Positioned(
-          left: effectivePos.dx,
-          top: effectivePos.dy,
-          child: GestureDetector(
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              left: effectivePos.dx,
+              top: effectivePos.dy,
+              child: GestureDetector(
             onPanUpdate: (details) {
               setState(() {
                 _dragOffset += details.delta;
@@ -172,7 +175,9 @@ class _AudioFloatingCapsuleState extends State<AudioFloatingCapsule> {
               ),
             ),
           ),
-        );
+        ),
+      ],
+    );
       },
     );
   }

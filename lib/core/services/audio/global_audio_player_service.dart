@@ -80,8 +80,25 @@ class GlobalAudioPlayerService extends ChangeNotifier {
     2.0,
   ];
 
+  static final AudioContext mediaAudioContext = AudioContext(
+    iOS: AudioContextIOS(
+      category: AVAudioSessionCategory.playback,
+      options: const {
+        AVAudioSessionOptions.defaultToSpeaker,
+      },
+    ),
+    android: const AudioContextAndroid(
+      isSpeakerphoneOn: true,
+      stayAwake: true,
+      contentType: AndroidContentType.music,
+      usageType: AndroidUsageType.media,
+      audioFocus: AndroidAudioFocus.gain,
+    ),
+  );
+
   void _initPlayer() {
     _player = AudioPlayer();
+    _player.setAudioContext(mediaAudioContext).catchError((_) {});
 
     _stateSub = _player.onPlayerStateChanged.listen((state) {
       _playerState = state;
@@ -116,6 +133,7 @@ class GlobalAudioPlayerService extends ChangeNotifier {
             _position >= _duration - const Duration(milliseconds: 300)) {
           await seek(Duration.zero);
         }
+        await _player.setAudioContext(mediaAudioContext);
         await _player.resume();
       }
       return;
@@ -132,6 +150,7 @@ class GlobalAudioPlayerService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      await _player.setAudioContext(mediaAudioContext);
       final isWeb =
           trimmed.startsWith('http://') || trimmed.startsWith('https://');
       if (isWeb) {
@@ -230,7 +249,8 @@ class GlobalAudioPlayerService extends ChangeNotifier {
   /// Mark full card preview as dismissed/closed.
   void markFullPreviewDismissed({bool keepPlayingAsPip = true}) {
     _isFullPreviewOpen = false;
-    if (keepPlayingAsPip && (_isLoaded || _isLoading)) {
+    if (keepPlayingAsPip &&
+        (_isLoaded || _isLoading || isPlaying || _activeSource != null)) {
       _isPipActive = true;
     }
     notifyListeners();
