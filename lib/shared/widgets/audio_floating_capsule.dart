@@ -54,131 +54,145 @@ class _AudioFloatingCapsuleState extends State<AudioFloatingCapsule> {
     return ListenableBuilder(
       listenable: _audio,
       builder: (context, _) {
-        if (!_audio.isPipActive || _audio.isFullPreviewOpen) {
-          return const SizedBox.shrink();
-        }
+        final visible = (_audio.isPipActive || _audio.isPlaying) &&
+            !_audio.isFullPreviewOpen &&
+            _audio.activeSource != null;
 
-        final size = MediaQuery.sizeOf(context);
-        final padding = MediaQuery.paddingOf(context);
-        final currentPos = _position ?? _defaultPosition(size, padding);
-        final effectivePos = Offset(
-          currentPos.dx + _dragOffset.dx,
-          currentPos.dy + _dragOffset.dy,
-        );
+        return IgnorePointer(
+          ignoring: !visible,
+          child: AnimatedOpacity(
+            opacity: visible ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            child: visible
+                ? LayoutBuilder(
+                    builder: (context, constraints) {
+                      final size = Size(constraints.maxWidth, constraints.maxHeight);
+                      final padding = MediaQuery.paddingOf(context);
+                      final currentPos = _position ?? _defaultPosition(size, padding);
+                      final effectivePos = Offset(
+                        currentPos.dx + _dragOffset.dx,
+                        currentPos.dy + _dragOffset.dy,
+                      );
+                      final cs = Theme.of(context).colorScheme;
 
-        final cs = Theme.of(context).colorScheme;
+                      return SizedBox(
+                        width: constraints.maxWidth,
+                        height: constraints.maxHeight,
+                        child: Stack(
+                          children: [
+                          Positioned(
+                            left: effectivePos.dx,
+                            top: effectivePos.dy,
+                            width: _capsuleWidth,
+                            height: _capsuleHeight,
+                            child: GestureDetector(
+                              onPanUpdate: (details) {
+                                setState(() {
+                                  _dragOffset += details.delta;
+                                });
+                              },
+                              onPanEnd: (_) {
+                                setState(() {
+                                  _position = _clamp(currentPos + _dragOffset, size, padding);
+                                  _dragOffset = Offset.zero;
+                                });
+                              },
+                              child: Container(
+                                width: _capsuleWidth,
+                                height: _capsuleHeight,
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  color: (Theme.of(context).brightness == Brightness.dark
+                                          ? const Color(0xFF22242A)
+                                          : Colors.white)
+                                      .withValues(alpha: 0.95),
+                                  borderRadius: BorderRadius.circular(22),
+                                  border: Border.all(
+                                    color: cs.outlineVariant.withValues(alpha: 0.45),
+                                    width: 0.8,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.25),
+                                      blurRadius: 18,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    // Waveform (Tap to re-expand full modal)
+                                    IconButton(
+                                      tooltip: '展开音频卡片',
+                                      iconSize: 20,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 32,
+                                        minHeight: 32,
+                                      ),
+                                      icon: Icon(
+                                        Lucide.AudioWaveform,
+                                        color: _audio.isPlaying
+                                            ? cs.primary
+                                            : cs.onSurfaceVariant.withValues(alpha: 0.7),
+                                      ),
+                                      onPressed: () {
+                                        if (_audio.activeSource != null) {
+                                          AudioPreviewModal.show(
+                                            context,
+                                            source: _audio.activeSource!,
+                                            title: _audio.displayName,
+                                          );
+                                        }
+                                      },
+                                    ),
 
-        return Stack(
-          children: [
-            Positioned(
-              left: effectivePos.dx,
-              top: effectivePos.dy,
-              width: _capsuleWidth,
-              height: _capsuleHeight,
-              child: GestureDetector(
-            onPanUpdate: (details) {
-              setState(() {
-                _dragOffset += details.delta;
-              });
-            },
-            onPanEnd: (_) {
-              setState(() {
-                _position = _clamp(currentPos + _dragOffset, size, padding);
-                _dragOffset = Offset.zero;
-              });
-            },
-            child: Material(
-              type: MaterialType.transparency,
-              child: Container(
-                width: _capsuleWidth,
-                height: _capsuleHeight,
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                decoration: BoxDecoration(
-                  color: (Theme.of(context).brightness == Brightness.dark
-                          ? const Color(0xFF22242A)
-                          : Colors.white)
-                      .withValues(alpha: 0.92),
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(
-                    color: cs.outlineVariant.withValues(alpha: 0.45),
-                    width: 0.8,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.22),
-                      blurRadius: 16,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    // Waveform (Tap to re-expand full modal)
-                    IconButton(
-                      tooltip: '展开音频卡片',
-                      iconSize: 20,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                      icon: Icon(
-                        Lucide.AudioWaveform,
-                        color: _audio.isPlaying
-                            ? cs.primary
-                            : cs.onSurfaceVariant.withValues(alpha: 0.7),
-                      ),
-                      onPressed: () {
-                        if (_audio.activeSource != null) {
-                          AudioPreviewModal.show(
-                            context,
-                            source: _audio.activeSource!,
-                            title: _audio.displayName,
-                          );
-                        }
-                      },
-                    ),
+                                    // Play / Pause
+                                    IconButton(
+                                      tooltip: _audio.isPlaying ? '暂停' : '播放',
+                                      iconSize: 22,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 36,
+                                        minHeight: 36,
+                                      ),
+                                      icon: Icon(
+                                        _audio.isPlaying ? Lucide.Pause : Lucide.Play,
+                                        color: cs.onSurface,
+                                      ),
+                                      onPressed: () => _audio.togglePlayPause(),
+                                    ),
 
-                    // Play / Pause
-                    IconButton(
-                      tooltip: _audio.isPlaying ? '暂停' : '播放',
-                      iconSize: 22,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 36,
-                        minHeight: 36,
-                      ),
-                      icon: Icon(
-                        _audio.isPlaying ? Lucide.Pause : Lucide.Play,
-                        color: cs.onSurface,
-                      ),
-                      onPressed: () => _audio.togglePlayPause(),
-                    ),
-
-                    // Close (Stop playback & dismiss PiP)
-                    IconButton(
-                      tooltip: '关闭播放',
-                      iconSize: 18,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                      icon: Icon(
-                        Lucide.X,
-                        color: cs.onSurfaceVariant.withValues(alpha: 0.7),
-                      ),
-                      onPressed: () => _audio.stop(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+                                    // Close (Stop playback & dismiss PiP)
+                                    IconButton(
+                                      tooltip: '关闭播放',
+                                      iconSize: 18,
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 32,
+                                        minHeight: 32,
+                                      ),
+                                      icon: Icon(
+                                        Lucide.X,
+                                        color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+                                      ),
+                                      onPressed: () => _audio.stop(),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                        ),
+                      );
+                    },
+                  )
+                : const SizedBox.shrink(),
           ),
-        ),
-      ],
-    );
+        );
       },
     );
   }

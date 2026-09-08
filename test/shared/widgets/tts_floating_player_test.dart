@@ -32,6 +32,9 @@ class _FakeTtsProvider extends ChangeNotifier implements TtsProvider {
   final bool canSaveNetworkAudio;
 
   @override
+  bool get suppressFloatingPlayer => false;
+
+  @override
   TtsPlaybackState get playbackState => _state;
 
   @override
