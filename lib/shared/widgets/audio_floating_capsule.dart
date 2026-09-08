@@ -69,11 +69,12 @@ class _AudioFloatingCapsuleState extends State<AudioFloatingCapsule> {
         final cs = Theme.of(context).colorScheme;
 
         return Stack(
-          fit: StackFit.expand,
           children: [
             Positioned(
               left: effectivePos.dx,
               top: effectivePos.dy,
+              width: _capsuleWidth,
+              height: _capsuleHeight,
               child: GestureDetector(
             onPanUpdate: (details) {
               setState(() {

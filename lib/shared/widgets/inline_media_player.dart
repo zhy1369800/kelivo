@@ -127,7 +127,9 @@ class _InlineAudioPlayerState extends State<InlineAudioPlayer> {
     }
 
     try {
-      await _player.setAudioContext(GlobalAudioPlayerService.mediaAudioContext);
+      try {
+        await _player.setAudioContext(GlobalAudioPlayerService.mediaAudioContext);
+      } catch (_) {}
       setState(() {
         _isLoading = true;
         _hasError = false;

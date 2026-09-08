@@ -19,7 +19,9 @@ class AppOverlays extends StatelessWidget {
             type: MaterialType.transparency,
             child: TtsFloatingPlayer(),
           ),
-          const AudioFloatingCapsule(),
+          const Positioned.fill(
+            child: AudioFloatingCapsule(),
+          ),
         ],
       ),
     );

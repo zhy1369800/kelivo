@@ -84,7 +84,7 @@ class GlobalAudioPlayerService extends ChangeNotifier {
     iOS: AudioContextIOS(
       category: AVAudioSessionCategory.playback,
       options: const {
-        AVAudioSessionOptions.defaultToSpeaker,
+        AVAudioSessionOptions.mixWithOthers,
       },
     ),
     android: const AudioContextAndroid(
@@ -133,7 +133,9 @@ class GlobalAudioPlayerService extends ChangeNotifier {
             _position >= _duration - const Duration(milliseconds: 300)) {
           await seek(Duration.zero);
         }
-        await _player.setAudioContext(mediaAudioContext);
+        try {
+          await _player.setAudioContext(mediaAudioContext);
+        } catch (_) {}
         await _player.resume();
       }
       return;
@@ -150,7 +152,10 @@ class GlobalAudioPlayerService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _player.setAudioContext(mediaAudioContext);
+      try {
+        await _player.setAudioContext(mediaAudioContext);
+      } catch (_) {}
+
       final isWeb =
           trimmed.startsWith('http://') || trimmed.startsWith('https://');
       if (isWeb) {
@@ -174,6 +179,7 @@ class GlobalAudioPlayerService extends ChangeNotifier {
       _hasError = false;
       notifyListeners();
     } catch (e) {
+      debugPrint('[GlobalAudioPlayerService] Play error: $e');
       _isLoading = false;
       _hasError = true;
       notifyListeners();
