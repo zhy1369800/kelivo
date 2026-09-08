@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../core/services/audio/global_audio_player_service.dart';
 import '../../icons/lucide_adapter.dart';
 import 'package:path/path.dart' as p;
@@ -318,10 +319,13 @@ class InlineVideoCard extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: () {
-            ResourcePreviewService.instance.openResource(
-              target: source,
-              title: displayName,
-              context: context,
+            HapticFeedback.lightImpact();
+            unawaited(
+              ResourcePreviewService.instance.openResource(
+                target: source,
+                title: displayName,
+                context: context,
+              ),
             );
           },
           child: Container(

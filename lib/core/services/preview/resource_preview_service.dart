@@ -13,6 +13,7 @@ import '../../../shared/pages/webview_page.dart';
 import '../../../shared/widgets/audio_preview_modal.dart';
 import '../../../shared/widgets/resource_preview_modal.dart';
 import '../../../shared/widgets/snackbar.dart';
+import '../../../shared/widgets/video_preview_modal.dart';
 
 import '../../../utils/app_directories.dart';
 import '../../../utils/kelivo_file_uri.dart';
@@ -56,6 +57,19 @@ class ResourcePreviewService extends ChangeNotifier {
     '.flac',
     '.opus',
     '.wma',
+  };
+
+  static const Set<String> _videoExtensions = {
+    '.mp4',
+    '.mov',
+    '.mkv',
+    '.webm',
+    '.m4v',
+    '.avi',
+    '.flv',
+    '.wmv',
+    '.3gp',
+    '.3gpp',
   };
 
   static const Set<String> _imageExtensions = {
@@ -152,6 +166,9 @@ class ResourcePreviewService extends ChangeNotifier {
     _activePreviewRoute = route;
   }
 
+  DateTime? _lastResourceOpenTime;
+  String? _lastResourceTarget;
+
   /// Open or preview a resource (Web URL, Custom App URI, or Local File Path).
   Future<ResourceOpenResult> openResource({
     required String target,
@@ -168,6 +185,21 @@ class ResourcePreviewService extends ChangeNotifier {
         openedAs: 'none',
       );
     }
+
+    // 400ms debounce to prevent stacked duplicates on rapid multi-taps
+    final now = DateTime.now();
+    if (_lastResourceTarget == trimmed &&
+        _lastResourceOpenTime != null &&
+        now.difference(_lastResourceOpenTime!).inMilliseconds < 400) {
+      return ResourceOpenResult(
+        success: true,
+        message: 'Debounced duplicate open: $trimmed',
+        target: trimmed,
+        openedAs: 'debounced',
+      );
+    }
+    _lastResourceOpenTime = now;
+    _lastResourceTarget = trimmed;
     final initialContext = (context != null && context.mounted) ? context : null;
     // 1. Web URL Handling (http://, https://)
     final uri = Uri.tryParse(trimmed);
@@ -373,6 +405,25 @@ class ResourcePreviewService extends ChangeNotifier {
       }
     }
 
+    // In-app Video Player for video web URLs
+    if (_videoExtensions.contains(urlExt)) {
+      if (effectiveContext != null && effectiveContext.mounted) {
+        unawaited(
+          VideoPreviewModal.show(
+            effectiveContext,
+            source: urlString,
+            title: title ?? p.basename(urlPath),
+          ),
+        );
+        return ResourceOpenResult(
+          success: true,
+          message: 'Opened video URL in in-app Video Player: $urlString',
+          target: urlString,
+          openedAs: 'video_player',
+        );
+      }
+    }
+
     // In-app WebView preview (default)
     // 1. Check if an existing WebViewPage is already mounted -> update in place
     final activeWebState = WebViewPage.activeState;
@@ -481,7 +532,6 @@ class ResourcePreviewService extends ChangeNotifier {
       return _openWithSystemDefault(file.path, effectivePath);
     }
 
-    // Auto or in_app_preview: Route by extension
     // 1. Audio formats
     if (_audioExtensions.contains(ext)) {
       if (effectiveContext != null && effectiveContext.mounted) {
@@ -497,6 +547,26 @@ class ResourcePreviewService extends ChangeNotifier {
           message: 'Opened in in-app Audio Player: $effectivePath',
           target: effectivePath,
           openedAs: 'audio_player',
+        );
+      }
+      return _openWithSystemDefault(file.path, effectivePath);
+    }
+
+    // 1.5. Video formats
+    if (_videoExtensions.contains(ext)) {
+      if (effectiveContext != null && effectiveContext.mounted) {
+        unawaited(
+          VideoPreviewModal.show(
+            effectiveContext,
+            source: file.path,
+            title: effectiveTitle,
+          ),
+        );
+        return ResourceOpenResult(
+          success: true,
+          message: 'Opened in in-app Video Player: $effectivePath',
+          target: effectivePath,
+          openedAs: 'video_player',
         );
       }
       return _openWithSystemDefault(file.path, effectivePath);
