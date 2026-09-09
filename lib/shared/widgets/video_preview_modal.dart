@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
@@ -40,16 +39,20 @@ class VideoPreviewModal extends StatefulWidget {
       return;
     }
 
-    final effectiveContext = (context != null &&
-            context.mounted &&
-            Navigator.maybeOf(context) != null)
-        ? context
-        : rootNavigatorKey.currentContext;
+    // Resolve an active NavigatorState reliably
+    NavigatorState? navigator;
+    if (context != null && context.mounted) {
+      navigator = Navigator.maybeOf(context, rootNavigator: true) ??
+          Navigator.maybeOf(context);
+    }
+    navigator ??= rootNavigatorKey.currentState;
 
-    if (effectiveContext == null || !effectiveContext.mounted) {
+    if (navigator == null || !navigator.mounted) {
       video.stop();
       return;
     }
+
+    final effectiveContext = navigator.overlay?.context ?? navigator.context;
 
     video.openVideo(source: source, title: title);
     video.markFullPreviewOpened();
@@ -57,7 +60,7 @@ class VideoPreviewModal extends StatefulWidget {
     try {
       await showModalBottomSheet<void>(
         context: effectiveContext,
-        useRootNavigator: true,
+        useRootNavigator: false,
         isScrollControlled: true,
         useSafeArea: true,
         backgroundColor: Colors.transparent,
@@ -104,17 +107,12 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     _loadVideoInWeb(newSource);
   }
 
-  String _buildVideoHtml(String videoSrc, {bool isRelative = false}) {
+  String _buildVideoHtml(String videoSrc) {
     final isNetwork =
         videoSrc.startsWith('http://') || videoSrc.startsWith('https://');
-    final String srcAttr;
-    if (isNetwork) {
-      srcAttr = htmlEscape.convert(videoSrc);
-    } else if (isRelative) {
-      srcAttr = Uri.encodeComponent(p.basename(videoSrc));
-    } else {
-      srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
-    }
+    final srcAttr = isNetwork
+        ? htmlEscape.convert(videoSrc)
+        : 'file://${htmlEscape.convert(videoSrc)}';
 
     return '''<!DOCTYPE html>
 <html>
@@ -134,7 +132,8 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   </style>
 </head>
 <body>
-  <video id="kelivo_player" src="$srcAttr" controls autoplay playsinline webkit-playsinline></video>
+  <video id="kelivo_player" src="$srcAttr" controls autoplay playsinline webkit-playsinline
+         disablePictureInPicture controlsList="nofullscreen nodownload noremoteplayback"></video>
 </body>
 </html>''';
   }
@@ -175,22 +174,14 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
       final resolved = await ResourcePreviewService.resolvePath(src);
       final file = File(resolved);
       if (file.existsSync()) {
-        try {
-          final parentDir = file.parent;
-          final previewHtml =
-              File(p.join(parentDir.path, '.kelivo_video_preview.html'));
-          final html = _buildVideoHtml(file.path, isRelative: true);
-          await previewHtml.writeAsString(html);
-          await _webCtrl.loadFile(previewHtml.path);
-          return;
-        } catch (_) {
-          try {
-            await _webCtrl.loadFile(file.path);
-            return;
-          } catch (_) {}
-        }
+        final html = _buildVideoHtml(file.path);
+        await _webCtrl.loadHtmlString(
+          html,
+          baseUrl: 'file://${file.parent.path}/',
+        );
+      } else {
+        await _webCtrl.loadHtmlString(_buildVideoHtml(src));
       }
-      await _webCtrl.loadHtmlString(_buildVideoHtml(src));
     }
   }
 
@@ -245,6 +236,18 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     }
   }
 
+  String get _fileFormatLabel {
+    final src = _video.activeSource ?? _currentSource;
+    if (src.isEmpty) return '视频';
+    final clean = src.split('?').first.split('#').first;
+    final dotIndex = clean.lastIndexOf('.');
+    if (dotIndex != -1 && dotIndex < clean.length - 1) {
+      final ext = clean.substring(dotIndex + 1).toUpperCase();
+      return '$ext 视频';
+    }
+    return '视频';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -283,7 +286,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                 ),
               ),
 
-              // Top Bar: Close (Left) & Actions (Right: PiP Minimize, Share)
+              // Top Bar: Close (Left) & Share (Right)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 child: Row(
@@ -305,60 +308,19 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                       ),
                     ),
 
-                    // Title
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(
-                          _video.displayName,
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: AppFontWeights.emphasis,
-                            color: cs.onSurface,
-                          ),
+                    // Right Actions (Share)
+                    Builder(
+                      builder: (btnContext) => IconButton.filledTonal(
+                        tooltip: '分享',
+                        onPressed: () => _shareCurrentFile(btnContext),
+                        icon: const Icon(Lucide.Share, size: 18),
+                        style: IconButton.styleFrom(
+                          backgroundColor:
+                              cs.surfaceContainerHighest.withValues(alpha: 0.8),
+                          foregroundColor: cs.onSurface,
+                          shape: const CircleBorder(),
                         ),
                       ),
-                    ),
-
-                    // Right Actions (PiP minimize & Share)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Minimize to PiP
-                        IconButton.filledTonal(
-                          tooltip: '缩小至画中画',
-                          onPressed: () {
-                            _video.minimizeToPip();
-                            Navigator.of(context).pop();
-                          },
-                          icon: const Icon(Lucide.Minimize2, size: 18),
-                          style: IconButton.styleFrom(
-                            backgroundColor:
-                                cs.surfaceContainerHighest.withValues(alpha: 0.8),
-                            foregroundColor: cs.onSurface,
-                            shape: const CircleBorder(),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-
-                        // Share
-                        Builder(
-                          builder: (btnContext) => IconButton.filledTonal(
-                            tooltip: '分享',
-                            onPressed: () => _shareCurrentFile(btnContext),
-                            icon: const Icon(Lucide.Share, size: 18),
-                            style: IconButton.styleFrom(
-                              backgroundColor:
-                                  cs.surfaceContainerHighest.withValues(alpha: 0.8),
-                              foregroundColor: cs.onSurface,
-                              shape: const CircleBorder(),
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
@@ -366,26 +328,94 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
               const SizedBox(height: 8),
 
-              // Video Player Area
+              // Main Video Display Area (Aspect ratio 1.1, matches AudioPreviewModal)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: AspectRatio(
+                  aspectRatio: 1.1,
+                  child: Container(
+                    decoration: BoxDecoration(
                       color: Colors.black,
-                      child: Stack(
-                        children: [
-                          WebViewWidget(controller: _webCtrl),
-                          if (!_isWebReady)
-                            Center(
-                              child: CircularProgressIndicator(
-                                color: cs.primary,
-                                strokeWidth: 2.5,
-                              ),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: cs.outlineVariant.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(
+                      children: [
+                        WebViewWidget(controller: _webCtrl),
+                        if (!_isWebReady)
+                          Center(
+                            child: CircularProgressIndicator(
+                              color: cs.primary,
+                              strokeWidth: 2.5,
                             ),
-                        ],
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              // Track Title & Subtitle Info (File name + format label)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _video.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: AppFontWeights.emphasis,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        _fileFormatLabel,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.75),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Bottom Action Bar: Minimize to PiP (Large tonal button)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton.tonalIcon(
+                    onPressed: () {
+                      _video.minimizeToPip();
+                      Navigator.of(context).pop();
+                    },
+                    icon: const Icon(Lucide.Minimize2, size: 18),
+                    label: const Text(
+                      '缩小至画中画',
+                      style: TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
                   ),

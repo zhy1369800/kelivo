@@ -2,14 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
 import '../../icons/lucide_adapter.dart';
-import 'snackbar.dart';
 import 'video_preview_modal.dart';
 
 /// Floating in-chat video PiP player window.
@@ -19,6 +17,7 @@ import 'video_preview_modal.dart';
 /// - Allows the user to continue chatting with AI while watching the video.
 /// - Full gesture pass-through on empty areas so user can type/scroll without interference.
 /// - Tap to re-expand to the full card preview sheet.
+/// - Drag to move smoothly anywhere on screen.
 /// - Top-right close button stops video and dismisses the PiP window.
 class VideoFloatingPlayer extends StatefulWidget {
   const VideoFloatingPlayer({super.key});
@@ -32,6 +31,8 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
   Offset? _position;
   Offset _dragOffset = Offset.zero;
+  double _dragDistance = 0.0;
+  bool _isCloseButtonHit = false;
 
   static const double _pipWidth = 208.0;
   static const double _pipHeight = 120.0;
@@ -91,38 +92,28 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       final resolved = await ResourcePreviewService.resolvePath(source);
       final file = File(resolved);
       if (file.existsSync()) {
-        try {
-          final parentDir = file.parent;
-          final previewHtml =
-              File(p.join(parentDir.path, '.kelivo_video_pip.html'));
-          final html = _buildPipHtml(file.path, isRelative: true);
-          await previewHtml.writeAsString(html);
-          await _pipWebCtrl?.loadFile(previewHtml.path);
-          return;
-        } catch (_) {
-          try {
-            await _pipWebCtrl?.loadFile(file.path);
-            return;
-          } catch (_) {}
-        }
+        final html = _buildPipHtml(file.path);
+        await _pipWebCtrl?.loadHtmlString(
+          html,
+          baseUrl: 'file://${file.parent.path}/',
+        );
+      } else {
+        await _pipWebCtrl?.loadHtmlString(_buildPipHtml(source));
       }
-      await _pipWebCtrl?.loadHtmlString(_buildPipHtml(source));
     }
   }
 
-  String _buildPipHtml(String source, {bool isRelative = false}) {
+  String _buildPipHtml(String videoSrc) {
     final isNetwork =
-        source.startsWith('http://') || source.startsWith('https://');
+        videoSrc.startsWith('http://') || videoSrc.startsWith('https://');
     final String srcAttr;
     if (isNetwork) {
-      srcAttr = htmlEscape.convert(source);
-    } else if (isRelative) {
-      srcAttr = Uri.encodeComponent(p.basename(source));
+      srcAttr = htmlEscape.convert(videoSrc);
     } else {
-      srcAttr = 'file://${htmlEscape.convert(source)}';
+      srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
     }
 
-    // In PiP mode, omit HTML5 controls so WebKit doesn't render microscopic broken controls.
+    // In PiP mode, omit native controls, disable system PiP, auto-play with playsinline
     return '''<!DOCTYPE html>
 <html>
 <head>
@@ -141,16 +132,15 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   </style>
 </head>
 <body>
-  <video id="pip_player" src="$srcAttr" autoplay playsinline webkit-playsinline></video>
+  <video id="pip_player" src="$srcAttr" autoplay playsinline webkit-playsinline disablePictureInPicture></video>
 </body>
 </html>''';
   }
 
   void _expand() {
     if (_video.activeSource != null) {
-      final targetContext = rootNavigatorKey.currentContext ?? context;
       VideoPreviewModal.show(
-        targetContext,
+        context,
         source: _video.activeSource!,
         title: _video.activeTitle,
       );
@@ -203,7 +193,12 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                               width: _pipWidth,
                               height: _pipHeight,
                               child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onPanStart: (_) {
+                                  _dragDistance = 0.0;
+                                },
                                 onPanUpdate: (details) {
+                                  _dragDistance += details.delta.distance;
                                   setState(() {
                                     _dragOffset += details.delta;
                                   });
@@ -217,6 +212,17 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                     );
                                     _dragOffset = Offset.zero;
                                   });
+                                  if (!_isCloseButtonHit &&
+                                      _dragDistance < 8.0) {
+                                    _expand();
+                                  }
+                                  _isCloseButtonHit = false;
+                                },
+                                onTap: () {
+                                  if (!_isCloseButtonHit) {
+                                    _expand();
+                                  }
+                                  _isCloseButtonHit = false;
                                 },
                                 child: Container(
                                   decoration: BoxDecoration(
@@ -250,79 +256,63 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                             ),
                                           ),
 
-                                        // Full-card tap-to-expand detector
-                                        Positioned.fill(
-                                          child: GestureDetector(
-                                            behavior: HitTestBehavior.opaque,
-                                            onTap: _expand,
-                                          ),
-                                        ),
-
                                         // Tap-to-expand overlay (bottom area)
                                         Positioned(
                                           left: 0,
                                           right: 0,
                                           bottom: 0,
                                           height: 28,
-                                          child: GestureDetector(
-                                            behavior: HitTestBehavior.opaque,
-                                            onTap: _expand,
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                              ),
-                                              color: Colors.black54,
-                                              child: Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      _video.displayName,
-                                                      maxLines: 1,
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                      style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontSize: 10.5,
-                                                        fontWeight:
-                                                            FontWeight.w500,
-                                                      ),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                            ),
+                                            color: Colors.black54,
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    _video.displayName,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 10.5,
+                                                      fontWeight:
+                                                          FontWeight.w500,
                                                     ),
                                                   ),
-                                                  const Icon(
-                                                    Lucide.Maximize2,
-                                                    size: 13,
-                                                    color: Colors.white70,
-                                                  ),
-                                                ],
-                                              ),
+                                                ),
+                                                const Icon(
+                                                  Lucide.Maximize2,
+                                                  size: 13,
+                                                  color: Colors.white70,
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ),
 
-                                        // Top-Left Expand button (direct visual affordance for re-expanding)
+                                        // Top-Left Expand button
                                         Positioned(
                                           top: 5,
                                           left: 5,
-                                          child: GestureDetector(
-                                            behavior: HitTestBehavior.opaque,
-                                            onTap: _expand,
-                                            child: Container(
-                                              width: 24,
-                                              height: 24,
-                                              decoration: BoxDecoration(
-                                                color: Colors.black54,
-                                                shape: BoxShape.circle,
-                                                border: Border.all(
-                                                  color: Colors.white24,
-                                                  width: 0.8,
-                                                ),
+                                          child: Container(
+                                            width: 24,
+                                            height: 24,
+                                            decoration: BoxDecoration(
+                                              color: Colors.black54,
+                                              shape: BoxShape.circle,
+                                              border: Border.all(
+                                                color: Colors.white24,
+                                                width: 0.8,
                                               ),
-                                              child: const Center(
-                                                child: Icon(
-                                                  Lucide.Maximize2,
-                                                  size: 13,
-                                                  color: Colors.white,
-                                                ),
+                                            ),
+                                            child: const Center(
+                                              child: Icon(
+                                                Lucide.Maximize2,
+                                                size: 13,
+                                                color: Colors.white,
                                               ),
                                             ),
                                           ),
@@ -334,7 +324,16 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                           right: 5,
                                           child: GestureDetector(
                                             behavior: HitTestBehavior.opaque,
-                                            onTap: () => _video.stop(),
+                                            onTapDown: (_) {
+                                              _isCloseButtonHit = true;
+                                            },
+                                            onTapCancel: () {
+                                              _isCloseButtonHit = false;
+                                            },
+                                            onTap: () {
+                                              _isCloseButtonHit = false;
+                                              _video.stop();
+                                            },
                                             child: Container(
                                               width: 24,
                                               height: 24,

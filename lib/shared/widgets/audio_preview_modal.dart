@@ -39,22 +39,26 @@ class AudioPreviewModal extends StatefulWidget {
       return;
     }
 
-    final effectiveContext = (context != null &&
-            context.mounted &&
-            Navigator.maybeOf(context) != null)
-        ? context
-        : rootNavigatorKey.currentContext;
+    // Resolve an active NavigatorState reliably
+    NavigatorState? navigator;
+    if (context != null && context.mounted) {
+      navigator = Navigator.maybeOf(context, rootNavigator: true) ??
+          Navigator.maybeOf(context);
+    }
+    navigator ??= rootNavigatorKey.currentState;
 
-    if (effectiveContext == null || !effectiveContext.mounted) {
+    if (navigator == null || !navigator.mounted) {
       audio.stop();
       return;
     }
+
+    final effectiveContext = navigator.overlay?.context ?? navigator.context;
 
     audio.markFullPreviewOpened();
     try {
       await showModalBottomSheet<void>(
         context: effectiveContext,
-        useRootNavigator: true,
+        useRootNavigator: false,
         isScrollControlled: true,
         useSafeArea: true,
         backgroundColor: Colors.transparent,
