@@ -483,17 +483,20 @@ class ResourcePreviewService extends ChangeNotifier {
   }) async {
     final effectivePath = SandboxPathResolver.fix(targetPath);
     final file = File(effectivePath);
+    final effectiveTitle = (title != null && title.trim().isNotEmpty)
+        ? title.trim()
+        : p.basename(effectivePath);
+
     if (!file.existsSync()) {
       return ResourceOpenResult(
         success: false,
-        message: 'Local file not found on disk: $effectivePath',
+        message: 'Local file not found: $effectiveTitle',
         target: effectivePath,
         openedAs: 'file_not_found',
       );
     }
 
     final ext = p.extension(effectivePath).toLowerCase();
-    final effectiveTitle = title ?? p.basename(effectivePath);
     final effectiveContext =
         (context != null && context.mounted) ? context : rootNavigatorKey.currentContext;
 
@@ -513,7 +516,7 @@ class ResourcePreviewService extends ChangeNotifier {
         );
         return ResourceOpenResult(
           success: true,
-          message: 'Opened system share sheet for file: $effectivePath',
+          message: 'Opened system share sheet for file: $effectiveTitle',
           target: effectivePath,
           openedAs: 'share_sheet',
         );
@@ -529,7 +532,7 @@ class ResourcePreviewService extends ChangeNotifier {
 
     // Explicit system_open action
     if (action == 'system_open') {
-      return _openWithSystemDefault(file.path, effectivePath);
+      return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
     }
 
     // 1. Audio formats
@@ -544,12 +547,12 @@ class ResourcePreviewService extends ChangeNotifier {
         );
         return ResourceOpenResult(
           success: true,
-          message: 'Opened in in-app Audio Player: $effectivePath',
+          message: 'Opened in in-app Audio Player: $effectiveTitle',
           target: effectivePath,
           openedAs: 'audio_player',
         );
       }
-      return _openWithSystemDefault(file.path, effectivePath);
+      return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
     }
 
     // 1.5. Video formats
@@ -564,12 +567,12 @@ class ResourcePreviewService extends ChangeNotifier {
         );
         return ResourceOpenResult(
           success: true,
-          message: 'Opened in in-app Video Player: $effectivePath',
+          message: 'Opened in in-app Video Player: $effectiveTitle',
           target: effectivePath,
           openedAs: 'video_player',
         );
       }
-      return _openWithSystemDefault(file.path, effectivePath);
+      return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
     }
 
     // 2. Image formats
@@ -583,12 +586,12 @@ class ResourcePreviewService extends ChangeNotifier {
         unawaited(Navigator.of(effectiveContext).push(route));
         return ResourceOpenResult(
           success: true,
-          message: 'Opened in in-app Image Viewer: $effectivePath',
+          message: 'Opened in in-app Image Viewer: $effectiveTitle',
           target: effectivePath,
           openedAs: 'image_viewer',
         );
       }
-      return _openWithSystemDefault(file.path, effectivePath);
+      return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
     }
 
     // 2. HTML format
@@ -609,7 +612,7 @@ class ResourcePreviewService extends ChangeNotifier {
             );
             return ResourceOpenResult(
               success: true,
-              message: 'Opened HTML code preview on Linux: $effectivePath',
+              message: 'Opened HTML code preview on Linux: $effectiveTitle',
               target: effectivePath,
               openedAs: 'text_preview',
             );
@@ -625,7 +628,7 @@ class ResourcePreviewService extends ChangeNotifier {
           );
           return ResourceOpenResult(
             success: true,
-            message: 'Updated rendered HTML in existing in-app WebView: $effectivePath',
+            message: 'Updated rendered HTML in existing in-app WebView: $effectiveTitle',
             target: effectivePath,
             openedAs: 'html_preview',
           );
@@ -640,13 +643,13 @@ class ResourcePreviewService extends ChangeNotifier {
           unawaited(Navigator.of(effectiveContext).push(route));
           return ResourceOpenResult(
             success: true,
-            message: 'Rendered HTML in in-app WebView: $effectivePath',
+            message: 'Rendered HTML in in-app WebView: $effectiveTitle',
             target: effectivePath,
             openedAs: 'html_preview',
           );
         }
       } catch (_) {}
-      return _openWithSystemDefault(file.path, effectivePath);
+      return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
     }
 
     // 3. Markdown / Code / Text formats
@@ -666,30 +669,34 @@ class ResourcePreviewService extends ChangeNotifier {
           );
           return ResourceOpenResult(
             success: true,
-            message: 'Opened in in-app Markdown/Text Viewer: $effectivePath',
+            message: 'Opened in in-app Markdown/Text Viewer: $effectiveTitle',
             target: effectivePath,
             openedAs: 'text_preview',
           );
         }
       } catch (_) {}
-      return _openWithSystemDefault(file.path, effectivePath);
+      return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
     }
 
     // 4. Default: Fallback to system application
-    return _openWithSystemDefault(file.path, effectivePath);
+    return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
   }
 
   Future<ResourceOpenResult> _openWithSystemDefault(
     String filePath,
-    String effectivePath,
-  ) async {
+    String effectivePath, {
+    String? title,
+  }) async {
+    final effectiveTitle = (title != null && title.trim().isNotEmpty)
+        ? title.trim()
+        : p.basename(effectivePath);
     try {
       final res = await OpenFilex.open(filePath);
       final success = res.type == ResultType.done;
       return ResourceOpenResult(
         success: success,
         message: success
-            ? 'Opened with system associated application: $effectivePath'
+            ? 'Opened with system associated application: $effectiveTitle'
             : 'Result from system open: ${res.message}',
         target: effectivePath,
         openedAs: 'system_application',

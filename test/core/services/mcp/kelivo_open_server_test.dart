@@ -96,6 +96,8 @@ void main() {
       final content = result['content'] as List;
       final text = (content.first as Map)['text'] as String;
       expect(text, contains('Local file not found'));
+      expect(text, isNot(contains(tempDir.path)));
+      expect(text, contains('non_existent_file.png'));
     });
 
     test('preview service handles local text/markdown files', () async {
@@ -109,6 +111,8 @@ void main() {
 
       expect(res.target, contains('test_doc.md'));
       expect(res.openedAs, isIn(['text_preview', 'system_application']));
+      expect(res.message, isNot(contains(tempDir.path)));
+      expect(res.message, contains('test_doc.md'));
     });
 
     test('preview service resolves kelivo:// URIs', () async {
@@ -119,6 +123,22 @@ void main() {
       expect(res.target, contains('workspace'));
       expect(res.target, contains('test.html'));
       expect(res.openedAs, 'file_not_found');
+      expect(res.message, isNot(contains(res.target)));
+      expect(res.message, contains('test.html'));
+    });
+
+    test('preview service uses title when provided and does not leak file path', () async {
+      final testFile = File('${tempDir.path}/report.html');
+      await testFile.writeAsString('<h1>Sales Report</h1>');
+
+      final res = await ResourcePreviewService.instance.openResource(
+        target: testFile.path,
+        title: 'Q3 Sales Dashboard',
+        action: 'in_app_preview',
+      );
+
+      expect(res.message, isNot(contains(tempDir.path)));
+      expect(res.message, contains('Q3 Sales Dashboard'));
     });
 
     test('preview service handles share action for web URLs and local files', () async {
