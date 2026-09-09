@@ -3062,8 +3062,7 @@ class ToolHandlerService {
         return jsonEncode({
           'success': true,
           'action': 'get_sandbox_path',
-          'path': appDataDir.path,
-          'display_path': '我的 iPhone/Kelivo',
+          'path': '我的 iPhone/Kelivo',
           'files_app_alias': '我的 iPhone/Kelivo',
           'uri_scheme': 'kelivo://',
           'description':
@@ -3102,13 +3101,11 @@ class ToolHandlerService {
           action == 'pick_directory' ||
           mutableData['is_directory'] == true;
 
-      // Attach user-friendly display_path for root target
+      // Replace path with user-friendly display path when it's a sandbox/iCloud path
       if (mutableData['path'] is String) {
         final rawTarget = mutableData['path'] as String;
-        mutableData['display_path'] = _formatDisplayPath(
-          rawTarget,
-          appDataDir.path,
-        );
+        final formatted = _formatDisplayPath(rawTarget, appDataDir.path);
+        mutableData['path'] = formatted;
         // Only attach preview_link for actual files (NOT directories)
         if (!isDirectoryOperation) {
           final fileName = p.basename(rawTarget);
@@ -3135,24 +3132,21 @@ class ToolHandlerService {
           }
         }
       }
-      // Attach user-friendly display_destination for destination target
+      // Replace destination with user-friendly display path when it's a sandbox/iCloud path
       if (mutableData['destination'] is String) {
-        mutableData['display_destination'] = _formatDisplayPath(
+        mutableData['destination'] = _formatDisplayPath(
           mutableData['destination'] as String,
           appDataDir.path,
         );
       }
-      // Attach user-friendly display_path for each child item (in list action)
+      // Replace path with user-friendly display path for each child item (in list action)
       if (mutableData['items'] is List) {
         mutableData['items'] = (mutableData['items'] as List).map((item) {
           if (item is Map) {
             final itemMap = Map<String, dynamic>.from(item);
             if (itemMap['path'] is String) {
               final childPath = itemMap['path'] as String;
-              itemMap['display_path'] = _formatDisplayPath(
-                childPath,
-                appDataDir.path,
-              );
+              itemMap['path'] = _formatDisplayPath(childPath, appDataDir.path);
               if (itemMap['is_directory'] != true) {
                 final fileName =
                     itemMap['name']?.toString() ?? p.basename(childPath);

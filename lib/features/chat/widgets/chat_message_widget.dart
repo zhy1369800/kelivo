@@ -5003,7 +5003,7 @@ class _ToolCallItemState extends State<_ToolCallItem> {
           final p = obj['path']?.toString();
           if (p != null && p.isNotEmpty) {
             filePath = p;
-            displayPath = obj['display_path']?.toString() ?? p;
+            displayPath = p;
           }
         }
       }
