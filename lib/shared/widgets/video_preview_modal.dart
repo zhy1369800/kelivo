@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
@@ -107,12 +108,17 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     _loadVideoInWeb(newSource);
   }
 
-  String _buildVideoHtml(String videoSrc) {
+  String _buildVideoHtml(String videoSrc, {bool isRelative = false}) {
     final isNetwork =
         videoSrc.startsWith('http://') || videoSrc.startsWith('https://');
-    final srcAttr = isNetwork
-        ? htmlEscape.convert(videoSrc)
-        : 'file://${htmlEscape.convert(videoSrc)}';
+    final String srcAttr;
+    if (isNetwork) {
+      srcAttr = htmlEscape.convert(videoSrc);
+    } else if (isRelative) {
+      srcAttr = Uri.encodeComponent(p.basename(videoSrc));
+    } else {
+      srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
+    }
 
     return '''<!DOCTYPE html>
 <html>
@@ -174,14 +180,22 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
       final resolved = await ResourcePreviewService.resolvePath(src);
       final file = File(resolved);
       if (file.existsSync()) {
-        final html = _buildVideoHtml(file.path);
-        await _webCtrl.loadHtmlString(
-          html,
-          baseUrl: 'file://${file.parent.path}/',
-        );
-      } else {
-        await _webCtrl.loadHtmlString(_buildVideoHtml(src));
+        try {
+          final parentDir = file.parent;
+          final previewHtml =
+              File(p.join(parentDir.path, '.kelivo_video_preview.html'));
+          final html = _buildVideoHtml(file.path, isRelative: true);
+          await previewHtml.writeAsString(html);
+          await _webCtrl.loadFile(previewHtml.path);
+          return;
+        } catch (_) {
+          try {
+            await _webCtrl.loadFile(file.path);
+            return;
+          } catch (_) {}
+        }
       }
+      await _webCtrl.loadHtmlString(_buildVideoHtml(src));
     }
   }
 

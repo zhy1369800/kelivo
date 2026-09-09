@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
@@ -92,23 +93,33 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       final resolved = await ResourcePreviewService.resolvePath(source);
       final file = File(resolved);
       if (file.existsSync()) {
-        final html = _buildPipHtml(file.path);
-        await _pipWebCtrl?.loadHtmlString(
-          html,
-          baseUrl: 'file://${file.parent.path}/',
-        );
-      } else {
-        await _pipWebCtrl?.loadHtmlString(_buildPipHtml(source));
+        try {
+          final parentDir = file.parent;
+          final previewHtml =
+              File(p.join(parentDir.path, '.kelivo_video_pip.html'));
+          final html = _buildPipHtml(file.path, isRelative: true);
+          await previewHtml.writeAsString(html);
+          await _pipWebCtrl?.loadFile(previewHtml.path);
+          return;
+        } catch (_) {
+          try {
+            await _pipWebCtrl?.loadFile(file.path);
+            return;
+          } catch (_) {}
+        }
       }
+      await _pipWebCtrl?.loadHtmlString(_buildPipHtml(source));
     }
   }
 
-  String _buildPipHtml(String videoSrc) {
+  String _buildPipHtml(String videoSrc, {bool isRelative = false}) {
     final isNetwork =
         videoSrc.startsWith('http://') || videoSrc.startsWith('https://');
     final String srcAttr;
     if (isNetwork) {
       srcAttr = htmlEscape.convert(videoSrc);
+    } else if (isRelative) {
+      srcAttr = Uri.encodeComponent(p.basename(videoSrc));
     } else {
       srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
     }
