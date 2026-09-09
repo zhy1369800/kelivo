@@ -2,11 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
 import '../../icons/lucide_adapter.dart';
+import 'snackbar.dart';
 import 'video_preview_modal.dart';
 
 /// Floating in-chat video PiP player window.
@@ -60,25 +63,75 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     if (_lastLoadedSource == source && _pipWebCtrl != null) return;
     _lastLoadedSource = source;
 
-    _pipWebCtrl = WebViewController()
+    late final PlatformWebViewControllerCreationParams params;
+    if (WebViewPlatform.instance is WebKitWebViewPlatform) {
+      params = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      params = const PlatformWebViewControllerCreationParams();
+    }
+
+    _pipWebCtrl = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black);
 
+    _loadPipVideo(source);
+  }
+
+  Future<void> _loadPipVideo(String source) async {
     final isNetwork =
         source.startsWith('http://') || source.startsWith('https://');
-    final srcAttr = isNetwork
-        ? htmlEscape.convert(source)
-        : 'file://${htmlEscape.convert(source)}';
 
-    final html = '''<!DOCTYPE html>
+    if (isNetwork) {
+      final html = _buildPipHtml(source);
+      await _pipWebCtrl?.loadHtmlString(html);
+    } else {
+      final resolved = await ResourcePreviewService.resolvePath(source);
+      final file = File(resolved);
+      if (file.existsSync()) {
+        try {
+          final parentDir = file.parent;
+          final previewHtml =
+              File(p.join(parentDir.path, '.kelivo_video_pip.html'));
+          final html = _buildPipHtml(file.path, isRelative: true);
+          await previewHtml.writeAsString(html);
+          await _pipWebCtrl?.loadFile(previewHtml.path);
+          return;
+        } catch (_) {
+          try {
+            await _pipWebCtrl?.loadFile(file.path);
+            return;
+          } catch (_) {}
+        }
+      }
+      await _pipWebCtrl?.loadHtmlString(_buildPipHtml(source));
+    }
+  }
+
+  String _buildPipHtml(String source, {bool isRelative = false}) {
+    final isNetwork =
+        source.startsWith('http://') || source.startsWith('https://');
+    final String srcAttr;
+    if (isNetwork) {
+      srcAttr = htmlEscape.convert(source);
+    } else if (isRelative) {
+      srcAttr = Uri.encodeComponent(p.basename(source));
+    } else {
+      srcAttr = 'file://${htmlEscape.convert(source)}';
+    }
+
+    // In PiP mode, omit HTML5 controls so WebKit doesn't render microscopic broken controls.
+    return '''<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <style>
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
-      margin: 0; padding: 0; width: 100%; height: 100%;
+      width: 100%; height: 100%;
       background: #000; overflow: hidden;
       display: flex; align-items: center; justify-content: center;
     }
@@ -88,24 +141,19 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   </style>
 </head>
 <body>
-  <video id="pip_player" src="$srcAttr" controls autoplay playsinline webkit-playsinline></video>
+  <video id="pip_player" src="$srcAttr" autoplay playsinline webkit-playsinline></video>
 </body>
 </html>''';
+  }
 
-    if (isNetwork) {
-      _pipWebCtrl!.loadHtmlString(html);
-    } else {
-      ResourcePreviewService.resolvePath(source).then((resolved) {
-        final file = File(resolved);
-        if (file.existsSync()) {
-          _pipWebCtrl?.loadHtmlString(
-            html,
-            baseUrl: 'file://${file.parent.path}/',
-          );
-        } else {
-          _pipWebCtrl?.loadHtmlString(html);
-        }
-      });
+  void _expand() {
+    if (_video.activeSource != null) {
+      final targetContext = rootNavigatorKey.currentContext ?? context;
+      VideoPreviewModal.show(
+        targetContext,
+        source: _video.activeSource!,
+        title: _video.activeTitle,
+      );
     }
   }
 
@@ -192,31 +240,33 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                     borderRadius: BorderRadius.circular(15),
                                     child: Stack(
                                       children: [
-                                        // Video surface
+                                        // Video surface (with IgnorePointer so all taps/drags are handled cleanly by Flutter)
                                         if (_pipWebCtrl != null)
                                           Positioned.fill(
-                                            child: WebViewWidget(
-                                              controller: _pipWebCtrl!,
+                                            child: IgnorePointer(
+                                              child: WebViewWidget(
+                                                controller: _pipWebCtrl!,
+                                              ),
                                             ),
                                           ),
+
+                                        // Full-card tap-to-expand detector
+                                        Positioned.fill(
+                                          child: GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: _expand,
+                                          ),
+                                        ),
 
                                         // Tap-to-expand overlay (bottom area)
                                         Positioned(
                                           left: 0,
                                           right: 0,
                                           bottom: 0,
-                                          height: 32,
+                                          height: 28,
                                           child: GestureDetector(
                                             behavior: HitTestBehavior.opaque,
-                                            onTap: () {
-                                              if (_video.activeSource != null) {
-                                                VideoPreviewModal.show(
-                                                  context,
-                                                  source: _video.activeSource!,
-                                                  title: _video.activeTitle,
-                                                );
-                                              }
-                                            },
+                                            onTap: _expand,
                                             child: Container(
                                               padding: const EdgeInsets.symmetric(
                                                 horizontal: 8,
@@ -249,15 +299,45 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                           ),
                                         ),
 
+                                        // Top-Left Expand button (direct visual affordance for re-expanding)
+                                        Positioned(
+                                          top: 5,
+                                          left: 5,
+                                          child: GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: _expand,
+                                            child: Container(
+                                              width: 24,
+                                              height: 24,
+                                              decoration: BoxDecoration(
+                                                color: Colors.black54,
+                                                shape: BoxShape.circle,
+                                                border: Border.all(
+                                                  color: Colors.white24,
+                                                  width: 0.8,
+                                                ),
+                                              ),
+                                              child: const Center(
+                                                child: Icon(
+                                                  Lucide.Maximize2,
+                                                  size: 13,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+
                                         // Close button (Top-Right)
                                         Positioned(
                                           top: 5,
                                           right: 5,
                                           child: GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
                                             onTap: () => _video.stop(),
                                             child: Container(
-                                              width: 22,
-                                              height: 22,
+                                              width: 24,
+                                              height: 24,
                                               decoration: BoxDecoration(
                                                 color: Colors.black54,
                                                 shape: BoxShape.circle,

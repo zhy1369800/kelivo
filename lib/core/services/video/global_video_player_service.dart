@@ -31,6 +31,9 @@ class GlobalVideoPlayerService extends ChangeNotifier {
   bool get isPipActive => _isPipActive;
   bool get isFullPreviewOpen => _isFullPreviewOpen;
 
+  /// Whether a full modal is actively mounted and receptive to in-place source updates.
+  bool get hasActiveModal => _isFullPreviewOpen && _modalSourceUpdater != null;
+
   String get displayName {
     if (_activeTitle != null && _activeTitle!.trim().isNotEmpty) {
       return _activeTitle!.trim();

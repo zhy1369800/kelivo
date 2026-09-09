@@ -29,26 +29,42 @@ class AudioPreviewModal extends StatefulWidget {
   final String? title;
 
   static Future<void> show(
-    BuildContext context, {
+    BuildContext? context, {
     required String source,
     String? title,
-  }) {
-    if (GlobalAudioPlayerService.instance.isFullPreviewOpen) {
-      GlobalAudioPlayerService.instance.play(source, title: title);
-      return Future.value();
+  }) async {
+    final audio = GlobalAudioPlayerService.instance;
+    if (audio.isFullPreviewOpen) {
+      audio.play(source, title: title);
+      return;
     }
-    GlobalAudioPlayerService.instance.markFullPreviewOpened();
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => AudioPreviewModal(source: source, title: title),
-    ).whenComplete(() {
-      GlobalAudioPlayerService.instance.markFullPreviewDismissed(
-        keepPlayingAsPip: true,
+
+    final effectiveContext = (context != null &&
+            context.mounted &&
+            Navigator.maybeOf(context) != null)
+        ? context
+        : rootNavigatorKey.currentContext;
+
+    if (effectiveContext == null || !effectiveContext.mounted) {
+      audio.stop();
+      return;
+    }
+
+    audio.markFullPreviewOpened();
+    try {
+      await showModalBottomSheet<void>(
+        context: effectiveContext,
+        useRootNavigator: true,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => AudioPreviewModal(source: source, title: title),
       );
-    });
+    } catch (e) {
+      debugPrint('Error showing AudioPreviewModal: $e');
+    } finally {
+      audio.markFullPreviewDismissed(keepPlayingAsPip: true);
+    }
   }
 
   @override

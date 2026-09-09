@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
@@ -27,28 +29,45 @@ class VideoPreviewModal extends StatefulWidget {
   ///
   /// If the modal is already open, updates the source in-place (single-window).
   static Future<void> show(
-    BuildContext context, {
+    BuildContext? context, {
     required String source,
     String? title,
-  }) {
+  }) async {
     final video = GlobalVideoPlayerService.instance;
-    if (video.isFullPreviewOpen) {
+    // If the modal is already open and mounted, update in-place
+    if (video.hasActiveModal) {
       video.openVideo(source: source, title: title);
-      return Future.value();
+      return;
+    }
+
+    final effectiveContext = (context != null &&
+            context.mounted &&
+            Navigator.maybeOf(context) != null)
+        ? context
+        : rootNavigatorKey.currentContext;
+
+    if (effectiveContext == null || !effectiveContext.mounted) {
+      video.stop();
+      return;
     }
 
     video.openVideo(source: source, title: title);
     video.markFullPreviewOpened();
 
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => VideoPreviewModal(source: source, title: title),
-    ).whenComplete(() {
+    try {
+      await showModalBottomSheet<void>(
+        context: effectiveContext,
+        useRootNavigator: true,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => VideoPreviewModal(source: source, title: title),
+      );
+    } catch (e) {
+      debugPrint('Error showing VideoPreviewModal: $e');
+    } finally {
       video.markFullPreviewDismissed(keepPlayingAsPip: true);
-    });
+    }
   }
 
   @override
@@ -85,12 +104,17 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     _loadVideoInWeb(newSource);
   }
 
-  String _buildVideoHtml(String videoSrc) {
+  String _buildVideoHtml(String videoSrc, {bool isRelative = false}) {
     final isNetwork =
         videoSrc.startsWith('http://') || videoSrc.startsWith('https://');
-    final srcAttr = isNetwork
-        ? htmlEscape.convert(videoSrc)
-        : 'file://${htmlEscape.convert(videoSrc)}';
+    final String srcAttr;
+    if (isNetwork) {
+      srcAttr = htmlEscape.convert(videoSrc);
+    } else if (isRelative) {
+      srcAttr = Uri.encodeComponent(p.basename(videoSrc));
+    } else {
+      srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
+    }
 
     return '''<!DOCTYPE html>
 <html>
@@ -98,9 +122,9 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <style>
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
-      margin: 0; padding: 0; width: 100%; height: 100%;
+      width: 100%; height: 100%;
       background: #000; overflow: hidden;
       display: flex; align-items: center; justify-content: center;
     }
@@ -116,7 +140,17 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   }
 
   void _initWebViewController() {
-    _webCtrl = WebViewController()
+    late final PlatformWebViewControllerCreationParams params;
+    if (WebViewPlatform.instance is WebKitWebViewPlatform) {
+      params = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      params = const PlatformWebViewControllerCreationParams();
+    }
+
+    _webCtrl = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
       ..setNavigationDelegate(
@@ -141,11 +175,22 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
       final resolved = await ResourcePreviewService.resolvePath(src);
       final file = File(resolved);
       if (file.existsSync()) {
-        final html = _buildVideoHtml(file.path);
-        await _webCtrl.loadHtmlString(html, baseUrl: 'file://${file.parent.path}/');
-      } else {
-        await _webCtrl.loadHtmlString(_buildVideoHtml(src));
+        try {
+          final parentDir = file.parent;
+          final previewHtml =
+              File(p.join(parentDir.path, '.kelivo_video_preview.html'));
+          final html = _buildVideoHtml(file.path, isRelative: true);
+          await previewHtml.writeAsString(html);
+          await _webCtrl.loadFile(previewHtml.path);
+          return;
+        } catch (_) {
+          try {
+            await _webCtrl.loadFile(file.path);
+            return;
+          } catch (_) {}
+        }
       }
+      await _webCtrl.loadHtmlString(_buildVideoHtml(src));
     }
   }
 
