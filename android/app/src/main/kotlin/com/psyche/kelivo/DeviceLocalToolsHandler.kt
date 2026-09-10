@@ -33,22 +33,38 @@ import java.util.concurrent.Executors
 
 /**
  * Native backend for the AI assistant's device-local tools:
- * screen time (usage stats), calendar query and calendar event creation.
+ * screen time (usage stats), calendar query/creation and one-shot location.
  *
  * All methods receive the tool arguments as a JSON string and return a JSON
  * string payload. Errors that the LLM should see (missing permission, bad
  * arguments) are returned as JSON payloads with an "error" field instead of
  * platform errors, so the model can relay them to the user.
  */
-class DeviceLocalToolsHandler(private val activity: Activity) {
+class DeviceLocalToolsHandler(private val context: Context) {
+    private var attachedActivity: Activity? = context as? Activity
+    private val activity: Activity get() = requireNotNull(attachedActivity) { "foreground_activity_required" }
+
+    fun attachActivity(activity: Activity) { attachedActivity = activity }
+    fun detachActivity(activity: Activity) {
+        if (attachedActivity !== activity) return
+        attachedActivity = null
+        pendingCalendarPermissionCallback?.invoke(false)
+        pendingCalendarPermissionCallback = null
+        pendingLocationPermissionCallback?.invoke(false, false)
+        pendingLocationPermissionCallback = null
+    }
+
     companion object {
         const val CHANNEL_NAME = "app.device_tools"
         const val CALENDAR_PERMISSION_REQUEST_CODE = 4201
+        const val LOCATION_PERMISSION_REQUEST_CODE = 4202
     }
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingCalendarPermissionCallback: ((Boolean) -> Unit)? = null
+    private var pendingLocationPermissionCallback: ((Boolean, Boolean) -> Unit)? = null
+    private val locationHandler = LocationToolHandler(context)
 
     fun configure(messenger: BinaryMessenger) {
         val channel = MethodChannel(messenger, CHANNEL_NAME)
@@ -62,6 +78,50 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
                 }
                 "hasCalendarPermission" -> result.success(hasCalendarPermission())
                 "requestCalendarPermission" -> requestCalendarPermission(result)
+                "hasLocationPermission" -> result.success(locationHandler.hasPermission())
+                "requestLocationPermission" -> requestLocationPermission { granted, permanentlyDenied ->
+                    if (permanentlyDenied) {
+                        result.error(
+                            "LOCATION_PERMISSION_PERMANENTLY_DENIED",
+                            "Allow location permission in system Settings.",
+                            null,
+                        )
+                    } else {
+                        result.success(granted)
+                    }
+                }
+                "openAppSettings" -> {
+                    try {
+                        activity.startActivity(
+                            Intent(
+                                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.fromParts("package", context.packageName, null),
+                            ),
+                        )
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error("SETTINGS_UNAVAILABLE", e.message, null)
+                    }
+                }
+                "getCurrentLocation" -> {
+                    if (locationHandler.hasPermission()) {
+                        locationHandler.getCurrentLocation(result)
+                    } else {
+                        requestLocationPermission { granted, _ ->
+                            if (granted) {
+                                locationHandler.getCurrentLocation(result)
+                            } else {
+                                result.success(
+                                    errorPayload(
+                                        "NO_PERMISSION",
+                                        "Location permission is not granted. Please allow location " +
+                                            "while using the app in system Settings and try again.",
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
                 "getScreenTime" -> handleScreenTime(argsJson, result)
                 "queryCalendar" -> withCalendarPermission(
                     arrayOf(Manifest.permission.READ_CALENDAR),
@@ -81,6 +141,19 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
         requestCode: Int,
         grantResults: IntArray,
     ): Boolean {
+        if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
+            val callback = pendingLocationPermissionCallback
+            pendingLocationPermissionCallback = null
+            // Approximate (coarse) permission alone is sufficient.
+            val granted = locationHandler.hasPermission()
+            // Check after a completed request: false before the first request
+            // does not mean permanent denial. Empty results indicate cancellation.
+            val permanentlyDenied = attachedActivity != null && !granted && grantResults.isNotEmpty() &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.ACCESS_COARSE_LOCATION) &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.ACCESS_FINE_LOCATION)
+            callback?.invoke(granted, permanentlyDenied)
+            return true
+        }
         if (requestCode != CALENDAR_PERMISSION_REQUEST_CODE) return false
         val callback = pendingCalendarPermissionCallback ?: return true
         pendingCalendarPermissionCallback = null
@@ -89,9 +162,36 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
         return true
     }
 
+    fun dispose() {
+        locationHandler.dispose()
+        pendingLocationPermissionCallback?.invoke(false, false)
+        pendingLocationPermissionCallback = null
+    }
+
     // ---------------------------------------------------------------------
     // Permission helpers
     // ---------------------------------------------------------------------
+
+    private fun requestLocationPermission(completion: (Boolean, Boolean) -> Unit) {
+        if (locationHandler.hasPermission()) {
+            completion(true, false)
+            return
+        }
+        if (pendingCalendarPermissionCallback != null || pendingLocationPermissionCallback != null) {
+            completion(false, false)
+            return
+        }
+        if (attachedActivity == null) {
+            completion(false, false)
+            return
+        }
+        pendingLocationPermissionCallback = completion
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            LOCATION_PERMISSION_REQUEST_CODE,
+        )
+    }
 
     private fun calendarPermissions(): Array<String> = arrayOf(
         Manifest.permission.READ_CALENDAR,
@@ -100,20 +200,24 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
 
     private fun hasCalendarPermission(): Boolean {
         return calendarPermissions().all {
-            ContextCompat.checkSelfPermission(activity, it) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
         }
     }
 
     /** Used by the assistant settings toggle — returns a boolean grant result. */
     private fun requestCalendarPermission(result: MethodChannel.Result) {
         val missing = calendarPermissions().filter {
-            ContextCompat.checkSelfPermission(activity, it) != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
             result.success(true)
             return
         }
-        if (pendingCalendarPermissionCallback != null) {
+        if (pendingCalendarPermissionCallback != null || pendingLocationPermissionCallback != null) {
+            result.success(false)
+            return
+        }
+        if (attachedActivity == null) {
             result.success(false)
             return
         }
@@ -131,19 +235,23 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
         action: () -> Unit,
     ) {
         val missing = permissions.filter {
-            ContextCompat.checkSelfPermission(activity, it) != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
             action()
             return
         }
-        if (pendingCalendarPermissionCallback != null) {
+        if (pendingCalendarPermissionCallback != null || pendingLocationPermissionCallback != null) {
             result.success(
                 errorPayload(
                     "PERMISSION_REQUEST_IN_PROGRESS",
                     "Another permission request is already in progress. Please try again.",
                 ),
             )
+            return
+        }
+        if (attachedActivity == null) {
+            result.success(errorPayload("FOREGROUND_REQUIRED", "Open Kelivo to grant calendar permission."))
             return
         }
         pendingCalendarPermissionCallback = { granted ->
@@ -163,19 +271,19 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
     }
 
     private fun hasUsageStatsPermission(): Boolean {
-        val appOps = activity.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
         val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             appOps.unsafeCheckOpNoThrow(
                 AppOpsManager.OPSTR_GET_USAGE_STATS,
                 Process.myUid(),
-                activity.packageName,
+                context.packageName,
             )
         } else {
             @Suppress("DEPRECATION")
             appOps.checkOpNoThrow(
                 AppOpsManager.OPSTR_GET_USAGE_STATS,
                 Process.myUid(),
-                activity.packageName,
+                context.packageName,
             )
         }
         return mode == AppOpsManager.MODE_ALLOWED
@@ -186,7 +294,7 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
             activity.startActivity(
                 Intent(
                     Settings.ACTION_USAGE_ACCESS_SETTINGS,
-                    Uri.fromParts("package", activity.packageName, null),
+                    Uri.fromParts("package", context.packageName, null),
                 ),
             )
         } catch (_: Exception) {
@@ -268,8 +376,8 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
         val endMs = endTime.toInstant().toEpochMilli()
 
         val usageStatsManager =
-            activity.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val pm = activity.packageManager
+            context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val pm = context.packageManager
 
         val launcherPackages = resolveLauncherPackages(pm)
         val foregroundMs = computeForegroundTime(usageStatsManager, startMs, endMs, launcherPackages)
@@ -447,7 +555,7 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
             .build()
 
         val events = JSONArray()
-        activity.contentResolver.query(
+        context.contentResolver.query(
             uri,
             projection,
             selection,
@@ -566,7 +674,7 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
             }
         }
 
-        val uri = activity.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+        val uri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
             ?: return errorPayload("INSERT_FAILED", "Failed to insert calendar event.")
 
         val eventId = ContentUris.parseId(uri)
@@ -574,7 +682,7 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
         if (savedReminders.isNotEmpty()) {
             // 只有提醒真的写进去了才置 HAS_ALARM, 否则事件行会谎称有闹钟.
             runCatching {
-                activity.contentResolver.update(
+                context.contentResolver.update(
                     ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId),
                     ContentValues().apply { put(CalendarContract.Events.HAS_ALARM, 1) },
                     null,
@@ -642,7 +750,7 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
                 put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
             }
             val inserted = runCatching {
-                activity.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, values)
+                context.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, values)
             }.getOrNull()
             if (inserted != null) saved.add(minute)
         }
@@ -654,7 +762,7 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
         val writableSelection =
             "${CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL} >= ? AND ${CalendarContract.Calendars.SYNC_EVENTS} = 1"
         val writableArgs = arrayOf(CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR.toString())
-        activity.contentResolver.query(
+        context.contentResolver.query(
             CalendarContract.Calendars.CONTENT_URI,
             projection,
             "$writableSelection AND ${CalendarContract.Calendars.IS_PRIMARY} = 1",
@@ -663,7 +771,7 @@ class DeviceLocalToolsHandler(private val activity: Activity) {
         )?.use { cursor ->
             if (cursor.moveToFirst()) return cursor.getLong(0)
         }
-        activity.contentResolver.query(
+        context.contentResolver.query(
             CalendarContract.Calendars.CONTENT_URI,
             projection,
             writableSelection,

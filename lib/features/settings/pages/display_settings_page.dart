@@ -1,14 +1,14 @@
+import 'mobile_background_settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'dart:io' show Platform;
-import '../../../core/services/android_background.dart';
-import '../../../core/services/ios_background_generation.dart';
-import '../../../core/services/notification_service.dart';
 import '../../../icons/lucide_adapter.dart';
 import 'package:syncfusion_flutter_sliders/sliders.dart';
 import 'package:syncfusion_flutter_core/theme.dart';
 import '../../../core/providers/settings_provider.dart';
+import 'auto_retry_page.dart';
+import 'google_fonts_picker_page.dart';
 import 'image_settings_page.dart';
 import 'message_style_settings_page.dart';
 import 'theme_settings_page.dart';
@@ -20,6 +20,7 @@ import '../../../core/services/haptics.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:Kelivo/theme/app_font_weights.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
 
 enum _FontTarget { app, code }
 
@@ -62,7 +63,7 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
           // header(l10n.displaySettingsPageThemeSettingsTitle),
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosNavRow(
                 context,
@@ -161,6 +162,15 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
               _iosDivider(context),
               _iosNavRow(
                 context,
+                icon: Lucide.RefreshCw,
+                label: l10n.settingsPageAutoRetry,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AutoRetryPage()),
+                ),
+              ),
+              _iosDivider(context),
+              _iosNavRow(
+                context,
                 icon: Lucide.Vibrate,
                 label: l10n.displaySettingsPageHapticsSettingsTitle,
                 onTap: () => Navigator.of(context).push(
@@ -170,79 +180,19 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
                 ),
               ),
               _iosDivider(context),
-              if (Platform.isAndroid)
-                _iosNavRow(
-                  context,
-                  icon: Lucide.Monitor,
-                  label: l10n.displaySettingsPageAndroidBackgroundChatTitle,
-                  detailBuilder: (ctx) {
-                    final sp = ctx.watch<SettingsProvider>();
-                    switch (sp.androidBackgroundChatMode) {
-                      case AndroidBackgroundChatMode.off:
-                        return Text(
-                          l10n.androidBackgroundStatusOff,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: cs.onSurface.withValues(alpha: 0.6),
-                            fontSize: 13,
-                          ),
-                        );
-                      case AndroidBackgroundChatMode.on:
-                        return Text(
-                          l10n.androidBackgroundStatusOn,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: cs.onSurface.withValues(alpha: 0.6),
-                            fontSize: 13,
-                          ),
-                        );
-                      case AndroidBackgroundChatMode.onNotify:
-                        return Text(
-                          l10n.androidBackgroundStatusOther,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          softWrap: false,
-                          style: TextStyle(
-                            color: cs.onSurface.withValues(alpha: 0.6),
-                            fontSize: 13,
-                          ),
-                        );
-                    }
-                  },
-                  onTap: () => _showAndroidBackgroundChatSheet(context),
-                ),
-              if (Platform.isAndroid) _iosDivider(context),
-              if (Platform.isIOS)
+              if (Platform.isAndroid || Platform.isIOS) ...[
                 _iosNavRow(
                   context,
                   icon: Lucide.Activity,
-                  label: l10n.displaySettingsPageIosBackgroundChatTitle,
-                  detailBuilder: (ctx) {
-                    final sp = ctx.watch<SettingsProvider>();
-                    return Text(
-                      sp.iosBackgroundGenerationEnabled
-                          ? l10n.iosBackgroundStatusOn
-                          : l10n.iosBackgroundStatusOff,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      softWrap: false,
-                      style: TextStyle(
-                        color: cs.onSurface.withValues(alpha: 0.6),
-                        fontSize: 13,
-                      ),
-                    );
-                  },
+                  label: l10n.backgroundSettingsTitle,
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const IosBackgroundSettingsPage(),
+                      builder: (_) => const MobileBackgroundSettingsPage(),
                     ),
                   ),
                 ),
-              if (Platform.isIOS) _iosDivider(context),
+                _iosDivider(context),
+              ],
               _iosNavRow(
                 context,
                 icon: Lucide.Type,
@@ -398,11 +348,10 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
     BuildContext context, {
     required _FontTarget target,
   }) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final choice = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -412,6 +361,12 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              _sheetOption(
+                ctx,
+                label: l10n.googleFontsTitle,
+                onTap: () => Navigator.of(ctx).pop('google'),
+              ),
+              _sheetDividerNoIcon(ctx),
               _sheetOption(
                 ctx,
                 label: l10n.fontPickerChooseLocalFile,
@@ -432,6 +387,10 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
     if (!context.mounted) return;
 
     final settings = context.read<SettingsProvider>();
+    if (choice == 'google') {
+      await showGoogleFontsPicker(context, forCode: target == _FontTarget.code);
+      return;
+    }
     if (choice == 'local') {
       final res = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -456,90 +415,11 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
     }
   }
 
-  Future<void> _showAndroidBackgroundChatSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
-    final l10n = AppLocalizations.of(context)!;
-    final choice = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: cs.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _sheetOption(
-                ctx,
-                label: l10n.androidBackgroundOptionOn,
-                onTap: () => Navigator.of(ctx).pop('on'),
-              ),
-              _sheetDividerNoIcon(ctx),
-              _sheetOption(
-                ctx,
-                label: l10n.androidBackgroundOptionOnNotify,
-                onTap: () => Navigator.of(ctx).pop('on_notify'),
-              ),
-              _sheetDividerNoIcon(ctx),
-              _sheetOption(
-                ctx,
-                label: l10n.androidBackgroundOptionOff,
-                onTap: () => Navigator.of(ctx).pop('off'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (choice == null) return;
-    if (!context.mounted) return;
-
-    final sp = context.read<SettingsProvider>();
-    final notificationTitle = l10n.androidBackgroundNotificationTitle;
-    final notificationText = l10n.androidBackgroundNotificationText;
-    switch (choice) {
-      case 'on_notify':
-        await sp.setAndroidBackgroundChatMode(
-          AndroidBackgroundChatMode.onNotify,
-        );
-        try {
-          await AndroidBackgroundManager.ensureInitialized(
-            notificationTitle: notificationTitle,
-            notificationText: notificationText,
-          );
-          await AndroidBackgroundManager.setEnabled(true);
-          await NotificationService.ensureInitialized();
-          await NotificationService.ensureAndroidNotificationsPermission();
-        } catch (_) {}
-        break;
-      case 'on':
-        await sp.setAndroidBackgroundChatMode(AndroidBackgroundChatMode.on);
-        try {
-          await AndroidBackgroundManager.ensureInitialized(
-            notificationTitle: notificationTitle,
-            notificationText: notificationText,
-          );
-          await AndroidBackgroundManager.setEnabled(true);
-          // Prepare notification channel as well to avoid FGS notification issues on some ROMs
-          await NotificationService.ensureInitialized();
-        } catch (_) {}
-        break;
-      default:
-        await sp.setAndroidBackgroundChatMode(AndroidBackgroundChatMode.off);
-        try {
-          await AndroidBackgroundManager.setEnabled(false);
-        } catch (_) {}
-    }
-  }
-
   Future<void> _showLanguageSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     final selected = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -602,11 +482,10 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
   }
 
   Future<void> _showChatFontSizeSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -739,11 +618,10 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
   }
 
   Future<void> _showAutoScrollIdleSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -894,10 +772,9 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
   }
 
   Future<void> _showChatBackgroundMaskSheet(BuildContext context) async {
-    final cs = Theme.of(context).colorScheme;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -1017,10 +894,9 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
   Future<void> _showChatInputBackgroundOpacitySheet(
     BuildContext context,
   ) async {
-    final cs = Theme.of(context).colorScheme;
     await showModalBottomSheet(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -1176,32 +1052,6 @@ class _DisplaySettingsPageState extends State<DisplaySettingsPage> {
 
 // --- iOS-style helpers ---
 
-Widget _iosSectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final cs = theme.colorScheme;
-      final isDark = theme.brightness == Brightness.dark;
-      final Color bg = context.appColors.surfaceCard;
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Column(children: children),
-        ),
-      );
-    },
-  );
-}
-
 Widget _iosDivider(BuildContext context) {
   final cs = Theme.of(context).colorScheme;
   return Divider(
@@ -1210,69 +1060,6 @@ Widget _iosDivider(BuildContext context) {
     indent: 54,
     endIndent: 12,
     color: cs.outlineVariant.withValues(alpha: 0.18),
-  );
-}
-
-Widget _noticeCard(
-  BuildContext context, {
-  required String title,
-  required String body,
-}) {
-  final cs = Theme.of(context).colorScheme;
-  final isDark = Theme.of(context).brightness == Brightness.dark;
-  return Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: cs.primaryContainer.withValues(alpha: isDark ? 0.20 : 0.35),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: cs.primary.withValues(alpha: 0.10), width: 0.6),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(Lucide.BadgeInfo, size: 18, color: cs.primary),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  color: cs.onSurface,
-                  fontSize: 13,
-                  fontWeight: AppFontWeights.semibold,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                body,
-                style: TextStyle(
-                  color: cs.onSurface.withValues(alpha: 0.72),
-                  fontSize: 12,
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-Widget _plainFootnote(BuildContext context, String text) {
-  final cs = Theme.of(context).colorScheme;
-  return Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 12),
-    child: Text(
-      text,
-      style: TextStyle(
-        color: cs.onSurface.withValues(alpha: 0.58),
-        fontSize: 12,
-        height: 1.35,
-      ),
-    ),
   );
 }
 
@@ -1594,11 +1381,10 @@ Widget _sheetDividerNoIcon(BuildContext context) {
 }
 
 Future<void> _showMobileMessageNavModeSheet(BuildContext context) async {
-  final cs = Theme.of(context).colorScheme;
   final l10n = AppLocalizations.of(context)!;
   final choice = await showModalBottomSheet<MobileMessageNavButtonsMode>(
     context: context,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -1663,7 +1449,7 @@ class ChatItemDisplaySettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosSwitchRow(
                 context,
@@ -1777,6 +1563,16 @@ class ChatItemDisplaySettingsPage extends StatelessWidget {
                 onChanged: (v) =>
                     context.read<SettingsProvider>().setShowToolCards(v),
               ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.FileText,
+                label: l10n.displaySettingsPageShowProducedFilesTitle,
+                tip: l10n.displaySettingsPageShowProducedFilesSubtitle,
+                value: sp.showProducedFiles,
+                onChanged: (v) =>
+                    context.read<SettingsProvider>().setShowProducedFiles(v),
+              ),
             ],
           ),
         ],
@@ -1808,7 +1604,7 @@ class RenderingSettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosSwitchRow(
                 context,
@@ -2041,7 +1837,7 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosSwitchRow(
                 context,
@@ -2120,6 +1916,19 @@ class BehaviorStartupSettingsPage extends StatelessWidget {
                 onChanged: (v) => context
                     .read<SettingsProvider>()
                     .setForkKeepMessageVersions(v),
+              ),
+              _iosDivider(context),
+              _iosSwitchRow(
+                context,
+                icon: Lucide.Pencil,
+                label: l10n
+                    .displaySettingsPageEditAssistantKeepThinkingToolCardsTitle,
+                tip: l10n
+                    .displaySettingsPageEditAssistantKeepThinkingToolCardsSubtitle,
+                value: sp.keepThinkingAndToolCardsWhenEditingAssistant,
+                onChanged: (v) => context
+                    .read<SettingsProvider>()
+                    .setKeepThinkingAndToolCardsWhenEditingAssistant(v),
               ),
               _iosDivider(context),
               _iosSwitchRow(
@@ -2393,170 +2202,6 @@ class _LongPasteAsFileThresholdRowState
   }
 }
 
-class IosBackgroundSettingsPage extends StatefulWidget {
-  const IosBackgroundSettingsPage({super.key});
-
-  @override
-  State<IosBackgroundSettingsPage> createState() =>
-      _IosBackgroundSettingsPageState();
-}
-
-class _IosBackgroundSettingsPageState extends State<IosBackgroundSettingsPage> {
-  late Future<IosBackgroundGenerationStatus> _statusFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _statusFuture = IosBackgroundGenerationService.instance.getStatus();
-  }
-
-  void _refreshStatus() {
-    setState(() {
-      _statusFuture = IosBackgroundGenerationService.instance.getStatus();
-    });
-  }
-
-  Future<void> _setBackgroundNotificationsEnabled(bool enabled) async {
-    final settings = context.read<SettingsProvider>();
-    if (!enabled) {
-      await settings.setIosBackgroundNotificationsEnabled(false);
-      _refreshStatus();
-      return;
-    }
-
-    final granted = await IosBackgroundGenerationService.instance
-        .requestNotificationAuthorization();
-    if (!mounted) return;
-    await settings.setIosBackgroundNotificationsEnabled(granted);
-    _refreshStatus();
-  }
-
-  Future<void> _openAppSettings() async {
-    await IosBackgroundGenerationService.instance.openAppSettings();
-    if (!mounted) return;
-    _refreshStatus();
-  }
-
-  Future<void> _openNotificationSettings() async {
-    await IosBackgroundGenerationService.instance.openNotificationSettings();
-    if (!mounted) return;
-    _refreshStatus();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final l10n = AppLocalizations.of(context)!;
-    final sp = context.watch<SettingsProvider>();
-
-    return Scaffold(
-      appBar: AppBar(
-        leading: Tooltip(
-          message: l10n.settingsPageBackButton,
-          child: _TactileIconButton(
-            icon: Lucide.ArrowLeft,
-            color: cs.onSurface,
-            size: 22,
-            onTap: () => Navigator.of(context).maybePop(),
-          ),
-        ),
-        title: Text(l10n.iosBackgroundSettingsPageTitle),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        children: [
-          _noticeCard(
-            context,
-            title: l10n.iosBackgroundLimitNoticeTitle,
-            body: l10n.iosBackgroundLimitNoticeBody,
-          ),
-          const SizedBox(height: 12),
-          _iosSectionCard(
-            children: [
-              _iosSwitchRow(
-                context,
-                icon: Lucide.Activity,
-                label: l10n.iosBackgroundGenerationEnableTitle,
-                subtitle: l10n.iosBackgroundGenerationEnableSubtitle,
-                value: sp.iosBackgroundGenerationEnabled,
-                onChanged: (v) => context
-                    .read<SettingsProvider>()
-                    .setIosBackgroundGenerationEnabled(v),
-              ),
-              _iosDivider(context),
-              _iosSwitchRow(
-                context,
-                icon: Lucide.RefreshCw,
-                label: l10n.iosBackgroundTaskRefreshTitle,
-                subtitle: l10n.iosBackgroundTaskRefreshSubtitle,
-                value: sp.iosBackgroundTaskRefreshEnabled,
-                onChanged: (v) => context
-                    .read<SettingsProvider>()
-                    .setIosBackgroundTaskRefreshEnabled(v),
-              ),
-              _iosDivider(context),
-              _iosSwitchRow(
-                context,
-                icon: Lucide.Timer,
-                label: l10n.iosLiveActivityTitle,
-                subtitle: l10n.iosLiveActivitySubtitle,
-                value: sp.iosLiveActivityEnabled,
-                onChanged: (v) => context
-                    .read<SettingsProvider>()
-                    .setIosLiveActivityEnabled(v),
-              ),
-              _iosDivider(context),
-              _iosSwitchRow(
-                context,
-                icon: Lucide.MessageCircle,
-                label: l10n.iosBackgroundNotificationsTitle,
-                subtitle: l10n.iosBackgroundNotificationsSubtitle,
-                value: sp.iosBackgroundNotificationsEnabled,
-                onChanged: _setBackgroundNotificationsEnabled,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          FutureBuilder<IosBackgroundGenerationStatus>(
-            future: _statusFuture,
-            builder: (context, snapshot) {
-              final status = snapshot.data;
-              return _iosSectionCard(
-                children: [
-                  _iosNavRow(
-                    context,
-                    icon: Lucide.BadgeInfo,
-                    label: l10n.iosBackgroundNativeStatusTitle,
-                    detailText: status == null
-                        ? l10n.iosBackgroundNativeStatusUnavailable
-                        : status.liveActivitiesEnabled
-                        ? l10n.iosBackgroundLiveActivityAvailable
-                        : l10n.iosBackgroundLiveActivityUnavailable,
-                    onTap: _openAppSettings,
-                  ),
-                  _iosDivider(context),
-                  _iosNavRow(
-                    context,
-                    icon: Lucide.MessageCircle,
-                    label: status?.notificationsAuthorized == true
-                        ? l10n.iosBackgroundNotificationsAuthorized
-                        : l10n.iosBackgroundNotificationsNotAuthorized,
-                    onTap: _openNotificationSettings,
-                  ),
-                ],
-              );
-            },
-          ),
-          if (sp.iosLiveActivityEnabled) ...[
-            const SizedBox(height: 12),
-            _plainFootnote(context, l10n.iosBackgroundUnsupportedLiveActivity),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
 class HapticsSettingsPage extends StatelessWidget {
   const HapticsSettingsPage({super.key});
   @override
@@ -2580,7 +2225,7 @@ class HapticsSettingsPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
         children: [
-          _iosSectionCard(
+          SectionCard(
             children: [
               _iosSwitchRow(
                 context,

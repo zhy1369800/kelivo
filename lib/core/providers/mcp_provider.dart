@@ -7,9 +7,14 @@ import '../services/mcp/kelivo_fetch/kelivo_fetch_server.dart';
 import '../services/mcp/kelivo_open/kelivo_open_server.dart';
 import '../services/mcp/mcp_oauth_service.dart';
 import '../services/mcp/stdio_command_resolver.dart';
+import '../services/mcp/workspace_stdio_transport.dart';
+import '../services/mcp/workspace_stdio_command.dart';
+import '../services/workspace/workspace_runtime.dart';
+import '../models/environment_state.dart';
+import 'environment_provider.dart';
 import 'package:uuid/uuid.dart';
 
-/// Transport type: SSE, Streamable HTTP, and STDIO (desktop-only).
+/// Transport type: SSE, Streamable HTTP, and STDIO (host desktop or mobile workspace environment).
 enum McpTransportType { sse, http, stdio, inmemory }
 
 /// Connection status for an MCP server.
@@ -52,6 +57,8 @@ class _ServerConnection {
   final Map<String, int> scopeEscalationAttempts = <String, int>{};
   bool reRegisterDynamicClient = false;
   bool refreshDirty = false;
+  DateTime? lastBackgroundSessionRecoveryAt;
+  Future<mcp.Client?>? sessionRecoveryFuture;
 }
 
 enum _ToolRefreshOutcome { success, sessionExpired, oauthRecovered, failed }
@@ -158,7 +165,7 @@ class McpServerConfig {
   final Map<String, String> headers; // custom HTTP headers
   final McpOAuthState? oauth;
   final McpOAuthClientRegistration? oauthClient;
-  // For STDIO (desktop-only)
+  // For STDIO (host desktop or mobile workspace environment)
   final String? command;
   final List<String> args;
   final Map<String, String> env;
@@ -326,6 +333,9 @@ class McpServerConfig {
 class McpProvider extends ChangeNotifier {
   static const String _prefsKey = 'mcp_servers_v1';
   static const String _prefsTimeoutKey = 'mcp_request_timeout_ms_v1';
+  static const Duration _backgroundSessionRecoveryWindow = Duration(
+    seconds: 30,
+  );
 
   final BusinessPreferences preferences;
   final McpOAuthService _oauthService;
@@ -338,13 +348,55 @@ class McpProvider extends ChangeNotifier {
   final McpStdioCommandResolver _stdioCommandResolver =
       McpStdioCommandResolver();
 
-  McpProvider({required this.preferences, McpOAuthService? oauthService})
-    : _oauthService = oauthService ?? McpOAuthService(),
-      _ownsOAuthService = oauthService == null {
+  final WorkspaceRuntimeProvider? workspaceRuntime;
+  final EnvironmentProvider? environment;
+  bool _stdioWasAvailable = false;
+
+  bool get supportsStdio =>
+      _isDesktopPlatform() ||
+      (!kIsWeb &&
+          workspaceRuntime?.runtime is WorkspaceStdioRuntime &&
+          workspaceRuntime?.lastStatus?.ready == true &&
+          environment?.state.phase == EnvironmentPhase.ready);
+
+  void _onEnvironmentChanged() {
+    if (_disposed) return;
+    final available = supportsStdio;
+    if (available != _stdioWasAvailable) {
+      _stdioWasAvailable = available;
+      for (final server in _servers.where(
+        (s) => s.transport == McpTransportType.stdio,
+      )) {
+        if (available && server.enabled) {
+          // A previous initialization may still be settling after disconnect.
+          // Wait for it before starting a connection in the new environment.
+          unawaited(reconnect(server.id));
+        } else if (!available) {
+          unawaited(disconnect(server.id));
+        }
+      }
+    }
+    _notify();
+  }
+
+  McpProvider({
+    required this.preferences,
+    McpOAuthService? oauthService,
+    this.workspaceRuntime,
+    this.environment,
+  }) : _oauthService = oauthService ?? McpOAuthService(),
+       _ownsOAuthService = oauthService == null {
+    _stdioWasAvailable = supportsStdio;
+    workspaceRuntime?.addListener(_onEnvironmentChanged);
+    environment?.addListener(_onEnvironmentChanged);
     unawaited(_serializeServerMutation(_load));
   }
 
-  List<McpServerConfig> get servers => List.unmodifiable(_servers);
+  List<McpServerConfig> get servers => List.unmodifiable(
+    _servers.where(
+      (s) => s.transport != McpTransportType.stdio || supportsStdio,
+    ),
+  );
   McpStatus statusFor(String id) => _connections[id]?.status ?? McpStatus.idle;
   String? errorFor(String id) => _connections[id]?.error;
   bool get hasAnyEnabled => _servers.any((s) => s.enabled);
@@ -480,61 +532,57 @@ class McpProvider extends ChangeNotifier {
   ///   }
   /// }
   String exportServersAsUiJson() {
-    // On mobile, skip stdio entries in exported JSON.
-    final isDesktop = _isDesktopPlatform();
     final map = <String, dynamic>{
       'mcpServers': {
         for (final s in _servers)
-          if (s.transport != McpTransportType.stdio || isDesktop)
-            s.id: {
-              'name': s.name,
-              if (s.transport == McpTransportType.http)
-                'type': 'streamableHttp',
-              if (s.transport == McpTransportType.sse) 'type': 'sse',
-              if (s.transport == McpTransportType.inmemory) 'type': 'inmemory',
-              'description': '',
-              'isActive': s.enabled,
-              if (s.transport != McpTransportType.stdio &&
-                  s.transport != McpTransportType.inmemory)
-                'baseUrl': s.url,
-              if (s.transport != McpTransportType.stdio &&
-                  s.transport != McpTransportType.inmemory &&
-                  s.headers.isNotEmpty)
-                'headers': s.headers,
-              if (s.transport != McpTransportType.stdio &&
-                  s.transport != McpTransportType.inmemory &&
-                  s.oauthClient != null)
-                'oauthClient': {
-                  'clientId': s.oauthClient!.clientId,
-                  'tokenEndpointAuthMethod':
-                      s.oauthClient!.tokenEndpointAuthMethod,
-                  'registrationSource': s.oauthClient!.registrationSource.name,
-                  if (s.oauthClient!.authorizationServer != null)
-                    'authorizationServer': s.oauthClient!.authorizationServer,
-                },
-              // For stdio, include an optional type for compatibility
-              if (s.transport == McpTransportType.stdio) 'type': 'stdio',
-              // Include command/args/env
-              if (s.transport == McpTransportType.stdio &&
-                  (s.command ?? '').isNotEmpty)
-                'command': s.command,
-              if (s.transport == McpTransportType.stdio && s.args.isNotEmpty)
-                'args': s.args,
-              if (s.transport == McpTransportType.stdio && s.env.isNotEmpty)
-                'env': s.env,
-              if (s.transport == McpTransportType.stdio)
-                ...() {
-                  final reg =
-                      s.env['NPM_CONFIG_REGISTRY'] ??
-                      s.env['npm_config_registry'];
-                  return reg != null && reg.isNotEmpty
-                      ? {'registryUrl': reg}
-                      : <String, dynamic>{};
-                }(),
-              if (s.transport == McpTransportType.stdio &&
-                  (s.workingDirectory ?? '').isNotEmpty)
-                'workingDirectory': s.workingDirectory,
-            },
+          s.id: {
+            'name': s.name,
+            if (s.transport == McpTransportType.http) 'type': 'streamableHttp',
+            if (s.transport == McpTransportType.sse) 'type': 'sse',
+            if (s.transport == McpTransportType.inmemory) 'type': 'inmemory',
+            'description': '',
+            'isActive': s.enabled,
+            if (s.transport != McpTransportType.stdio &&
+                s.transport != McpTransportType.inmemory)
+              'baseUrl': s.url,
+            if (s.transport != McpTransportType.stdio &&
+                s.transport != McpTransportType.inmemory &&
+                s.headers.isNotEmpty)
+              'headers': s.headers,
+            if (s.transport != McpTransportType.stdio &&
+                s.transport != McpTransportType.inmemory &&
+                s.oauthClient != null)
+              'oauthClient': {
+                'clientId': s.oauthClient!.clientId,
+                'tokenEndpointAuthMethod':
+                    s.oauthClient!.tokenEndpointAuthMethod,
+                'registrationSource': s.oauthClient!.registrationSource.name,
+                if (s.oauthClient!.authorizationServer != null)
+                  'authorizationServer': s.oauthClient!.authorizationServer,
+              },
+            // For stdio, include an optional type for compatibility
+            if (s.transport == McpTransportType.stdio) 'type': 'stdio',
+            // Include command/args/env
+            if (s.transport == McpTransportType.stdio &&
+                (s.command ?? '').isNotEmpty)
+              'command': s.command,
+            if (s.transport == McpTransportType.stdio && s.args.isNotEmpty)
+              'args': s.args,
+            if (s.transport == McpTransportType.stdio && s.env.isNotEmpty)
+              'env': s.env,
+            if (s.transport == McpTransportType.stdio)
+              ...() {
+                final reg =
+                    s.env['NPM_CONFIG_REGISTRY'] ??
+                    s.env['npm_config_registry'];
+                return reg != null && reg.isNotEmpty
+                    ? {'registryUrl': reg}
+                    : <String, dynamic>{};
+              }(),
+            if (s.transport == McpTransportType.stdio &&
+                (s.workingDirectory ?? '').isNotEmpty)
+              'workingDirectory': s.workingDirectory,
+          },
       },
     };
     return const JsonEncoder.withIndent('  ').convert(map);
@@ -564,7 +612,6 @@ class McpProvider extends ChangeNotifier {
       }
 
       if (serversFromMap != null) {
-        final isDesktop = _isDesktopPlatform();
         bool builtinSeen = false;
         bool builtinEnabled = true;
         serversFromMap.forEach((id, cfgAny) {
@@ -583,10 +630,6 @@ class McpProvider extends ChangeNotifier {
               cfg.containsKey('env') ||
               (cfg['type']?.toString().toLowerCase() == 'stdio');
           if (hasStdioShape) {
-            if (!isDesktop) {
-              // Mobile: skip stdio entries entirely
-              return;
-            }
             final enabled = (cfg['isActive'] as bool?) ?? true;
             final name = (cfg['name'] as String?)?.trim();
             final cmd = (cfg['command'] as String?)?.trim();
@@ -795,6 +838,28 @@ class McpProvider extends ChangeNotifier {
         _finishDisconnect(connection, terminateSession: true),
     ]);
     for (final server in _servers.where((server) => server.enabled)) {
+      unawaited(connect(server.id));
+    }
+  }
+
+  /// Adds a validated import in one write, preserving existing connections.
+  Future<void> importServers(List<McpServerConfig> imported) async {
+    if (imported.isEmpty) return;
+    await _serializeServerMutation(() async {
+      final ids = _servers.map((server) => server.id).toSet();
+      for (final server in imported) {
+        if (!ids.add(server.id)) {
+          throw const FormatException('Duplicate MCP server ID');
+        }
+      }
+      await _persistServers([..._servers, ...imported]);
+      _servers = [..._servers, ...imported];
+      for (final server in imported) {
+        _connections[server.id] = _ServerConnection();
+      }
+      _notify();
+    });
+    for (final server in imported.where((server) => server.enabled)) {
       unawaited(connect(server.id));
     }
   }
@@ -1254,6 +1319,9 @@ class McpProvider extends ChangeNotifier {
     if (server == null || !server.enabled || _disposed) {
       return Future<bool>.value(false);
     }
+    if (server.transport == McpTransportType.stdio && !supportsStdio) {
+      return Future<bool>.value(false);
+    }
     final state = _connections.putIfAbsent(id, _ServerConnection.new);
     final active = state.connectFuture;
     if (active != null) return active;
@@ -1325,6 +1393,7 @@ class McpProvider extends ChangeNotifier {
     bool retryUnauthorized = true,
   }) async {
     mcp.Client? client;
+    WorkspaceStdioTransport? workspaceTransport;
     final startedAt = DateTime.now();
     try {
       server = await _withFreshOAuth(server, state);
@@ -1347,6 +1416,44 @@ class McpProvider extends ChangeNotifier {
                 ? KelivoOpenInMemoryClientTransport(KelivoOpenMcpServerEngine())
                 : KelivoInMemoryClientTransport(KelivoFetchMcpServerEngine());
         await client.connect(transport);
+      } else if (server.transport == McpTransportType.stdio &&
+          !_isDesktopPlatform()) {
+        final runtime = workspaceRuntime?.runtime;
+        if (!supportsStdio || runtime is! WorkspaceStdioRuntime) {
+          throw StateError('Workspace environment is not ready');
+        }
+        final config = await environment!.loadExecutionConfig();
+        await requireWorkspaceStdioCommand(
+          runtime: runtime,
+          command: server.command ?? '',
+          cwd: server.workingDirectory ?? '/root',
+          environment: {...config.variables, ...server.env},
+          timeout: _requestTimeout,
+          isCancelled: () =>
+              _disposed || state.generation != generation || !supportsStdio,
+        );
+        final transport = await WorkspaceStdioTransport.start(
+          runtime: runtime,
+          command: server.command ?? '',
+          arguments: server.args,
+          cwd: server.workingDirectory ?? '/root',
+          environment: {...config.variables, ...server.env},
+          startupTimeout: _requestTimeout,
+          isCancelled: () => _disposed || state.generation != generation,
+        );
+        workspaceTransport = transport;
+        client = mcp.McpClient.createClient(clientConfig);
+        // Package launchers can install dependencies before initialize is
+        // answered. Keep this separate from the user's tool-call timeout.
+        const installTimeout = Duration(minutes: 2);
+        client.setRequestTimeout(
+          _requestTimeout > installTimeout ? _requestTimeout : installTimeout,
+        );
+        try {
+          await client.connect(transport);
+        } finally {
+          client.setRequestTimeout(_requestTimeout);
+        }
       } else {
         final transportConfig = await _transportConfig(server);
         final result = await mcp.McpClient.createAndConnect(
@@ -1373,7 +1480,13 @@ class McpProvider extends ChangeNotifier {
       state.error = null;
       _finishScopeUpgrade(state, 'connect');
       _clearCooldownAfterSuccess(state, startedAt);
-      _attachClient(id, state, connectedClient, generation);
+      _attachClient(
+        id,
+        state,
+        connectedClient,
+        generation,
+        workspaceTransport: workspaceTransport,
+      );
       _notify();
       return true;
     } catch (error) {
@@ -1414,7 +1527,9 @@ class McpProvider extends ChangeNotifier {
         _enterCooldown(state, effectiveError.retryAfter);
       }
       state.status = McpStatus.error;
-      state.error = effectiveError.toString();
+      state.error =
+          workspaceTransport?.describeError(effectiveError) ??
+          effectiveError.toString();
       _notify();
       return false;
     }
@@ -1685,8 +1800,9 @@ class McpProvider extends ChangeNotifier {
     String id,
     _ServerConnection state,
     mcp.Client client,
-    int generation,
-  ) {
+    int generation, {
+    WorkspaceStdioTransport? workspaceTransport,
+  }) {
     client.onDisconnect.listen((_) {
       if (_disposed ||
           state.generation != generation ||
@@ -1694,8 +1810,11 @@ class McpProvider extends ChangeNotifier {
         return;
       }
       state.client = null;
-      state.status = McpStatus.idle;
-      state.error = null;
+      final failed = workspaceTransport?.failed == true;
+      state.status = failed ? McpStatus.error : McpStatus.idle;
+      state.error = failed
+          ? workspaceTransport!.describeError('STDIO transport disconnected')
+          : null;
       _notify();
     });
     client.onError.listen((error) {
@@ -1708,7 +1827,12 @@ class McpProvider extends ChangeNotifier {
           error.isBackgroundRequest &&
           error.statusCode == 404 &&
           error.sessionIdPresent) {
-        unawaited(_recoverExpiredSession(id, state, client));
+        if (_isRapidBackgroundSessionExpiry(state)) {
+          _stopBackgroundSessionRecovery(state, client, error);
+        } else {
+          state.lastBackgroundSessionRecoveryAt = DateTime.now();
+          _startBackgroundSessionRecovery(id, state, client);
+        }
       } else if (error is mcp.McpHttpError && _requiresCooldown(error)) {
         _enterCooldown(state, error.retryAfter);
         _notify();
@@ -1806,6 +1930,8 @@ class McpProvider extends ChangeNotifier {
     state.error = null;
     state.cooldown = null;
     state.refreshDirty = false;
+    state.lastBackgroundSessionRecoveryAt = null;
+    state.sessionRecoveryFuture = null;
     _notify();
 
     return _DetachedConnection(activeConnect: active, client: client);
@@ -1834,7 +1960,71 @@ class McpProvider extends ChangeNotifier {
   Future<bool> reconnect(String id) async {
     if (_activeCooldown(_connections[id]) != null) return false;
     await disconnect(id, terminateSession: true);
-    return _connect(id);
+    if (!await _connect(id)) return false;
+    await _awaitHttpSessionSettlement(id);
+    return isConnected(id);
+  }
+
+  Future<void> _awaitHttpSessionSettlement(String id) async {
+    for (var attempt = 0; attempt < 4; attempt++) {
+      if (_disposed) return;
+      final state = _connections[id];
+      if (state == null) return;
+
+      final connecting = state.connectFuture;
+      if (connecting != null) {
+        try {
+          await connecting;
+        } catch (_) {}
+        continue;
+      }
+
+      final client = state.client;
+      if (client != null) {
+        try {
+          await client.waitForBackgroundStream().timeout(_requestTimeout);
+        } catch (_) {}
+        await _yieldBackgroundSessionHandlers(state);
+      }
+
+      final recovery = state.sessionRecoveryFuture ?? state.connectFuture;
+      if (recovery != null) {
+        try {
+          await recovery;
+        } catch (_) {}
+        continue;
+      }
+      if (state.status == McpStatus.connecting) continue;
+      return;
+    }
+  }
+
+  Future<void> _yieldBackgroundSessionHandlers(_ServerConnection state) async {
+    for (var i = 0; i < 8; i++) {
+      await Future<void>.delayed(Duration.zero);
+      if (state.sessionRecoveryFuture != null ||
+          state.connectFuture != null ||
+          state.status == McpStatus.connecting ||
+          state.status == McpStatus.error) {
+        return;
+      }
+    }
+  }
+
+  void _startBackgroundSessionRecovery(
+    String id,
+    _ServerConnection state,
+    mcp.Client client,
+  ) {
+    final recovery = _recoverExpiredSession(id, state, client);
+    state.sessionRecoveryFuture = recovery;
+    unawaited(
+      recovery.whenComplete(() {
+        if (identical(state.sessionRecoveryFuture, recovery)) {
+          state.sessionRecoveryFuture = null;
+        }
+      }),
+    );
   }
 
   McpToolConfig? _toolConfig(String serverId, String toolName) {
@@ -2553,6 +2743,28 @@ class McpProvider extends ChangeNotifier {
       error.statusCode == 429 ||
       (error.statusCode >= 500 && error.retryAfter != null);
 
+  bool _isRapidBackgroundSessionExpiry(_ServerConnection state) {
+    final last = state.lastBackgroundSessionRecoveryAt;
+    return last != null &&
+        DateTime.now().difference(last) < _backgroundSessionRecoveryWindow;
+  }
+
+  void _stopBackgroundSessionRecovery(
+    _ServerConnection state,
+    mcp.Client client,
+    Object error,
+  ) {
+    if (_disposed || !identical(state.client, client)) return;
+    state.generation++;
+    state.client = null;
+    state.status = McpStatus.error;
+    state.error =
+        'MCP session stream failed again immediately after reconnect '
+        '($error). Reconnect manually.';
+    _notify();
+    client.dispose();
+  }
+
   bool _isRejectedSession(Object error) =>
       error is mcp.McpHttpError &&
       error.statusCode == 404 &&
@@ -2583,7 +2795,7 @@ class McpProvider extends ChangeNotifier {
 
   List<McpToolConfig> getEnabledToolsForServers(Set<String> serverIds) {
     final tools = <McpToolConfig>[];
-    for (final s in _servers.where((s) => serverIds.contains(s.id))) {
+    for (final s in servers.where((s) => serverIds.contains(s.id))) {
       if (!s.enabled) continue;
       tools.addAll(s.tools.where((t) => t.enabled));
     }
@@ -2594,6 +2806,8 @@ class McpProvider extends ChangeNotifier {
   void dispose() {
     if (_disposed) return;
     _disposed = true;
+    workspaceRuntime?.removeListener(_onEnvironmentChanged);
+    environment?.removeListener(_onEnvironmentChanged);
     for (final state in _connections.values) {
       state.generation++;
       state.client?.dispose();

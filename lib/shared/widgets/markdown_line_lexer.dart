@@ -66,6 +66,7 @@ final class MarkdownLineLexer {
     final mark = _fenceMarkOf(line, 0);
     if (mark == null) return;
     if (_fenceMarker == null) {
+      if (!mark.canOpen) return;
       _fenceMarker = mark.marker;
       _fenceLength = mark.length;
       return;
@@ -85,6 +86,42 @@ final class MarkdownLineLexer {
     _details.consume(line, advance: spans().advance);
   }
 }
+
+/// Removes fenced and inline code while preserving the surrounding line
+/// structure. Fence and backtick pairing stay identical to the renderer's
+/// structural scan.
+String markdownRemoveCode(String text) {
+  if (!text.contains('`') && !text.contains('~~~')) return text;
+
+  final lexer = MarkdownLineLexer();
+  final output = StringBuffer();
+  var cursor = 0;
+  while (cursor < text.length) {
+    var lineEnd = cursor;
+    while (lineEnd < text.length &&
+        !markdownIsLogicalLineBreak(text.codeUnitAt(lineEnd))) {
+      lineEnd++;
+    }
+    final line = text.substring(cursor, lineEnd);
+    final prefix = _markdownFenceContainerPrefix.firstMatch(line)!;
+    final fenceLine = line.substring(prefix.end);
+    if (lexer.consumeFence(fenceLine)) {
+      output.write(' ');
+    } else {
+      output.write(_LineBackticks.of(line).withoutCode(line));
+    }
+
+    if (lineEnd >= text.length) break;
+    final next = _skipLogicalLineBreak(text, lineEnd, text.length);
+    output.write(text.substring(lineEnd, next));
+    cursor = next;
+  }
+  return output.toString();
+}
+
+final _markdownFenceContainerPrefix = RegExp(
+  r'^[ \t]*(?:(?:>[ \t]*)|(?:(?:[*+-]|\d+\.)[ \t]+))*',
+);
 
 /// Same cap as the recursive [blockPattern] used by [DetailsHtmlMd].
 const int markdownDetailsMaxDepth = 6;
@@ -617,6 +654,38 @@ final class _LineBackticks {
 
   int advance(int i) => _jump![i] ?? i + 1;
 
+  String withoutCode(String line) {
+    if (_jump == null) return line;
+    final output = StringBuffer();
+    var cursor = 0;
+    var index = 0;
+    var removed = false;
+    while (index < line.length) {
+      if (line.codeUnitAt(index) != 0x60) {
+        index++;
+        continue;
+      }
+      var runEnd = index + 1;
+      while (runEnd < line.length && line.codeUnitAt(runEnd) == 0x60) {
+        runEnd++;
+      }
+      final spanEnd = advance(index);
+      if (spanEnd > runEnd) {
+        output
+          ..write(line.substring(cursor, index))
+          ..write(' ');
+        cursor = spanEnd;
+        index = spanEnd;
+        removed = true;
+      } else {
+        index = runEnd;
+      }
+    }
+    if (!removed) return line;
+    output.write(line.substring(cursor));
+    return output.toString();
+  }
+
   static _LineBackticks of(String line) {
     final starts = <int>[];
     final lengths = <int>[];
@@ -717,27 +786,24 @@ final class _FenceMark {
     required this.marker,
     required this.length,
     required this.canClose,
+    required this.canOpen,
   });
 
   final int start;
   final int marker;
   final int length;
   final bool canClose;
-}
-
-int _skipHorizontalIndent(String line, [int start = 0]) {
-  var i = start;
-  while (i < line.length) {
-    final unit = line.codeUnitAt(i);
-    if (unit != 0x20 && unit != 0x09) break;
-    _noteScanVisit();
-    i++;
-  }
-  return i;
+  final bool canOpen;
 }
 
 _FenceMark? _fenceMarkOf(String rawLine, int lineStart) {
-  final indent = _skipHorizontalIndent(rawLine);
+  var indent = 0;
+  while (indent < rawLine.length) {
+    final unit = rawLine.codeUnitAt(indent);
+    if (unit != 0x20 && unit != 0x09) break;
+    _noteScanVisit();
+    indent++;
+  }
   if (indent >= rawLine.length) return null;
   final marker = rawLine.codeUnitAt(indent);
   if (marker != 0x60 && marker != 0x7E) return null;
@@ -749,12 +815,17 @@ _FenceMark? _fenceMarkOf(String rawLine, int lineStart) {
   final length = n - indent;
   if (length < 3) return null;
   var canClose = true;
+  var canOpen = true;
   for (var i = n; i < rawLine.length; i++) {
     _noteScanVisit();
     final unit = rawLine.codeUnitAt(i);
     if (unit != 0x20 && unit != 0x09) {
       canClose = false;
-      break;
+    }
+    // CommonMark: a backtick fence info string cannot contain a backtick.
+    // Tilde fences allow backticks in the info string.
+    if (marker == 0x60 && unit == 0x60) {
+      canOpen = false;
     }
   }
   return _FenceMark(
@@ -762,6 +833,7 @@ _FenceMark? _fenceMarkOf(String rawLine, int lineStart) {
     marker: marker,
     length: length,
     canClose: canClose,
+    canOpen: canOpen,
   );
 }
 
@@ -964,7 +1036,7 @@ final class MarkdownDisplayMathScanner {
     final rawLine = _text.substring(start, end);
     final fence = _fenceMarkOf(rawLine, start);
     if (fence != null) {
-      _fenceOpens.add(fence);
+      if (fence.canOpen) _fenceOpens.add(fence);
       if (fence.canClose) _fenceCloses.add(fence);
     }
     final ticks = _LineBackticks.of(rawLine);

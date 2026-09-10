@@ -1,5 +1,6 @@
 import '../../../core/providers/settings_provider.dart';
 import '../../../core/models/assistant.dart';
+import '../../../core/models/conversation.dart';
 
 /// Helper class for extracting model display information.
 ///
@@ -35,42 +36,72 @@ class ModelDisplayInfo {
   }
 }
 
-/// Extracts model display information from settings and assistant.
+/// Resolves the model a chat sends with, in priority order:
+/// conversation override, then assistant default, then global default.
 ///
-/// This consolidates the repeated pattern of:
-/// ```dart
-/// final providerKey = assistant?.chatModelProvider ?? settings.currentModelProvider;
-/// final modelId = assistant?.chatModelId ?? settings.currentModelId;
-/// if (providerKey != null && modelId != null) {
-///   final cfg = settings.getProviderConfig(providerKey);
-///   final ov = cfg.modelOverrides[modelId] as Map?;
-///   // ...handle overrides
-/// }
-/// ```
-ModelDisplayInfo getModelDisplayInfo(
+/// The conversation layer is skipped entirely when
+/// [SettingsProvider.perChatModelEnabled] is off; pins stay in the database so
+/// turning the setting back on restores each conversation's own model.
+///
+/// This is the only place that chain should be written. Every caller that means
+/// "the model this chat uses" goes through here or [getActiveModelIds].
+({String? providerKey, String? modelId}) resolveChatModel(
   SettingsProvider settings, {
+  Conversation? conversation,
   Assistant? assistant,
 }) {
   // If assistant is bound to a remote R-Connect desktop agent
   if (assistant?.remoteBridgeEndpointId != null) {
     final ep = settings.getRemoteBridgeEndpoint(assistant!.remoteBridgeEndpointId!);
     if (ep != null) {
-      return ModelDisplayInfo(
-        providerName: 'R-Connect',
-        modelDisplay: '${ep.name} (${ep.project})',
+      return (
         providerKey: 'r_connect',
         modelId: ep.name,
       );
     }
   }
 
-  // Determine provider and model from assistant or global defaults
+  final pinned = settings.perChatModelEnabled ? conversation : null;
   final providerKey =
-      assistant?.chatModelProvider ?? settings.currentModelProvider;
-  final modelId = assistant?.chatModelId ?? settings.currentModelId;
+      pinned?.chatModelProvider ??
+      assistant?.chatModelProvider ??
+      settings.currentModelProvider;
+  final modelId =
+      pinned?.chatModelId ?? assistant?.chatModelId ?? settings.currentModelId;
+  return (providerKey: providerKey, modelId: modelId);
+}
+
+/// Extracts model display information from settings, conversation and assistant.
+///
+/// This consolidates the repeated pattern of resolving the active model and
+/// then applying the provider's per-model display overrides.
+ModelDisplayInfo getModelDisplayInfo(
+  SettingsProvider settings, {
+  Conversation? conversation,
+  Assistant? assistant,
+}) {
+  final resolved = resolveChatModel(
+    settings,
+    conversation: conversation,
+    assistant: assistant,
+  );
+  final providerKey = resolved.providerKey;
+  final modelId = resolved.modelId;
 
   if (providerKey == null || modelId == null) {
     return const ModelDisplayInfo();
+  }
+
+  if (providerKey == 'r_connect') {
+    final ep = assistant?.remoteBridgeEndpointId != null
+        ? settings.getRemoteBridgeEndpoint(assistant!.remoteBridgeEndpointId!)
+        : null;
+    return ModelDisplayInfo(
+      providerName: 'R-Connect',
+      modelDisplay: ep != null ? '${ep.name} (${ep.project})' : modelId,
+      providerKey: 'r_connect',
+      modelId: modelId,
+    );
   }
 
   final cfg = settings.getProviderConfig(providerKey);
@@ -105,30 +136,25 @@ ModelDisplayInfo getModelDisplayInfo(
 /// Use this when you only need the raw identifiers for API calls.
 ({String? providerKey, String? modelId}) getActiveModelIds(
   SettingsProvider settings, {
+  Conversation? conversation,
   Assistant? assistant,
-}) {
-  if (assistant?.remoteBridgeEndpointId != null) {
-    final ep = settings.getRemoteBridgeEndpoint(assistant!.remoteBridgeEndpointId!);
-    if (ep != null) {
-      return (
-        providerKey: 'r_connect',
-        modelId: '${ep.name} (${ep.project})',
-      );
-    }
-  }
-  return (
-    providerKey: assistant?.chatModelProvider ?? settings.currentModelProvider,
-    modelId: assistant?.chatModelId ?? settings.currentModelId,
-  );
-}
+}) => resolveChatModel(
+  settings,
+  conversation: conversation,
+  assistant: assistant,
+);
 
 /// Gets the ProviderConfig for the active model.
 ProviderConfig? getActiveProviderConfig(
   SettingsProvider settings, {
+  Conversation? conversation,
   Assistant? assistant,
 }) {
-  final providerKey =
-      assistant?.chatModelProvider ?? settings.currentModelProvider;
+  final providerKey = resolveChatModel(
+    settings,
+    conversation: conversation,
+    assistant: assistant,
+  ).providerKey;
   if (providerKey == null) return null;
   return settings.getProviderConfig(providerKey);
 }

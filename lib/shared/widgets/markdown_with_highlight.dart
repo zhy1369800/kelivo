@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:gpt_markdown/custom_widgets/markdown_config.dart'
     show GptMarkdownConfig;
+import 'package:gpt_markdown/custom_widgets/selectable_adapter.dart';
 import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_highlight/themes/atom-one-dark-reasonable.dart';
 import 'package:flutter/rendering.dart';
@@ -19,6 +21,7 @@ import 'package:image_gallery_saver_plus/image_gallery_saver_plus.dart';
 import 'package:super_clipboard/super_clipboard.dart';
 import '../../utils/sandbox_path_resolver.dart';
 import '../../utils/clipboard_images.dart';
+import '../../utils/svg_preview_html.dart';
 import '../../features/chat/pages/image_viewer_page.dart';
 import '../../features/chat/pages/html_preview_page.dart';
 import '../../core/services/preview/resource_preview_service.dart';
@@ -28,6 +31,7 @@ import 'ios_tactile.dart';
 import 'mermaid_bridge.dart';
 import 'export_capture_scope.dart';
 import 'mermaid_image_cache.dart';
+import 'diagram_exporter.dart';
 import 'plantuml_block.dart';
 import 'package:path/path.dart' as p;
 import 'package:Kelivo/l10n/app_localizations.dart';
@@ -36,6 +40,8 @@ import 'package:Kelivo/theme/theme_factory.dart' show getPlatformFontFallback;
 import 'package:provider/provider.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import '../../core/providers/settings_provider.dart';
+import '../../core/services/workspace/file_link_resolver.dart';
+import '../../features/workspace/workspace_file_navigation.dart';
 import 'package:Kelivo/desktop/html_preview_dialog.dart';
 import '../cache/byte_lru_cache.dart';
 import 'incremental_markdown_document.dart';
@@ -92,9 +98,11 @@ class MarkdownWithCodeHighlight extends StatefulWidget {
     this.citationIndexResolver,
     this.baseStyle,
     this.streaming = false,
+    this.conversationId,
   });
 
   final String text;
+  final String? conversationId;
   final void Function(String id)? onCitationTap;
 
   /// Resolves a citation id (from `[cite:id]` markers) to its display index
@@ -198,8 +206,10 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
       return value;
     }
 
+    // Keep the same block tree from the first streaming frame through
+    // completion, so growing replies do not dispose interactive children.
     final useIncrementalBlocks =
-        widget.streaming && sanitizedText.length >= 512;
+        widget.streaming || _incrementalDocument.blocks.isNotEmpty;
     final sourceBlocks = useIncrementalBlocks
         ? _incrementalDocument.update(sanitizedText)
         : const <IncrementalMarkdownBlock>[];
@@ -339,6 +349,14 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
         components: [DetailsHtmlMd(detailsRegistry), ...components],
         inlineComponents: inlineComponents,
         imageBuilder: (ctx, url, width, height) {
+          if (KelivoLink.tryParse(url) != null) {
+            return _KelivoMarkdownImage(
+              url: url,
+              width: width,
+              height: height,
+              conversationId: widget.conversationId,
+            );
+          }
           if (InlineMediaDetector.isAudio(url)) {
             return InlineAudioPlayer(source: url);
           }
@@ -601,10 +619,12 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
         codeBuilder: (ctx, name, code, closed) {
           final lang = name.trim();
           final restoredCode = _unmaskHtmlTagStartsInsideFencedCode(code);
-          if (lang.toLowerCase() == 'mermaid') {
-            return _MermaidBlock(
+          if (lang.toLowerCase() == 'mermaid' ||
+              isSvgCodeBlock(lang, restoredCode)) {
+            return _DiagramBlock(
               code: restoredCode,
               streaming: widget.streaming && !closed,
+              isSvg: lang.toLowerCase() != 'mermaid',
             );
           } else if (lang.toLowerCase() == 'plantuml') {
             return PlantUMLBlock(code: restoredCode);
@@ -635,10 +655,9 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
                 // Rendering the document as one string keeps the blank run
                 // between two blocks as a real line box. Rendering block by
                 // block drops it, so a long reply is laid out tighter while it
-                // streams and then grows the moment it finishes and switches to
-                // the whole-document render. Put the line back so both paths
-                // agree — unless the block before it ends in something whose own
-                // renderer eats the run.
+                // streams compared with a freshly loaded completed reply. Put
+                // the line back so both paths agree — unless the preceding
+                // block's renderer eats the run.
                 if (i > 0 &&
                     !_swallowsTrailingBlankLine(
                       blockContents[i - 1],
@@ -649,6 +668,7 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
                   key: ValueKey(
                     'markdown-source-block-${sourceBlocks[i].start}',
                   ),
+                  source: sourceBlocks[i].text,
                   content: blockContents[i],
                   signature: themeSignature,
                   builder: buildMarkdown,
@@ -657,6 +677,7 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
             ],
           )
         : _CachedMarkdownBlock(
+            source: sanitizedText,
             content: normalized!,
             signature: themeSignature,
             builder: buildMarkdown,
@@ -672,6 +693,16 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
   }
 
   Future<void> _handleLinkTap(BuildContext context, String url) async {
+    final kelivo = KelivoLink.tryParse(_stripFormatChars(url));
+    if (kelivo != null) {
+      await openWorkspaceLinkedFile(
+        context,
+        _stripFormatChars(url),
+        conversationId: widget.conversationId,
+      );
+      return;
+    }
+
     final trimmed = url.trim();
     if (trimmed.isEmpty) return;
 
@@ -693,6 +724,7 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
       }
       return;
     }
+
 
     Uri uri;
     try {
@@ -758,16 +790,133 @@ class _MarkdownWithCodeHighlightState extends State<MarkdownWithCodeHighlight> {
   }
 }
 
+class _KelivoMarkdownImage extends StatefulWidget {
+  const _KelivoMarkdownImage({
+    required this.url,
+    this.width,
+    this.height,
+    this.conversationId,
+  });
+
+  final String url;
+  final double? width;
+  final double? height;
+  final String? conversationId;
+
+  @override
+  State<_KelivoMarkdownImage> createState() => _KelivoMarkdownImageState();
+}
+
+class _KelivoMarkdownImageState extends State<_KelivoMarkdownImage> {
+  Future<File?>? _future;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _future ??= _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant _KelivoMarkdownImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url ||
+        oldWidget.conversationId != widget.conversationId) {
+      _future = _resolve();
+    }
+  }
+
+  Future<File?> _resolve() async {
+    final link = KelivoLink.tryParse(widget.url);
+    if (link == null) return null;
+    return resolveWorkspaceLinkedFile(
+      context,
+      widget.url,
+      conversationId: widget.conversationId,
+    );
+  }
+
+  Widget _broken(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: widget.width ?? 36,
+      height: widget.height ?? 36,
+      child: Center(
+        child: Icon(
+          Lucide.ImageOff,
+          size: 22,
+          color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<File?>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return SizedBox(
+            width: widget.width ?? 36,
+            height: widget.height ?? 36,
+            child: const Center(
+              child: SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+        final file = snapshot.data;
+        if (file == null) return _broken(context);
+        return GestureDetector(
+          onTap: () {
+            Navigator.of(context).push(
+              PageRouteBuilder<void>(
+                pageBuilder: (_, __, ___) =>
+                    ImageViewerPage(images: [file.path]),
+                transitionDuration: const Duration(milliseconds: 360),
+                reverseTransitionDuration: const Duration(milliseconds: 280),
+                transitionsBuilder: (context, anim, sec, child) {
+                  final curved = CurvedAnimation(
+                    parent: anim,
+                    curve: Curves.easeOutCubic,
+                    reverseCurve: Curves.easeInCubic,
+                  );
+                  return FadeTransition(opacity: curved, child: child);
+                },
+              ),
+            );
+          },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.file(
+              file,
+              width: widget.width,
+              height: widget.height,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stack) => _broken(context),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 typedef _MarkdownBlockBuilder = Widget Function(String content, Key key);
 
 class _CachedMarkdownBlock extends StatefulWidget {
   const _CachedMarkdownBlock({
     super.key,
+    required this.source,
     required this.content,
     required this.signature,
     required this.builder,
   });
 
+  final String source;
   final String content;
   final String signature;
   final _MarkdownBlockBuilder builder;
@@ -784,7 +933,8 @@ class _CachedMarkdownBlockState extends State<_CachedMarkdownBlock> {
   @override
   void didUpdateWidget(covariant _CachedMarkdownBlock oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.content != widget.content ||
+    if (oldWidget.source != widget.source ||
+        oldWidget.content != widget.content ||
         oldWidget.signature != widget.signature) {
       _rendered = null;
     }
@@ -804,7 +954,10 @@ class _CachedMarkdownBlockState extends State<_CachedMarkdownBlock> {
   Widget build(BuildContext context) {
     return _rendered ??= widget.builder(
       widget.content,
-      _parseIdentity(widget.content),
+      // Synthetic table cells and math delimiters change as tokens arrive;
+      // only a replacement of the source should reset interactive state.
+      // The splitter removes trailing newlines when a block becomes stable.
+      _parseIdentity(widget.source.trimRight()),
     );
   }
 }
@@ -905,14 +1058,17 @@ class _MarkdownBlockSeparator extends StatelessWidget {
     // The paragraph carries the `NewLines` style, and its one run is a space:
     // the style has to sit on the paragraph because a line box is measured from
     // the paragraph style when there is no run, and that path rounds
-    // differently from a line that has one. A space is invisible, and the
-    // separator stays out of selection so it cannot be copied.
-    return SelectionContainer.disabled(
-      child: Text.rich(
-        const TextSpan(text: ' '),
-        style: (style ?? const TextStyle()).copyWith(
-          fontSize: style?.fontSize ?? _fallbackFontSize,
-          height: _newLinesHeight,
+    // differently from a line that has one. Copy the paragraph break instead
+    // of the invisible space used to measure it.
+    return SelectableAdapter(
+      selectedText: '\n\n',
+      child: SelectionContainer.disabled(
+        child: Text.rich(
+          const TextSpan(text: ' '),
+          style: (style ?? const TextStyle()).copyWith(
+            fontSize: style?.fontSize ?? _fallbackFontSize,
+            height: _newLinesHeight,
+          ),
         ),
       ),
     );
@@ -926,9 +1082,11 @@ class _MarkdownBlockColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Let loose-width bubbles hug their content; tight parent constraints
+    // still make the column fill the available width.
     final column = Column(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: children,
     );
     return LayoutBuilder(
@@ -936,9 +1094,10 @@ class _MarkdownBlockColumn extends StatelessWidget {
         if (!constraints.hasBoundedHeight) return column;
         return OverflowBox(
           alignment: Alignment.topCenter,
+          fit: OverflowBoxFit.deferToChild,
           minHeight: 0,
           maxHeight: double.infinity,
-          child: SizedBox(width: constraints.maxWidth, child: column),
+          child: column,
         );
       },
     );
@@ -2293,15 +2452,42 @@ int _findMatchingOpenBracket(String tex, int close) {
   return -1;
 }
 
+String _stripFormatChars(String input) {
+  return input.replaceAll(RegExp(r'[\u200B\u200C\u200D\uFEFF]'), '');
+}
+
+String _softBreakLongTableTokens(String input) {
+  return input.replaceAllMapped(
+    RegExp(r'[^\s/\\-_]{22,}'),
+    (match) => _insertSoftBreaks(match.group(0)!, every: 18),
+  );
+}
+
 String _softBreakInline(String input) {
   // Insert zero-width break for inline code segments with long tokens.
   if (input.length < 60) return input;
-  final buf = StringBuffer();
-  for (int i = 0; i < input.length; i++) {
-    buf.write(input[i]);
-    if ((i + 1) % 24 == 0) buf.write('\u200B');
+  return _insertSoftBreaks(input, every: 24);
+}
+
+/// Inserts U+200B after every [every] UTF-16 code units, never between the
+/// two halves of a surrogate pair (which would make the string ill-formed and
+/// throw inside `Paragraph.addText`).
+@visibleForTesting
+String insertMarkdownSoftBreaksForTesting(String value, {required int every}) =>
+    _insertSoftBreaks(value, every: every);
+
+String _insertSoftBreaks(String value, {required int every}) {
+  final buffer = StringBuffer();
+  for (var i = 0; i < value.length; i++) {
+    final unit = value.codeUnitAt(i);
+    buffer.writeCharCode(unit);
+    final isHighSurrogate = unit >= 0xD800 && unit <= 0xDBFF;
+    if (isHighSurrogate) continue;
+    if ((i + 1) % every == 0 && i != value.length - 1) {
+      buffer.write('\u200B');
+    }
   }
-  return buf.toString();
+  return buffer.toString();
 }
 
 List<String> _extractImageUrls(String md) {
@@ -3046,17 +3232,6 @@ String _codeBlockStateKey(String language, String code) {
       ? normalizedCode
       : normalizedCode.substring(0, 16);
   return '$normalizedLanguage|$anchor';
-}
-
-String _mermaidCacheKey(
-  String code,
-  bool isDark,
-  Map<String, String> themeVars,
-) {
-  final entries = themeVars.entries.toList()
-    ..sort((a, b) => a.key.compareTo(b.key));
-  final themeSig = entries.map((e) => '${e.key}=${e.value}').join('&');
-  return '${isDark ? 'dark' : 'light'}|$themeSig|$code';
 }
 
 enum MermaidBitmapRenderStatus { success, failed, unsupported }
@@ -3903,17 +4078,22 @@ class _MarkdownTableCell extends StatelessWidget {
   }
 
   String _softBreakTableCellText(String input) {
-    return input.replaceAllMapped(RegExp(r'[^\s/\\-]{22,}'), (match) {
-      final value = match.group(0)!;
-      final buffer = StringBuffer();
-      for (var i = 0; i < value.length; i++) {
-        buffer.write(value[i]);
-        if ((i + 1) % 18 == 0 && i != value.length - 1) {
-          buffer.write('\u200B');
-        }
-      }
-      return buffer.toString();
-    });
+    // Keep markdown links intact. Inserting ZWSP into `[label](kelivo://…)`
+    // (long snake_case names are one token because `_` is not a wrap point)
+    // corrupts the scheme so KelivoLink.tryParse fails and launchUrl opens
+    // the system browser.
+    final link = RegExp(r'\[[^\]]*\]\([^)]*\)');
+    final buffer = StringBuffer();
+    var start = 0;
+    for (final match in link.allMatches(input)) {
+      buffer.write(
+        _softBreakLongTableTokens(input.substring(start, match.start)),
+      );
+      buffer.write(match.group(0));
+      start = match.end;
+    }
+    buffer.write(_softBreakLongTableTokens(input.substring(start)));
+    return buffer.toString();
   }
 }
 
@@ -4149,18 +4329,23 @@ String _csvCell(String value) {
   return '"${value.replaceAll('"', '""')}"';
 }
 
-class _MermaidBlock extends StatefulWidget {
+class _DiagramBlock extends StatefulWidget {
   final String code;
   final bool streaming;
-  const _MermaidBlock({required this.code, required this.streaming});
+  final bool isSvg;
+  const _DiagramBlock({
+    required this.code,
+    required this.streaming,
+    this.isSvg = false,
+  });
 
   @override
-  State<_MermaidBlock> createState() => _MermaidBlockState();
+  State<_DiagramBlock> createState() => _DiagramBlockState();
 }
 
 enum _MermaidTab { image, code }
 
-class _MermaidBlockState extends State<_MermaidBlock> {
+class _DiagramBlockState extends State<_DiagramBlock> {
   static const Duration _streamingBitmapRenderDelay = Duration(
     milliseconds: 360,
   );
@@ -4179,6 +4364,9 @@ class _MermaidBlockState extends State<_MermaidBlock> {
   bool _suppressBitmapLoading = false;
   final Set<String> _failedBitmapRenderKeys = <String>{};
 
+  String _cacheKey(String code, bool dark, Map<String, String> vars) =>
+      diagramImageCacheKey(code, dark, vars, isSvg: widget.isSvg);
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -4187,56 +4375,15 @@ class _MermaidBlockState extends State<_MermaidBlock> {
 
     final mermaidColors = _MermaidBlockColors.resolve(isDark);
 
-    // Build theme variables mapping for Mermaid from Material ColorScheme
-    String hex(Color c) {
-      final v = c.toARGB32();
-      final r = (v >> 16) & 0xFF;
-      final g = (v >> 8) & 0xFF;
-      final b = v & 0xFF;
-      return '#'
-              '${r.toRadixString(16).padLeft(2, '0')}'
-              '${g.toRadixString(16).padLeft(2, '0')}'
-              '${b.toRadixString(16).padLeft(2, '0')}'
-          .toUpperCase();
-    }
-
-    final themeVars = <String, String>{
-      'primaryColor': hex(cs.primary),
-      'primaryTextColor': hex(cs.onPrimary),
-      'primaryBorderColor': hex(cs.primary),
-      'secondaryColor': hex(cs.secondary),
-      'secondaryTextColor': hex(cs.onSecondary),
-      'secondaryBorderColor': hex(cs.secondary),
-      'tertiaryColor': hex(cs.tertiary),
-      'tertiaryTextColor': hex(cs.onTertiary),
-      'tertiaryBorderColor': hex(cs.tertiary),
-      'background': hex(cs.surface),
-      'mainBkg': hex(cs.primaryContainer),
-      'secondBkg': hex(cs.secondaryContainer),
-      'lineColor': hex(cs.onSurface),
-      'textColor': hex(cs.onSurface),
-      'nodeBkg': hex(cs.surface),
-      'nodeBorder': hex(cs.primary),
-      'clusterBkg': hex(cs.surface),
-      'clusterBorder': hex(cs.primary),
-      'actorBorder': hex(cs.primary),
-      'actorBkg': hex(cs.surface),
-      'actorTextColor': hex(cs.onSurface),
-      'actorLineColor': hex(cs.primary),
-      'taskBorderColor': hex(cs.primary),
-      'taskBkgColor': hex(cs.primary),
-      'taskTextLightColor': hex(cs.onPrimary),
-      'taskTextDarkColor': hex(cs.onSurface),
-      'labelColor': hex(cs.onSurface),
-      'errorBkgColor': hex(cs.error),
-      'errorTextColor': hex(cs.onError),
-    };
+    final themeVars = buildThemeVarsFromColorScheme(cs);
 
     final exporting = ExportCaptureScope.of(context);
-    final cacheKey = _mermaidCacheKey(widget.code, isDark, themeVars);
+    final cacheKey = _cacheKey(widget.code, isDark, themeVars);
     final themedCachedBytes = MermaidImageCache.get(cacheKey);
-    final legacyCachedBytes = MermaidImageCache.get(widget.code);
-    final prefixCachedBytes = widget.streaming
+    final legacyCachedBytes = widget.isSvg
+        ? null
+        : MermaidImageCache.get(widget.code);
+    final prefixCachedBytes = widget.streaming && !widget.isSvg
         ? _findCachedStreamingMermaidPrefix(
             widget.code,
             isDark: isDark,
@@ -4472,7 +4619,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
   Widget _buildMermaidCodeView(BuildContext context, bool isDark) {
     final codeView = SelectableHighlightView(
       widget.code,
-      language: 'plaintext',
+      language: widget.isSvg ? 'xml' : 'plaintext',
       theme: _transparentBgTheme(
         isDark ? atomOneDarkReasonableTheme : githubTheme,
       ),
@@ -4516,7 +4663,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
   }
 
   @override
-  void didUpdateWidget(covariant _MermaidBlock oldWidget) {
+  void didUpdateWidget(covariant _DiagramBlock oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.code != widget.code ||
         oldWidget.streaming != widget.streaming) {
@@ -4565,7 +4712,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
     required Map<String, String> themeVars,
   }) async {
     final code = widget.code;
-    final cacheKey = _mermaidCacheKey(code, isDark, themeVars);
+    final cacheKey = _cacheKey(code, isDark, themeVars);
     if (MermaidImageCache.get(cacheKey) != null) return;
     final renderOverride = debugMermaidBitmapRenderOverride;
     final overlay = renderOverride == null ? Overlay.maybeOf(context) : null;
@@ -4632,6 +4779,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
       isDark,
       themeVars: themeVars,
       viewKey: renderKey,
+      isSvg: widget.isSvg,
     );
     if (handle == null) return MermaidBitmapRenderResult.unsupported();
 
@@ -4674,7 +4822,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
       final candidate = lines.take(end).join('\n').trimRight();
       if (candidate.isEmpty) continue;
       final themed = MermaidImageCache.get(
-        _mermaidCacheKey(candidate, isDark, themeVars),
+        _cacheKey(candidate, isDark, themeVars),
       );
       final legacy = MermaidImageCache.get(candidate);
       final bytes = themed ?? legacy;
@@ -4776,7 +4924,9 @@ class _MermaidBlockState extends State<_MermaidBlock> {
   Future<bool> _saveCachedMermaidPng(Uint8List bytes) async {
     try {
       final l10n = AppLocalizations.of(context)!;
-      final suggested = 'mermaid_${DateTime.now().millisecondsSinceEpoch}.png';
+      final prefix = widget.isSvg ? 'svg' : 'mermaid';
+      final suggested =
+          '${prefix}_${DateTime.now().millisecondsSinceEpoch}.png';
       if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
         final savePath = await FilePicker.platform.saveFile(
           dialogTitle: l10n.backupPageExportToFile,
@@ -4792,7 +4942,7 @@ class _MermaidBlockState extends State<_MermaidBlock> {
       final result = await ImageGallerySaverPlus.saveImage(
         bytes,
         quality: 100,
-        name: 'kelivo-mermaid-${DateTime.now().millisecondsSinceEpoch}',
+        name: 'kelivo-$prefix-${DateTime.now().millisecondsSinceEpoch}',
       );
       if (result is Map) {
         final isSuccess =
@@ -5108,8 +5258,12 @@ class FencedCodeBlockMd extends BlockMd {
     final closed = m.group(4) != null;
     final langLower = lang.toLowerCase();
     final isStreamingFence = streaming && !closed;
-    if (langLower == 'mermaid') {
-      return _MermaidBlock(code: code, streaming: isStreamingFence);
+    if (langLower == 'mermaid' || isSvgCodeBlock(lang, code)) {
+      return _DiagramBlock(
+        code: code,
+        streaming: isStreamingFence,
+        isSvg: langLower != 'mermaid',
+      );
     } else if (langLower == 'plantuml') {
       return PlantUMLBlock(code: code);
     }
@@ -6167,12 +6321,20 @@ class SelectableHighlightView extends StatefulWidget {
 }
 
 class _SelectableHighlightViewState extends State<SelectableHighlightView> {
+  static const MethodChannel _iosTranslationChannel = MethodChannel(
+    'app.ios_translation',
+  );
+
   late List<TextSpan> _codeTextSpans;
+  bool _iosTranslationAvailable = false;
 
   @override
   void initState() {
     super.initState();
     _codeTextSpans = _highlightSource();
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      unawaited(_loadIosTranslationAvailability());
+    }
   }
 
   @override
@@ -6203,6 +6365,75 @@ class _SelectableHighlightViewState extends State<SelectableHighlightView> {
       return _convertNodes(nodes);
     } catch (_) {
       return const [];
+    }
+  }
+
+  Future<void> _loadIosTranslationAvailability() async {
+    try {
+      final available =
+          await _iosTranslationChannel.invokeMethod<bool>('isAvailable') ??
+          false;
+      if (mounted && available != _iosTranslationAvailable) {
+        setState(() => _iosTranslationAvailable = available);
+      }
+    } on MissingPluginException {
+      // Keep the stock selection menu when the native bridge is unavailable.
+    } on PlatformException {
+      // Keep the stock selection menu when the availability check fails.
+    }
+  }
+
+  Widget _buildSelectionContextMenu(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) {
+    final value = editableTextState.textEditingValue;
+    final selection = value.selection;
+    if (!_iosTranslationAvailable ||
+        !selection.isValid ||
+        selection.isCollapsed) {
+      return AdaptiveTextSelectionToolbar.editableText(
+        editableTextState: editableTextState,
+      );
+    }
+
+    final selectedText = selection.textInside(value.text);
+    if (selectedText.trim().isEmpty) {
+      return AdaptiveTextSelectionToolbar.editableText(
+        editableTextState: editableTextState,
+      );
+    }
+
+    final anchors = editableTextState.contextMenuAnchors;
+    final buttonItems = <ContextMenuButtonItem>[
+      ...editableTextState.contextMenuButtonItems,
+      ContextMenuButtonItem(
+        label: AppLocalizations.of(context)!.chatMessageWidgetTranslateTooltip,
+        onPressed: () {
+          editableTextState.hideToolbar();
+          unawaited(
+            _presentIosTranslation(selectedText, anchors.primaryAnchor),
+          );
+        },
+      ),
+    ];
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: anchors,
+      buttonItems: buttonItems,
+    );
+  }
+
+  Future<void> _presentIosTranslation(String text, Offset anchor) async {
+    try {
+      await _iosTranslationChannel.invokeMethod<void>('present', {
+        'text': text,
+        'anchorX': anchor.dx,
+        'anchorY': anchor.dy,
+      });
+    } on MissingPluginException {
+      // The toolbar has already closed; there is no native UI to present.
+    } on PlatformException {
+      // Do not let a native presentation failure affect text selection.
     }
   }
 
@@ -6239,6 +6470,7 @@ class _SelectableHighlightViewState extends State<SelectableHighlightView> {
             ? [TextSpan(text: widget.source)]
             : _codeTextSpans,
       ),
+      contextMenuBuilder: _buildSelectionContextMenu,
     );
   }
 }

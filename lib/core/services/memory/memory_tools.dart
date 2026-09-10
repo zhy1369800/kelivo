@@ -91,6 +91,97 @@ abstract final class MemoryTools {
     return out;
   }
 
+  /// All seven v2 memory tool schemas, ungated, for the settings catalog.
+  ///
+  /// `memory_update` is built with [MemoryWriteScope.toolDefaultGlobal] so the
+  /// optional `scope` parameter (and its description) is present for editing.
+  static List<Map<String, dynamic>> catalogDefinitions(MemoryPromptLang lang) {
+    return [
+      _defMemoryRead(lang),
+      _defMemorySearchProfile(lang),
+      _defMemoryUpdate(lang, MemoryWriteScope.toolDefaultGlobal),
+      _defMemoryEdit(lang),
+      _defMemoryDelete(lang),
+      _defUpdateUserProfile(lang),
+      _defChatSearch(lang),
+    ];
+  }
+
+  /// Legacy create/edit/delete_memory tool schemas (pre-v2 memory system).
+  ///
+  /// Localised by [lang] like [buildDefinitions], so the schemas match the
+  /// language the legacy rules are sent in.
+  static List<Map<String, dynamic>> legacyDefinitions(MemoryPromptLang lang) {
+    final zh = lang == MemoryPromptLang.zh;
+    return [
+      {
+        'type': 'function',
+        'function': {
+          'name': 'create_memory',
+          'description': zh ? '新增一条记忆记录。' : 'Create a memory record.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'content': {
+                'type': 'string',
+                'description': zh
+                    ? '记忆记录的内容。'
+                    : 'The content of the memory record.',
+              },
+            },
+            'required': ['content'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'edit_memory',
+          'description': zh
+              ? '更新一条已有的记忆记录。'
+              : 'Update an existing memory record.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {
+                'type': 'integer',
+                'description': zh
+                    ? '记忆记录的 id。'
+                    : 'The id of the memory record.',
+              },
+              'content': {
+                'type': 'string',
+                'description': zh
+                    ? '记忆记录的内容。'
+                    : 'The content of the memory record.',
+              },
+            },
+            'required': ['id', 'content'],
+          },
+        },
+      },
+      {
+        'type': 'function',
+        'function': {
+          'name': 'delete_memory',
+          'description': zh ? '删除一条记忆记录。' : 'Delete a memory record.',
+          'parameters': {
+            'type': 'object',
+            'properties': {
+              'id': {
+                'type': 'integer',
+                'description': zh
+                    ? '记忆记录的 id。'
+                    : 'The id of the memory record.',
+              },
+            },
+            'required': ['id'],
+          },
+        },
+      },
+    ];
+  }
+
   // —— Dispatch ——
 
   /// Handle a memory / chat_search tool call.
@@ -375,16 +466,31 @@ abstract final class MemoryTools {
     }
     final includeArchived = _asBool(args['include_archived']) ?? false;
     final limit = (_asInt(args['limit']) ?? 50).clamp(1, 100);
+    final offset = int.tryParse((args['offset'] ?? 0).toString());
+    if (offset == null || offset < 0) {
+      return toolError(
+        error: 'invalid_memory_offset',
+        message: 'offset must be a non-negative integer.',
+        tool: memoryRead,
+      );
+    }
 
     final all = await chatRepository.queryVisibleMemories(
       assistantId: assistant.id,
       type: type,
       includeArchived: includeArchived,
     );
-    final returned = all.length <= limit ? all : all.sublist(0, limit);
+    final start = offset.clamp(0, all.length);
+    final end = start + limit.clamp(0, all.length - start);
+    final returned = all.sublist(start, end);
+    final hasMore = end < all.length;
     return jsonEncode({
       'total': all.length,
       'returned': returned.length,
+      'offset': offset,
+      'limit': limit,
+      'has_more': hasMore,
+      'next_offset': hasMore ? end : null,
       'entries': [
         for (final e in returned) _entrySummary(e, includeStatus: true),
       ],
@@ -796,8 +902,8 @@ abstract final class MemoryTools {
       'function': {
         'name': memoryRead,
         'description': zh
-            ? '读取用户的长期记忆。type 可选：identity（姓名、身边的人、职业等身份信息）、workflow（做事方式、工具偏好、调试习惯）、voice（行文风格、句式节奏、用词习惯）、instruction（用户对你的明确要求）。不传 type 则返回全部类型。对话中已经提供了记忆摘要，只有在摘要标了 mode="summary" 被截断、或需要拿到条目 id 时才需要调用。'
-            : 'Read the user\'s long-term memory. Optional type: identity (name, people around them, occupation, etc.), workflow (ways of working, tool preferences, debugging habits), voice (writing style, rhythm, word choice), instruction (explicit requests to you). Omit type to return all types. A memory summary is already in the conversation; call this only when a block is marked mode="summary" (truncated) or you need entry ids.',
+            ? '读取用户的长期记忆。type 可选：identity（姓名、身边的人、职业等身份信息）、workflow（做事方式、工具偏好、调试习惯）、voice（行文风格、句式节奏、用词习惯）、instruction（用户对你的明确要求）。不传 type 则返回全部类型。使用 limit 和 offset 分页；结果中 total 为筛选后的总条数，has_more 为 true 时，保持筛选条件不变，将 next_offset 作为下次调用的 offset 继续读取，最后一页 next_offset 为 null。对话中已经提供了记忆摘要，只有在摘要标了 mode="summary" 被截断、或需要拿到条目 id 时才需要调用。'
+            : 'Read the user\'s long-term memory. Optional type: identity (name, people around them, occupation, etc.), workflow (ways of working, tool preferences, debugging habits), voice (writing style, rhythm, word choice), instruction (explicit requests to you). Omit type to return all types. Paginate with limit and offset. The result total counts all entries matching the filters. When has_more is true, keep the same filters and pass next_offset as offset to read the next page; next_offset is null on the last page. A memory summary is already in the conversation; call this only when a block is marked mode="summary" (truncated) or you need entry ids.',
         'parameters': {
           'type': 'object',
           'properties': {
@@ -819,8 +925,15 @@ abstract final class MemoryTools {
               'minimum': 1,
               'maximum': 100,
               'description': zh
-                  ? '最多返回多少条，默认 50。'
-                  : 'Maximum number of entries to return. Default 50.',
+                  ? '每页最多返回多少条，默认 50，最大 100。'
+                  : 'Maximum entries per page. Default 50, maximum 100.',
+            },
+            'offset': {
+              'type': 'integer',
+              'minimum': 0,
+              'description': zh
+                  ? '跳过筛选结果的条数，默认 0。从上一页的 next_offset 继续读取。'
+                  : 'Number of matching entries to skip. Default 0. Use next_offset from the previous page to continue.',
             },
           },
           'required': <String>[],

@@ -25,7 +25,13 @@ class _DisplaySettingsBody extends StatelessWidget {
                   _RowDivider(),
                   _ToggleRowPureBackground(),
                   _RowDivider(),
+                  _ToggleRowLayeredSurfaces(),
+                  _RowDivider(),
+                  _ToggleRowLayeredSheetTiles(),
+                  _RowDivider(),
                   _MessageStyleRow(),
+                  _RowDivider(),
+                  _AutoRetryRow(),
                   _RowDivider(),
                   _TopicPositionRow(),
                 ],
@@ -81,6 +87,8 @@ class _DisplaySettingsBody extends StatelessWidget {
                   _ToggleRowShowThinkingCards(),
                   _RowDivider(),
                   _ToggleRowShowToolCards(),
+                  _RowDivider(),
+                  _ToggleRowShowProducedFiles(),
                 ],
               ),
               const SizedBox(height: 16),
@@ -121,6 +129,8 @@ class _DisplaySettingsBody extends StatelessWidget {
                   _ToggleRowShowRegenerateConfirmDialog(),
                   _RowDivider(),
                   _ToggleRowForkKeepMessageVersions(),
+                  _RowDivider(),
+                  _ToggleRowEditAssistantKeepThinkingToolCards(),
                   _RowDivider(),
                   _ToggleRowShowUpdates(),
                   _RowDivider(),
@@ -349,11 +359,8 @@ class _SettingsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final sp = context.watch<SettingsProvider>();
     return Material(
-      color: sp.usePureBackground
-          ? cs.surface
-          : (Theme.of(context).colorScheme.surfaceContainerHigh),
+      color: context.appColors.surfaceCard,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
@@ -816,6 +823,38 @@ class _ToggleRowPureBackground extends StatelessWidget {
   }
 }
 
+class _ToggleRowLayeredSurfaces extends StatelessWidget {
+  const _ToggleRowLayeredSurfaces();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.themeAdvancedSettingsPageUseLayeredSurfacesTitle,
+      tip: l10n.themeAdvancedSettingsPageUseLayeredSurfacesSubtitle,
+      value: sp.useLayeredSurfaces,
+      onChanged: (v) =>
+          context.read<SettingsProvider>().setUseLayeredSurfaces(v),
+    );
+  }
+}
+
+class _ToggleRowLayeredSheetTiles extends StatelessWidget {
+  const _ToggleRowLayeredSheetTiles();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.themeAdvancedSettingsPageUseLayeredSheetTilesTitle,
+      tip: l10n.themeAdvancedSettingsPageUseLayeredSheetTilesSubtitle,
+      value: sp.useLayeredSheetTiles,
+      onChanged: (v) =>
+          context.read<SettingsProvider>().setUseLayeredSheetTiles(v),
+    );
+  }
+}
+
 class _MessageStyleRow extends StatelessWidget {
   const _MessageStyleRow();
   @override
@@ -835,6 +874,24 @@ class _MessageStyleRow extends StatelessWidget {
       trailing: _DesktopFontDropdownButton(
         display: styleLabel,
         onTap: () => showMessageStyleSettingsDialog(context),
+      ),
+    );
+  }
+}
+
+class _AutoRetryRow extends StatelessWidget {
+  const _AutoRetryRow();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final enabled = context.watch<SettingsProvider>().autoRetryOptions.enabled;
+    return _LabeledRow(
+      label: l10n.settingsPageAutoRetry,
+      trailing: _DesktopFontDropdownButton(
+        display: enabled
+            ? l10n.iosBackgroundStatusOn
+            : l10n.iosBackgroundStatusOff,
+        onTap: () => showDesktopAutoRetryDialog(context),
       ),
     );
   }
@@ -1746,6 +1803,8 @@ class _DesktopAppFontRow extends StatelessWidget {
     final current = sp.appFontFamily;
     final displayText = (current == null || current.isEmpty)
         ? l10n.desktopFontFamilySystemDefault
+        : sp.appFontLocalAlias != null
+        ? l10n.displaySettingsPageFontLocalFileLabel
         : current;
     return _LabeledRow(
       label: l10n.desktopFontAppLabel,
@@ -1771,6 +1830,14 @@ class _DesktopAppFontRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Tooltip(
+            message: l10n.googleFontsTitle,
+            child: _IconBtn(
+              icon: lucide.Lucide.Download,
+              onTap: () => showGoogleFontsPicker(context, forCode: false),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Tooltip(
             message: l10n.displaySettingsPageFontResetLabel,
             child: _IconBtn(
               icon: lucide.Lucide.RotateCcw,
@@ -1793,6 +1860,8 @@ class _DesktopCodeFontRow extends StatelessWidget {
     final current = sp.codeFontFamily;
     final displayText = (current == null || current.isEmpty)
         ? l10n.desktopFontFamilyMonospaceDefault
+        : sp.codeFontLocalAlias != null
+        ? l10n.displaySettingsPageFontLocalFileLabel
         : current;
     return _LabeledRow(
       label: l10n.desktopFontCodeLabel,
@@ -1815,6 +1884,14 @@ class _DesktopCodeFontRow extends StatelessWidget {
                 await settingsProvider.setCodeFontSystemFamily(fam);
               }
             },
+          ),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: l10n.googleFontsTitle,
+            child: _IconBtn(
+              icon: lucide.Lucide.Download,
+              onTap: () => showGoogleFontsPicker(context, forCode: true),
+            ),
           ),
           const SizedBox(width: 8),
           Tooltip(
@@ -1905,7 +1982,6 @@ Future<String?> _showDesktopFontChooserDialog(
   bool showSystemDefault = false,
   bool showMonospaceDefault = false,
 }) async {
-  final cs = Theme.of(context).colorScheme;
   final l10n = AppLocalizations.of(context)!;
   final rootNavigator = Navigator.of(context, rootNavigator: true);
   final ctrl = TextEditingController();
@@ -2001,7 +2077,7 @@ Future<String?> _showDesktopFontChooserDialog(
     barrierDismissible: true,
     builder: (ctx) {
       return Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -2480,6 +2556,22 @@ class _ToggleRowShowToolCards extends StatelessWidget {
   }
 }
 
+class _ToggleRowShowProducedFiles extends StatelessWidget {
+  const _ToggleRowShowProducedFiles();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsPageShowProducedFilesTitle,
+      tip: l10n.displaySettingsPageShowProducedFilesSubtitle,
+      value: sp.showProducedFiles,
+      onChanged: (v) =>
+          context.read<SettingsProvider>().setShowProducedFiles(v),
+    );
+  }
+}
+
 class _ToggleRowAutoCollapseThinking extends StatelessWidget {
   const _ToggleRowAutoCollapseThinking();
   @override
@@ -2597,6 +2689,23 @@ class _ToggleRowForkKeepMessageVersions extends StatelessWidget {
       value: sp.forkKeepMessageVersions,
       onChanged: (v) =>
           context.read<SettingsProvider>().setForkKeepMessageVersions(v),
+    );
+  }
+}
+
+class _ToggleRowEditAssistantKeepThinkingToolCards extends StatelessWidget {
+  const _ToggleRowEditAssistantKeepThinkingToolCards();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsPageEditAssistantKeepThinkingToolCardsTitle,
+      tip: l10n.displaySettingsPageEditAssistantKeepThinkingToolCardsSubtitle,
+      value: sp.keepThinkingAndToolCardsWhenEditingAssistant,
+      onChanged: (v) => context
+          .read<SettingsProvider>()
+          .setKeepThinkingAndToolCardsWhenEditingAssistant(v),
     );
   }
 }
@@ -3428,13 +3537,7 @@ class _SendShortcutDropdownState extends State<_SendShortcutDropdown> {
 
     _entry = OverlayEntry(
       builder: (ctx) {
-        final usePure = Provider.of<SettingsProvider>(
-          ctx,
-          listen: false,
-        ).usePureBackground;
-        final bgColor = usePure
-            ? Theme.of(ctx).colorScheme.surface
-            : (Theme.of(context).colorScheme.surfaceContainerHigh);
+        final bgColor = ctx.appColors.surfaceCard;
         final sp = Provider.of<SettingsProvider>(ctx, listen: false);
 
         return Stack(

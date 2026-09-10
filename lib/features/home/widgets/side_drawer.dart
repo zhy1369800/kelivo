@@ -49,10 +49,12 @@ import '../../../desktop/desktop_settings_navigation_bus.dart';
 import 'dart:async';
 import '../../../features/search/services/global_session_search_service.dart';
 import '../controllers/chat_actions.dart';
+import '../utils/model_display_helper.dart';
 import 'assistant_avatar.dart';
 import 'assistant_entry_actions.dart';
 import 'sidebar_selection_bars.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
+import '../../../shared/widgets/section_card.dart';
 
 class SideDrawer extends StatefulWidget {
   const SideDrawer({
@@ -259,6 +261,9 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
     if (_selectionMode) return;
     final l10n = AppLocalizations.of(context)!;
     final chatService = context.read<ChatService>();
+    final titleGenerationEnabled = context
+        .read<SettingsProvider>()
+        .isTitleGenerationEnabled;
     final isPinned = chat.isPinned;
     final isDesktop =
         defaultTargetPlatform == TargetPlatform.macOS ||
@@ -293,13 +298,14 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
               await chatService.togglePinConversation(chat.id);
             },
           ),
-          DesktopContextMenuItem(
-            icon: Lucide.RefreshCw,
-            label: l10n.sideDrawerMenuRegenerateTitle,
-            onTap: () async {
-              await _regenerateTitle(context, chat.id);
-            },
-          ),
+          if (titleGenerationEnabled)
+            DesktopContextMenuItem(
+              icon: Lucide.RefreshCw,
+              label: l10n.sideDrawerMenuRegenerateTitle,
+              onTap: () async {
+                await _regenerateTitle(context, chat.id);
+              },
+            ),
           DesktopContextMenuItem(
             icon: Lucide.Copy,
             label: l10n.sideDrawerMenuCopy,
@@ -400,7 +406,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -419,7 +425,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
               height: 48,
               child: IosCardPress(
                 borderRadius: BorderRadius.circular(14),
-                baseColor: cs.surface,
+                baseColor: sheetTileColor(ctx),
                 duration: const Duration(milliseconds: 260),
                 onTap: () async {
                   Haptics.light();
@@ -496,13 +502,14 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
                         await chatService.togglePinConversation(chat.id);
                       },
                     ),
-                    row(
-                      icon: Lucide.RefreshCw,
-                      label: l10n.sideDrawerMenuRegenerateTitle,
-                      action: () async {
-                        await _regenerateTitle(context, chat.id);
-                      },
-                    ),
+                    if (titleGenerationEnabled)
+                      row(
+                        icon: Lucide.RefreshCw,
+                        label: l10n.sideDrawerMenuRegenerateTitle,
+                        action: () async {
+                          await _regenerateTitle(context, chat.id);
+                        },
+                      ),
                     row(
                       icon: Lucide.Copy,
                       label: l10n.sideDrawerMenuCopy,
@@ -914,22 +921,19 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
     final assistantProvider = context.read<AssistantProvider>();
     final convo = chatService.getConversation(conversationId);
     if (convo == null) return;
+    if (!settings.isTitleGenerationEnabled) return;
 
     // Get assistant for this conversation
     final assistant = convo.assistantId != null
         ? assistantProvider.getById(convo.assistantId!)
         : assistantProvider.currentAssistant;
-
-    // Decide model: prefer title model, else fall back to assistant's model, then to global default
-    final provKey =
-        settings.titleModelProvider ??
-        assistant?.chatModelProvider ??
-        settings.currentModelProvider;
-    final mdlId =
-        settings.titleModelId ??
-        assistant?.chatModelId ??
-        settings.currentModelId;
-
+    final chatModel = resolveChatModel(
+      settings,
+      conversation: convo,
+      assistant: assistant,
+    );
+    final provKey = settings.titleModelProvider ?? chatModel.providerKey;
+    final mdlId = settings.titleModelId ?? chatModel.modelId;
     if (provKey == null || mdlId == null) return;
     final cfg = settings.getProviderConfig(provKey);
     final budget = settings.titleGenerationThinkingBudgetFor(
@@ -945,6 +949,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
           .replaceAll('{locale}', locale)
           .replaceAll('{content}', content);
       final title = (await ChatApiService.generateText(
+        conversationId: conversationId,
         config: cfg,
         modelId: mdlId,
         prompt: prompt,
@@ -3080,7 +3085,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -3094,7 +3099,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
               height: 48,
               child: IosCardPress(
                 borderRadius: BorderRadius.circular(14),
-                baseColor: cs.surface,
+                baseColor: sheetTileColor(ctx),
                 duration: const Duration(milliseconds: 260),
                 onTap: () async {
                   Haptics.light();
@@ -3311,7 +3316,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.sideDrawerEmojiDialogTitle),
               content: SizedBox(
                 width: 360,
@@ -3454,7 +3459,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.sideDrawerImageUrlDialogTitle),
               content: TextField(
                 controller: controller,
@@ -3578,7 +3583,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.sideDrawerQQAvatarDialogTitle),
               content: TextField(
                 controller: controller,
@@ -3746,7 +3751,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.sideDrawerSetNicknameTitle),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -4019,7 +4024,7 @@ class _SideDrawerState extends State<SideDrawer> with TickerProviderStateMixin {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Material(
-                  color: context.appColors.surfaceFill,
+                  color: context.appColors.surfaceCard,
                   borderRadius: BorderRadius.circular(12),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),

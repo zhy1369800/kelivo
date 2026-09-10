@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:Kelivo/core/services/backup/backup_cancel_token.dart';
@@ -87,6 +88,15 @@ void main() {
   });
 
   group('runBackupIsolate', () {
+    test('debug native sleep restores the caller signal mask', () {
+      if (Platform.isWindows) return;
+
+      final before = _currentSignalMask();
+      debugNativeSleepIgnoringKill(0);
+
+      expect(_currentSignalMask(), before);
+    });
+
     test('processed is monotonic within a phase', () async {
       final events = <BackupProgress>[];
       await runBackupIsolate<int, int>(
@@ -99,7 +109,10 @@ void main() {
           .toList();
       expect(packing, isNotEmpty);
       for (var i = 1; i < packing.length; i++) {
-        expect(packing[i].processed, greaterThanOrEqualTo(packing[i - 1].processed));
+        expect(
+          packing[i].processed,
+          greaterThanOrEqualTo(packing[i - 1].processed),
+        );
       }
     });
 
@@ -147,7 +160,10 @@ void main() {
       );
       expect(await future, 'committed');
       expect(token.isCancelled, isFalse);
-      expect(DateTime.now().difference(started) < const Duration(seconds: 2), isTrue);
+      expect(
+        DateTime.now().difference(started) < const Duration(seconds: 2),
+        isTrue,
+      );
     });
 
     test(
@@ -286,32 +302,35 @@ void main() {
       expect(interrupted, [handle]);
     });
 
-    test('cancel before handle registration still interrupts when it arrives', () async {
-      final interrupted = <int>[];
-      debugOnInterruptSqliteHandle = (address) {
-        expect(address, isNot(0));
-        interrupted.add(address);
-      };
-      addTearDown(() => debugOnInterruptSqliteHandle = null);
+    test(
+      'cancel before handle registration still interrupts when it arrives',
+      () async {
+        final interrupted = <int>[];
+        debugOnInterruptSqliteHandle = (address) {
+          expect(address, isNot(0));
+          interrupted.add(address);
+        };
+        addTearDown(() => debugOnInterruptSqliteHandle = null);
 
-      final token = BackupCancelToken();
-      addTearDown(token.dispose);
-      const handle = 0x1111aaaa;
-      final future = runBackupIsolate<void, int>(
-        body: _delayThenRegisterThenHang,
-        payload: handle,
-        cancelToken: token,
-        onProgress: (event) {
-          if (event.phase == BackupPhase.preparing) {
-            token.cancel();
-          }
-        },
-        killGrace: const Duration(milliseconds: 400),
-      );
+        final token = BackupCancelToken();
+        addTearDown(token.dispose);
+        const handle = 0x1111aaaa;
+        final future = runBackupIsolate<void, int>(
+          body: _delayThenRegisterThenHang,
+          payload: handle,
+          cancelToken: token,
+          onProgress: (event) {
+            if (event.phase == BackupPhase.preparing) {
+              token.cancel();
+            }
+          },
+          killGrace: const Duration(milliseconds: 400),
+        );
 
-      await expectLater(future, throwsA(isA<BackupCancelledException>()));
-      expect(interrupted, [handle]);
-    });
+        await expectLater(future, throwsA(isA<BackupCancelledException>()));
+        expect(interrupted, [handle]);
+      },
+    );
 
     test('cancel during VACUUM interrupts the open handle', () async {
       final interrupted = <int>[];
@@ -451,6 +470,23 @@ void main() {
   });
 }
 
+List<int> _currentSignalMask() {
+  const signalSetSize = 256;
+  final current = calloc<Uint8>(signalSetSize);
+  try {
+    final pthreadSigmask = DynamicLibrary.process()
+        .lookupFunction<
+          Int32 Function(Int32, Pointer<Void>, Pointer<Void>),
+          int Function(int, Pointer<Void>, Pointer<Void>)
+        >('pthread_sigmask');
+    final sigBlock = Platform.isMacOS || Platform.isIOS ? 1 : 0;
+    expect(pthreadSigmask(sigBlock, nullptr, current.cast()), 0);
+    return List<int>.of(current.asTypedList(signalSetSize));
+  } finally {
+    calloc.free(current);
+  }
+}
+
 Future<void> _registerThenHang(BackupIsolateContext context, int handle) async {
   context.registerSqliteInterruptHandle(handle);
   context.reportProgress(
@@ -504,7 +540,9 @@ Future<void> _nativeSleepThenCloseHandshake(
   try {
     _nativeSleepIgnoringKill(context, 2);
   } finally {
-    File('${args.closedMarkerPath}.resumed').writeAsStringSync('resumed', flush: true);
+    File(
+      '${args.closedMarkerPath}.resumed',
+    ).writeAsStringSync('resumed', flush: true);
     await context.waitForSqliteCloseAck();
     File(args.closedMarkerPath).writeAsStringSync('closed', flush: true);
   }
@@ -550,11 +588,7 @@ void _phaseOrderWork(BackupIsolateContext context, int payload) {
     BackupPhase.finalizing,
   ]) {
     context.reportProgress(
-      BackupProgress(
-        phase: phase,
-        processed: 0,
-        unit: BackupProgressUnit.none,
-      ),
+      BackupProgress(phase: phase, processed: 0, unit: BackupProgressUnit.none),
     );
   }
 }
@@ -593,17 +627,8 @@ String _nonCancellableThenCancelRace(
   return 'committed';
 }
 
-void _nativeSleepIgnoringKill(BackupIsolateContext context, int seconds) {
-  if (Platform.isWindows) {
-    DynamicLibrary.open('kernel32.dll')
-        .lookupFunction<Void Function(Uint32), void Function(int)>('Sleep')
-        .call(seconds * 1000);
-    return;
-  }
-  DynamicLibrary.process()
-      .lookupFunction<Int32 Function(Uint32), int Function(int)>('sleep')
-      .call(seconds);
-}
+void _nativeSleepIgnoringKill(BackupIsolateContext context, int seconds) =>
+    debugNativeSleepIgnoringKill(seconds);
 
 void _stuckHeartbeatLoop(BackupIsolateContext context, String path) {
   final file = File(path);

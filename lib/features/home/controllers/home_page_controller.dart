@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show listEquals, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,8 @@ import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/message_part.dart';
 import '../../../core/models/conversation.dart';
+import '../../../core/models/workspace_binding.dart';
+import '../../../core/providers/workspace_provider.dart';
 import '../../../core/models/quick_phrase.dart';
 import '../../../core/models/assistant_regex.dart';
 import '../../../core/providers/assistant_provider.dart';
@@ -22,6 +25,7 @@ import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/tts/tts_text_selection.dart';
 import '../../../core/services/haptics.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/mobile_background.dart';
 import '../../../core/services/screen_wakelock.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/snackbar.dart';
@@ -42,12 +46,14 @@ import 'scroll_controller.dart' as scroll_ctrl;
 import 'home_view_model.dart';
 import '../services/message_builder_service.dart';
 import '../services/message_generation_service.dart';
+import '../services/local_tools_service.dart';
 import '../services/ask_user_interaction_service.dart';
 import '../services/ocr_service.dart';
 import '../services/translation_service.dart';
 import '../services/file_upload_service.dart';
 import '../utils/chat_layout_constants.dart';
 import '../widgets/chat_input_bar.dart';
+import '../widgets/share_destination_sheet.dart';
 import '../../model/widgets/model_select_sheet.dart';
 
 enum ChatSelectionMode { share, delete }
@@ -90,7 +96,6 @@ class HomePageController extends ChangeNotifier {
     required ChatInputBarController mediaController,
     required ScrollController scrollController,
     bool? isAndroidOverride,
-    ChatCompletionNotificationSender? chatCompletionNotificationSender,
   }) : this._(
          context,
          vsync,
@@ -101,9 +106,6 @@ class HomePageController extends ChangeNotifier {
          mediaController,
          scrollController,
          isAndroid: isAndroidOverride ?? PlatformUtils.isAndroid,
-         chatCompletionNotificationSender:
-             chatCompletionNotificationSender ??
-             NotificationService.showChatCompleted,
        );
 
   HomePageController._(
@@ -116,7 +118,6 @@ class HomePageController extends ChangeNotifier {
     this._mediaController,
     this._scrollController, {
     required this._isAndroid,
-    required this._chatCompletionNotificationSender,
   }) {
     _initialize();
   }
@@ -133,7 +134,6 @@ class HomePageController extends ChangeNotifier {
   final TextEditingController _inputController;
   final ChatInputBarController _mediaController;
   final bool _isAndroid;
-  final ChatCompletionNotificationSender _chatCompletionNotificationSender;
   ScrollController _scrollController;
 
   // ============================================================================
@@ -223,7 +223,6 @@ class HomePageController extends ChangeNotifier {
 
   // App and route visibility determine whether a completion notification
   // would add value or merely duplicate content already on screen.
-  bool _appInForeground = true;
   bool _homeRouteVisible = true;
   bool _chatInitialized = false;
   bool _openingNotificationConversation = false;
@@ -339,7 +338,8 @@ class HomePageController extends ChangeNotifier {
 
   QueuedChatInput? get currentQueuedInput => _viewModel.currentQueuedInput;
 
-  ValueNotifier<bool> get isProcessingFiles => _viewModel.isProcessingFiles;
+  ValueNotifier<String?> get processingFilesMessageId =>
+      _viewModel.processingFilesMessageId;
 
   bool get isTemporaryConversation =>
       _chatService.isTemporaryConversation(currentConversation?.id);
@@ -401,7 +401,6 @@ class HomePageController extends ChangeNotifier {
     _chatController = ChatController(chatService: _chatService);
     _chatControllerReady = true;
     _streamController = stream_ctrl.StreamController(
-      chatService: _chatService,
       onStateChanged: () => notifyListeners(),
       getSettingsProvider: () => _context.read<SettingsProvider>(),
       getCurrentConversationId: () => currentConversation?.id,
@@ -431,23 +430,26 @@ class HomePageController extends ChangeNotifier {
           _context.read<SettingsProvider>().imageCropperEnabled,
       getImageCompressConfig: () =>
           _context.read<SettingsProvider>().resolveImageCompressConfig(),
+      hasWorkspace: () => hasWorkspace,
     );
     _messageBuilderService = MessageBuilderService(
       chatService: _chatService,
       contextProvider: _context,
-      ocrHandler: (imagePaths, {revisionId, session}) =>
+      ocrHandler: (imagePaths, {revisionId, session, requestId}) =>
           _ocrService.getOcrTextForImages(
             imagePaths,
             _context,
             revisionId: revisionId,
             session: session,
+            requestId: requestId,
           ),
       ocrPrefetch: ({required revisionIds, required imagePaths}) =>
           _ocrService.prefetchPersistedOcr(
             revisionIds: revisionIds,
             imagePaths: imagePaths,
           ),
-      geminiThoughtSignatureHandler: _appendGeminiThoughtSignatureForApi,
+      providerArtifactLookup: (message, kind) =>
+          _chatService.getProviderArtifact(message.id, kind),
     );
     _messageBuilderService.ocrTextWrapper = _ocrService.wrapOcrBlock;
     _generationController = GenerationController(
@@ -615,6 +617,9 @@ class HomePageController extends ChangeNotifier {
       _mcpProvider = _context.read<McpProvider>();
       _mcpProvider!.addListener(_onMcpChanged);
     } catch (_) {}
+    try {
+      unawaited(DeviceLocalTools.prefetchIosCapabilities());
+    } catch (_) {}
   }
 
   void _setupKeyboardListeners() {}
@@ -662,7 +667,7 @@ class HomePageController extends ChangeNotifier {
           }
           break;
         case ChatAction.switchModel:
-          unawaited(showModelSelectSheet(ctx));
+          unawaited(showModelSelectSheet(ctx, controller: this));
           break;
         case ChatAction.enterGlobalSearch:
           enterGlobalSearchMode(preserveQuery: true);
@@ -675,7 +680,9 @@ class HomePageController extends ChangeNotifier {
   }
 
   void _setupNotificationActions() {
-    if (!_isAndroid) return;
+    if (!_isAndroid && defaultTargetPlatform != TargetPlatform.iOS) return;
+    MobileBackgroundCoordinator.instance.visibleConversation =
+        _visibleBackgroundConversation;
     _notificationTapSub = NotificationService.conversationTaps.listen(
       _handleNotificationConversationTap,
     );
@@ -686,8 +693,21 @@ class HomePageController extends ChangeNotifier {
     }
   }
 
+  String? _visibleBackgroundConversation() =>
+      _context.mounted && _homeRouteVisible ? currentConversation?.id : null;
+
   void _handleNotificationConversationTap(String conversationId) {
     _pendingNotificationConversationId = conversationId;
+    if (_context.mounted) {
+      final homeRoute = ModalRoute.of(_context);
+      if (homeRoute != null && !homeRoute.isCurrent) {
+        Navigator.of(_context).popUntil(
+          (route) =>
+              route == homeRoute ||
+              route.popDisposition == RoutePopDisposition.doNotPop,
+        );
+      }
+    }
     unawaited(_openPendingNotificationConversation());
   }
 
@@ -798,7 +818,6 @@ class HomePageController extends ChangeNotifier {
           // the skeleton instead of a blank list.
           notifyListeners();
           await Future.wait([restoreAssistant, loadWindow]);
-          _streamController.clearGeminiThoughtSigs();
           _restoreMessageUiState();
           _scrollCtrl.positionAtBottomOnNextLayout();
           notifyListeners();
@@ -897,12 +916,34 @@ class HomePageController extends ChangeNotifier {
   // Public Methods - Message Actions
   // ============================================================================
 
+  bool get hasWorkspace {
+    final provider = _context.read<WorkspaceProvider?>();
+    return provider != null &&
+        WorkspaceBinding.extrasHaveWorkspace(
+          currentConversation?.extras,
+          (id) => provider.byId(id) != null,
+        );
+  }
+
   Future<ChatInputSubmissionResult> sendMessage(ChatInputData input) async {
     final content = input.text.trim();
     if (content.isEmpty &&
         input.imagePaths.isEmpty &&
         input.documents.isEmpty) {
       return ChatInputSubmissionResult.rejected;
+    }
+    if (!hasWorkspace) {
+      for (final file in input.documents) {
+        if (FileUploadService.supportsWithoutWorkspace(file)) continue;
+        showAppSnackBar(
+          _context,
+          message: AppLocalizations.of(
+            _context,
+          )!.attachmentRequiresWorkspace(file.fileName),
+          type: NotificationType.warning,
+        );
+        return ChatInputSubmissionResult.rejected;
+      }
     }
     _warmupSerial++;
     final editState = _userMessageEditState;
@@ -1042,6 +1083,7 @@ class HomePageController extends ChangeNotifier {
       toolName: part.toolName,
       arguments: part.arguments,
       content: content,
+      metadata: part.metadata,
       loading: false,
     );
     if (idx >= 0) {
@@ -1050,6 +1092,7 @@ class HomePageController extends ChangeNotifier {
       parts.add(answeredPart);
     }
     _streamController.setToolParts(message.id, parts);
+    streamingContentNotifier.notifyToolHeightChanged(message.id);
     notifyListeners();
 
     await _viewModel.continueAssistantMessageAfterToolAnswer(
@@ -1164,7 +1207,9 @@ class HomePageController extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> createNewConversationAnimated() async {
+  Future<void> createNewConversationAnimated({
+    bool preserveDraft = false,
+  }) async {
     // Cancel any in-flight conversation switch fetch.
     _switchSerial++;
     _warmupSerial++;
@@ -1172,13 +1217,13 @@ class HomePageController extends ChangeNotifier {
     try {
       await _viewModel.flushCurrentConversationProgress();
     } catch (_) {}
-    _exitUserMessageEdit(clearDraft: true);
+    _exitUserMessageEdit(clearDraft: !preserveDraft);
     if (!isDesktopPlatform) {
       try {
         await _convoFadeController.reverse();
       } catch (_) {}
     }
-    await _createNewConversation();
+    await _createNewConversation(preserveDraft: preserveDraft);
     if (!isDesktopPlatform) {
       try {
         await WidgetsBinding.instance.endOfFrame;
@@ -1192,8 +1237,8 @@ class HomePageController extends ChangeNotifier {
     }
   }
 
-  Future<void> _createNewConversation() async {
-    _exitUserMessageEdit(clearDraft: true);
+  Future<void> _createNewConversation({bool preserveDraft = false}) async {
+    _exitUserMessageEdit(clearDraft: !preserveDraft);
     _translations.clear();
     final previousId = currentConversation?.id;
     await _viewModel.createNewConversation();
@@ -1219,6 +1264,20 @@ class HomePageController extends ChangeNotifier {
 
   Future<void> clearContext() async {
     await _viewModel.clearContext();
+    notifyListeners();
+  }
+
+  /// Sets or clears the current conversation's model override.
+  ///
+  /// Passing null for both makes the conversation follow the assistant again.
+  Future<void> setConversationModel({
+    String? providerKey,
+    String? modelId,
+  }) async {
+    await _viewModel.setConversationModel(
+      providerKey: providerKey,
+      modelId: modelId,
+    );
     notifyListeners();
   }
 
@@ -1473,6 +1532,9 @@ class HomePageController extends ChangeNotifier {
 
     final ctx = _context;
     if (!ctx.mounted) return;
+    final keepThinkingAndToolCards = ctx
+        .read<SettingsProvider>()
+        .keepThinkingAndToolCardsWhenEditingAssistant;
     final isDesktop = isDesktopPlatform;
     final Future<MessageEditResult?> future = isDesktop
         ? showMessageEditDesktopDialog(ctx, message: message)
@@ -1490,6 +1552,12 @@ class HomePageController extends ChangeNotifier {
     final newMsg = await _chatService.appendMessageVersion(
       messageId: message.id,
       content: result.content,
+      parts: message.role == 'assistant' && !keepThinkingAndToolCards
+          ? ChatMessage.partsWithoutThinkingAndToolCards(
+              message.parts,
+              result.content,
+            )
+          : null,
     );
     if (newMsg == null) return;
 
@@ -1708,54 +1776,17 @@ class HomePageController extends ChangeNotifier {
     }
   }
 
-  void _handleAssistantMessageFinished(ChatMessage message) {
+  Future<void> _handleAssistantMessageFinished(ChatMessage message) async {
     if (!_context.mounted || message.role != 'assistant') return;
     final settings = _context.read<SettingsProvider>();
-    final shouldNotify = NotificationService.shouldShowChatCompleted(
-      isAndroid: _isAndroid,
-      notifyModeEnabled:
-          settings.androidBackgroundChatMode ==
-          AndroidBackgroundChatMode.onNotify,
-      appInForeground: _appInForeground,
-      homeRouteVisible: _homeRouteVisible,
-      isCurrentConversation: currentConversation?.id == message.conversationId,
-    );
-    if (shouldNotify) {
-      final l10n = AppLocalizations.of(_context)!;
-      unawaited(
-        _showChatCompletedNotification(
-          conversationId: message.conversationId,
-          title: l10n.notificationChatCompletedTitle,
-          body: l10n.notificationChatCompletedBody,
-        ),
-      );
-    }
-
     if (settings.ttsAutoPlayAssistantReplies) {
-      unawaited(_speakAssistantMessage(message, autoPlay: true));
-    }
-  }
-
-  Future<void> _showChatCompletedNotification({
-    required String conversationId,
-    required String title,
-    required String body,
-  }) async {
-    try {
-      await _chatCompletionNotificationSender(
-        conversationId: conversationId,
-        title: title,
-        body: body,
-      );
-    } catch (error) {
-      debugPrint('Failed to show chat completion notification: $error');
+      await _speakAssistantMessage(message, autoPlay: true);
     }
   }
 
   @visibleForTesting
-  void debugHandleAssistantMessageFinished(ChatMessage message) {
-    _handleAssistantMessageFinished(message);
-  }
+  Future<void> debugHandleAssistantMessageFinished(ChatMessage message) =>
+      _handleAssistantMessageFinished(message);
 
   Future<void> speakMessage(ChatMessage message) async {
     await _speakAssistantMessage(message, autoPlay: false);
@@ -1790,7 +1821,9 @@ class HomePageController extends ChangeNotifier {
       mode: sp.ttsTextSelectionMode,
     );
     if (text.trim().isEmpty) return;
-    await tts.speak(text);
+    // Automatic narration acknowledges preparation, so ChatActions can release
+    // generation resources while the independent speech session keeps running.
+    await tts.speak(text, waitForCompletion: !autoPlay);
   }
 
   void shareMessage(int messageIndex, List<ChatMessage> messageList) {
@@ -2413,6 +2446,111 @@ class HomePageController extends ChangeNotifier {
   Future<void> onPickPhotos() => _fileUploadService.onPickPhotos();
   Future<void> onPickCamera() => _fileUploadService.onPickCamera(_context);
   Future<void> onPickFiles() => _fileUploadService.onPickFiles();
+
+  Future<bool> confirmIncomingShare() async {
+    if (_inputController.text.isEmpty &&
+        !_mediaController.hasDraftMedia &&
+        !_mediaController.hasUnreadyImages) {
+      return true;
+    }
+    final l10n = AppLocalizations.of(_context)!;
+    return await showDialog<bool>(
+          context: _context,
+          builder: (context) => AlertDialog(
+            title: Text(l10n.incomingShareTitle),
+            content: Text(l10n.incomingShareReplaceDraft),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(l10n.homePageCancel),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(l10n.modelDetailSheetConfirmButton),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<bool> openIncomingShareDraft(ChatInputData input) async {
+    final approvedText = _inputController.text;
+    final approvedMedia = _mediaController.draftMediaIdentity;
+    // Keep even an edited-message draft until the actual replacement below.
+    // Conversation creation and both animations may yield while it is edited.
+    await createNewConversationAnimated(preserveDraft: true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!_context.mounted || !_mediaController.isAttached) {
+      throw StateError('The chat composer is not ready');
+    }
+    if ((approvedText != _inputController.text ||
+            !listEquals(approvedMedia, _mediaController.draftMediaIdentity)) &&
+        !await confirmIncomingShare()) {
+      return false;
+    }
+    if (!_context.mounted || !_mediaController.isAttached) {
+      throw StateError('The chat composer is not ready');
+    }
+    // No more awaits between final confirmation and writing the new draft.
+    _mediaController.clearDraft();
+    _inputController.value = TextEditingValue(
+      text: input.text,
+      selection: TextSelection.collapsed(offset: input.text.length),
+    );
+    _mediaController.addFiles(input.documents);
+    _mediaController.enqueueImages(
+      input.imagePaths,
+      _context.read<SettingsProvider>().resolveImageCompressConfig(),
+      deleteSourcesAfterProcessing: true,
+    );
+    _mediaController.sharedDraftAction.value = () =>
+        unawaited(moveSharedDraft());
+    _inputFocus.requestFocus();
+    return true;
+  }
+
+  Future<bool> acceptIncomingShareDraft(ChatInputData input) async {
+    if (!_context.mounted || !await confirmIncomingShare()) return false;
+    if (!_context.mounted) return false;
+    return openIncomingShareDraft(input);
+  }
+
+  Future<void> moveSharedDraft() async {
+    final sourceId = currentConversation?.id;
+    final destination = await showShareDestinationSheet(
+      _context,
+      conversations: _context
+          .read<ChatService>()
+          .getAllConversations()
+          .where((conversation) => conversation.id != sourceId)
+          .toList(),
+    );
+    if (destination == null ||
+        !_context.mounted ||
+        currentConversation?.id != sourceId) {
+      return;
+    }
+    // The stable composer keeps its text, files and image-processing queue.
+    // Navigate only; never clear or recopy draft attachments during a move.
+    try {
+      if (destination.isEmpty) {
+        await createNewConversationAnimated();
+      } else {
+        await switchConversationAnimated(destination);
+      }
+    } catch (_) {
+      if (_context.mounted) {
+        showAppSnackBar(
+          _context,
+          message: AppLocalizations.of(_context)!.incomingShareMoveFailed,
+          type: NotificationType.error,
+        );
+      }
+    }
+    if (_context.mounted) _inputFocus.requestFocus();
+  }
+
   Future<void> onFilesDroppedDesktop(List<XFile> files) =>
       _fileUploadService.onFilesDroppedDesktop(files);
 
@@ -2657,7 +2795,6 @@ class HomePageController extends ChangeNotifier {
   // ============================================================================
 
   void onAppLifecycleStateChanged(AppLifecycleState state) {
-    _appInForeground = (state == AppLifecycleState.resumed);
     if (state == AppLifecycleState.resumed) {
       ScreenWakelock.reassert();
     }
@@ -2704,7 +2841,8 @@ class HomePageController extends ChangeNotifier {
 
         final cleanedParts = ChatMessage.partsWithRewrittenText(
           m.parts,
-          (text) => _streamController.captureGeminiThoughtSignature(text, m.id),
+          (text) =>
+              _chatService.migrateLegacyGeminiThoughtSignature(text, m.id),
         );
         if (!identical(cleanedParts, m.parts)) {
           final updated = m.copyWith(parts: cleanedParts);
@@ -2725,14 +2863,13 @@ class HomePageController extends ChangeNotifier {
         _translations[m.id] = td;
       }
     }
+    _viewModel.restoreRetryUiFromStreamingState();
   }
 
   void _restoreAssistantMessageUiState(ChatMessage message) {
     _streamController.restoreMessageUiState(
       message,
       getToolEventsFromDb: (id) => _chatService.getToolEvents(id),
-      getGeminiThoughtSigFromDb: (id) =>
-          _chatService.getGeminiThoughtSignature(id),
     );
   }
 
@@ -2781,16 +2918,6 @@ class HomePageController extends ChangeNotifier {
     );
   }
 
-  String _appendGeminiThoughtSignatureForApi(
-    ChatMessage message,
-    String content,
-  ) {
-    return _streamController.appendGeminiThoughtSignatureForApi(
-      message,
-      content,
-    );
-  }
-
   Future<void> _onMcpChanged() async {
     // Kept for potential future use
   }
@@ -2801,6 +2928,11 @@ class HomePageController extends ChangeNotifier {
 
   @override
   void dispose() {
+    final background = MobileBackgroundCoordinator.instance;
+    if (background.visibleConversation == _visibleBackgroundConversation) {
+      background.visibleConversation = null;
+    }
+    _viewModel.resetFileProcessingIndicator();
     _viewModel.onBackgroundTaskError = null;
     _ocrService.onError = null;
     _convoFadeController.dispose();

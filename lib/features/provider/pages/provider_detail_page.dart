@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/settings_provider.dart';
+import '../../../core/services/chat/chat_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../icons/lucide_adapter.dart';
@@ -36,6 +37,7 @@ import '../../provider/widgets/provider_avatar.dart';
 import '../../../utils/model_grouping.dart';
 import '../../../theme/app_font_weights.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
 
 class ProviderDetailPage extends StatefulWidget {
   const ProviderDetailPage({
@@ -140,6 +142,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         'Tensdaq',
         'AIhubmix',
         '随想AI中转站',
+        'MaruCode',
         'Aliyun',
         'Zhipu AI',
         'Claude',
@@ -250,6 +253,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                 size: 22,
                 onTap: () async {
                   final assistantProvider = context.read<AssistantProvider>();
+                  final chatService = context.read<ChatService>();
                   final settings = context.read<SettingsProvider>();
                   final confirm = await showDialog<bool>(
                     context: context,
@@ -285,6 +289,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                           );
                         }
                       }
+                      // Conversations can pin a model too.
+                      await chatService.clearConversationModelOverrides(
+                        providerKey: widget.keyName,
+                      );
                     } catch (_) {}
 
                     // Remove provider config and related selections/pins
@@ -340,7 +348,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -460,7 +468,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.sideDrawerImageUrlDialogTitle),
               content: TextField(
                 controller: controller,
@@ -538,7 +546,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.providerAvatarLobehubDialogTitle),
               content: SizedBox(
                 width: double.maxFinite,
@@ -650,7 +658,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                       )
                       .toList();
             return AlertDialog(
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.providerAvatarIconDialogTitle),
               content: SizedBox(
                 width: MediaQuery.of(ctx).size.width * 0.8,
@@ -1016,6 +1024,61 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
           ),
           const SizedBox(height: 12),
         ],
+        if (widget.keyName.toLowerCase() == 'marucode') ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: cs.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: cs.primary.withValues(alpha: 0.35)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型。支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，新用户注册送 2 刀。',
+                  style: TextStyle(color: cs.onSurface.withValues(alpha: 0.8)),
+                ),
+                const SizedBox(height: 6),
+                Text.rich(
+                  TextSpan(
+                    text: '官网：',
+                    style: TextStyle(
+                      color: cs.onSurface.withValues(alpha: 0.8),
+                    ),
+                    children: [
+                      TextSpan(
+                        text: 'https://api.muteki.site',
+                        style: TextStyle(
+                          color: cs.primary,
+                          fontWeight: AppFontWeights.emphasis,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () async {
+                            final uri = Uri.parse(
+                              'https://api.muteki.site/register?aff=kelivo&promo=kelivo',
+                            );
+                            try {
+                              final ok = await launchUrl(
+                                uri,
+                                mode: LaunchMode.externalApplication,
+                              );
+                              if (!ok) {
+                                await launchUrl(uri);
+                              }
+                            } catch (_) {
+                              await launchUrl(uri);
+                            }
+                          },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         // 顶部管理分组标题（左侧缩进以对齐卡片内容）
         Padding(
           padding: const EdgeInsets.only(left: 12),
@@ -1029,7 +1092,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
         ),
         const SizedBox(height: 6),
         // Top iOS-style section card for key settings
-        _iosSectionCard(
+        SectionCard(
           children: [
             if (widget.keyName.toLowerCase() != 'kelivoin')
               _providerKindRow(context),
@@ -1527,10 +1590,11 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                             final settings = context.read<SettingsProvider>();
                             final assistantProvider = context
                                 .read<AssistantProvider>();
+                            final chatService = context.read<ChatService>();
                             final ok = await showDialog<bool>(
                               context: context,
                               builder: (dctx) => AlertDialog(
-                                backgroundColor: cs.surface,
+                                backgroundColor: context.overlaySurface,
                                 title: Text(
                                   l10n.providerDetailPageConfirmDeleteTitle,
                                 ),
@@ -1593,6 +1657,11 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
                                   );
                                 }
                               }
+                              // Conversations can pin a model too.
+                              await chatService.clearConversationModelOverrides(
+                                providerKey: widget.keyName,
+                                modelId: id,
+                              );
                             } catch (_) {}
 
                             if (!context.mounted) return;
@@ -1834,25 +1903,6 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
 
   // --- iOS style helpers (consistent with MultiKeyManagerPage) ---
 
-  Widget _iosSectionCard({required List<Widget> children}) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final Color bg = context.appColors.surfaceCard;
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-          width: 0.6,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-
   Widget _iosRow(
     BuildContext context, {
     required String label,
@@ -2083,7 +2133,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final cs = Theme.of(context).colorScheme;
     final selected = await showModalBottomSheet<ProviderKind>(
       context: context,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -2164,6 +2214,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
   Future<void> _save() async {
     final settings = context.read<SettingsProvider>();
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     final old = settings.getProviderConfig(
       widget.keyName,
       defaultName: widget.displayName,
@@ -2221,6 +2272,10 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             );
           }
         }
+        // Conversations can pin a model too.
+        await chatService.clearConversationModelOverrides(
+          providerKey: widget.keyName,
+        );
       } catch (_) {}
     }
 
@@ -3028,6 +3083,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
   Future<void> _clearAssistantSelectionsForModels(
     Set<String> modelIds,
     AssistantProvider assistantProvider,
+    ChatService chatService,
   ) async {
     if (modelIds.isEmpty) return;
     try {
@@ -3039,6 +3095,13 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
             assistant.copyWith(clearChatModel: true),
           );
         }
+      }
+      // Conversations can pin a model too.
+      for (final modelId in modelIds) {
+        await chatService.clearConversationModelOverrides(
+          providerKey: widget.keyName,
+          modelId: modelId,
+        );
       }
     } catch (e, st) {
       FlutterLogger.log(
@@ -3092,7 +3155,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         title: Text(l10n.providerDetailPageConfirmDeleteTitle),
         content: Text(confirmMessage),
         actions: [
@@ -3115,11 +3178,16 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
 
     final settings = context.read<SettingsProvider>();
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     final deletedCount = await settings.deleteModels(
       widget.keyName,
       modelsToDelete,
     );
-    await _clearAssistantSelectionsForModels(modelsToDelete, assistantProvider);
+    await _clearAssistantSelectionsForModels(
+      modelsToDelete,
+      assistantProvider,
+      chatService,
+    );
     if (!mounted) return;
     setState(() {
       _selectedModels.clear();
@@ -3217,7 +3285,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         title: Text(l10n.providerDetailPageConfirmDeleteTitle),
         content: Text(l10n.providerDetailPageDeleteAllModelsWarning),
         actions: [
@@ -3238,9 +3306,14 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     if (ok != true) return;
     if (!mounted) return;
     final assistantProvider = context.read<AssistantProvider>();
+    final chatService = context.read<ChatService>();
     final modelsToDelete = Set<String>.from(cfg.models);
     await settings.deleteModels(widget.keyName, modelsToDelete);
-    await _clearAssistantSelectionsForModels(modelsToDelete, assistantProvider);
+    await _clearAssistantSelectionsForModels(
+      modelsToDelete,
+      assistantProvider,
+      chatService,
+    );
     if (!mounted) return;
     setState(() {
       _selectedModels.clear();
@@ -3287,7 +3360,7 @@ class _ProviderDetailPageState extends State<ProviderDetailPage> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -4151,7 +4224,7 @@ class _ConnectionTestDialogState extends State<_ConnectionTestDialog> {
     final title = l10n.providerDetailPageTestConnectionTitle;
     final canTest = _selectedModelId != null && _state != _TestState.loading;
     return Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(

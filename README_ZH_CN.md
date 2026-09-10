@@ -32,10 +32,27 @@
 
 ## 💖 赞助
 
-| 赞助商 | 介绍 |
-|:-------:|:-----|
-| <b><a href="https://siliconflow.cn">siliconflow.cn</a></b> | 感谢 siliconflow.cn 与我们合作提供可免费使用的模型。 |
-| <img src="docs/sponsors/suixiang.jpg" alt="随想AI中转" width="50" /><br /><b><a href="https://sui-xiang.com">随想AI中转</a></b> | 感谢<a href="https://sui-xiang.com">随想AI中转</a>对本项目的赞助！随想AI中转 是一家可靠高效的 API 中继服务提供商，提供 Claude、Codex、Gemini 等的中继服务。注重隐私的中转站·无数据倒卖·无模型掺水，隐私，透明，极速售后。新账户注册每日签到就送 0.5 元测试额度，充值额度 1:1，无需订阅，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。99.9% 可用性，关键调用从不掉队。 |
+<table>
+<tr>
+<td width="180" align="center" valign="middle">
+  <b><a href="https://siliconflow.cn">siliconflow.cn</a></b>
+</td>
+<td valign="middle">感谢 siliconflow.cn 与我们合作提供可免费使用的模型。</td>
+</tr>
+<tr>
+<td width="180" align="center" valign="middle">
+  <a href="https://sui-xiang.com"><img src="docs/sponsors/suixiang.jpg" alt="随想AI中转" width="150"></a><br />
+  <b><a href="https://sui-xiang.com">随想AI中转</a></b>
+</td>
+<td valign="middle">感谢<a href="https://sui-xiang.com">随想AI中转</a>对本项目的赞助！随想AI中转 是一家可靠高效的 API 中继服务提供商，提供 Claude、Codex、Gemini 等的中继服务。注重隐私的中转站·无数据倒卖·无模型掺水，隐私，透明，极速售后。新账户注册每日签到就送 0.5 元测试额度，充值额度 1:1，无需订阅，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。99.9% 可用性，关键调用从不掉队。</td>
+</tr>
+<tr>
+<td width="180" align="center" valign="middle">
+  <a href="https://api.muteki.site/register?aff=kelivo&promo=kelivo"><img src="docs/sponsors/marucode.jpg" alt="MaruCode" width="150"></a>
+</td>
+<td valign="middle"><b><a href="https://api.muteki.site/register?aff=kelivo&promo=kelivo">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，<a href="https://api.muteki.site/register?aff=kelivo&promo=kelivo">新用户注册送 2 刀</a>。<a href="https://images-2.muteki.site">生图工作台🖼️</a></td>
+</tr>
+</table>
 
 ## ✨ 功能特性
 
@@ -55,7 +72,7 @@
 - 📤 **二维码分享** - 通过二维码导出和导入供应商配置
 - 💾 **数据备份** - 支持聊天记录备份和恢复
 - 🌐 **自定义请求** - 支持自定义 HTTP 请求头和请求体
-- 🔡 **自定义字体** - 支持自定义字体（系统字体 / 本地字体）
+- 🔡 **自定义字体** - 支持系统字体、本地字体导入和按需下载 Google Fonts
 - ⚙️ **Android 后台生成对话** - 可在后台持续生成消息（可在设置中开启）。
 
 ## 📱 平台支持

@@ -2,10 +2,9 @@ import 'dart:async';
 import 'package:Kelivo/theme/app_font_weights.dart';
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 
-import '../../core/providers/settings_provider.dart';
 import '../../icons/lucide_adapter.dart' as lucide;
+import '../../theme/app_semantic_colors.dart';
 
 class DesktopSelectOption<T> {
   const DesktopSelectOption({
@@ -37,6 +36,7 @@ class DesktopSelectDropdown<T> extends StatefulWidget {
     this.maxLabelWidth = 240,
     this.triggerFillColor,
     this.menuBackgroundColor,
+    this.embedded = false,
   });
 
   final T value;
@@ -50,6 +50,10 @@ class DesktopSelectDropdown<T> extends StatefulWidget {
   final double maxLabelWidth;
   final Color? triggerFillColor;
   final Color? menuBackgroundColor;
+
+  /// Hide the trigger chrome so a parent field (for example
+  /// [InputDecorator]) can supply the border and fill.
+  final bool embedded;
 
   @override
   State<DesktopSelectDropdown<T>> createState() =>
@@ -95,15 +99,7 @@ class _DesktopSelectDropdownState<T> extends State<DesktopSelectDropdown<T>> {
   }
 
   Color _defaultMenuBackground(BuildContext context) {
-    SettingsProvider? sp;
-    try {
-      sp = Provider.of<SettingsProvider>(context, listen: false);
-    } catch (_) {
-      sp = null;
-    }
-    final usePure = sp?.usePureBackground ?? false;
-    if (usePure) return Theme.of(context).colorScheme.surface;
-    return Theme.of(context).colorScheme.surfaceContainerHigh;
+    return context.overlaySurface;
   }
 
   void _openMenu() {
@@ -162,13 +158,17 @@ class _DesktopSelectDropdownState<T> extends State<DesktopSelectDropdown<T>> {
     final cs = Theme.of(context).colorScheme;
     final label = _labelForValue(widget.value);
 
-    final baseBorder = cs.outlineVariant.withValues(alpha: 0.18);
-    final hoverBorder = cs.primary;
+    final baseBorder = widget.embedded
+        ? Colors.transparent
+        : cs.outlineVariant.withValues(alpha: 0.18);
+    final hoverBorder = widget.embedded ? Colors.transparent : cs.primary;
     final borderColor = _open || _hover ? hoverBorder : baseBorder;
 
     final fillColor =
         widget.triggerFillColor ??
-        (Theme.of(context).colorScheme.surfaceContainerHigh);
+        (widget.embedded
+            ? Colors.transparent
+            : Theme.of(context).colorScheme.surfaceContainerHigh);
 
     return CompositedTransformTarget(
       link: _link,
@@ -191,7 +191,7 @@ class _DesktopSelectDropdownState<T> extends State<DesktopSelectDropdown<T>> {
               color: fillColor,
               borderRadius: BorderRadius.circular(widget.borderRadius),
               border: Border.all(color: borderColor, width: 1),
-              boxShadow: _open
+              boxShadow: !widget.embedded && _open
                   ? [
                       BoxShadow(
                         color: cs.primary.withValues(alpha: 0.10),

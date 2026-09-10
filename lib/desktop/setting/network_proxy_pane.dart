@@ -11,6 +11,7 @@ import '../../shared/widgets/ios_switch.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/providers/settings_provider.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
 
 class DesktopNetworkProxyPane extends StatefulWidget {
   const DesktopNetworkProxyPane({super.key});
@@ -114,7 +115,10 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
                 ),
               ),
               const SizedBox(height: 10),
-              _sectionCard(
+              SectionCard(
+                padding: const EdgeInsets.all(12),
+                radius: 18,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Padding(
                     padding: const EdgeInsets.only(bottom: 6),
@@ -271,7 +275,10 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
               ),
 
               const SizedBox(height: 10),
-              _sectionCard(
+              SectionCard(
+                padding: const EdgeInsets.all(12),
+                radius: 18,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _ItemRow(
                     label: l10n.networkProxyTestHeader,
@@ -399,12 +406,7 @@ class _DesktopNetworkProxyPaneState extends State<DesktopNetworkProxyPane> {
 
 // --- Helpers (matched with backup pane style) ---
 Widget _rowDivider(BuildContext context) {
-  final cs = Theme.of(context).colorScheme;
-  final isDark = Theme.of(context).brightness == Brightness.dark;
-  return Container(
-    height: 1,
-    color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-  );
+  return Container(height: 1, color: context.appColors.hairline);
 }
 
 class _ItemRow extends StatelessWidget {
@@ -488,7 +490,6 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
               vertical: widget.dense ? 8 : 12,
               horizontal: 12,
             ),
-            alignment: Alignment.center,
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.circular(12),
@@ -496,6 +497,7 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
             ),
             child: Text(
               widget.label,
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: textColor,
                 fontWeight: AppFontWeights.semibold,
@@ -509,37 +511,12 @@ class _DeskIosButtonState extends State<_DeskIosButton> {
   }
 }
 
-Widget _sectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final cs = Theme.of(context).colorScheme;
-      final isDark = Theme.of(context).brightness == Brightness.dark;
-      final baseBg = context.appColors.surfaceCard;
-      return Container(
-        decoration: BoxDecoration(
-          color: baseBg,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.12 : 0.08),
-            width: 0.8,
-          ),
-        ),
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: children,
-        ),
-      );
-    },
-  );
-}
-
 InputDecoration _deskInputDecoration(BuildContext context) {
   final cs = Theme.of(context).colorScheme;
   return InputDecoration(
     isDense: true,
     filled: true,
-    fillColor: context.appColors.surfaceFill,
+    fillColor: context.appColors.surfaceCardFill,
     hintStyle: TextStyle(
       fontSize: 14,
       color: cs.onSurface.withValues(alpha: 0.5),

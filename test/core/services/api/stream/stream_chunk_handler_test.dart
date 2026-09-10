@@ -10,6 +10,95 @@ import 'package:Kelivo/core/services/api/stream/stream_chunk_handler.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'a hosted card keeps its input when the result lands a response later',
+    () {
+      // A turn that starts a hosted tool alongside a client one is cut in two:
+      // the call streams its input in the first response and the result only
+      // arrives in the second, whose decoder never saw that input.
+      final handler = StreamChunkHandler();
+      handler.handle(const ToolCallStart(id: 'srvtoolu_1', toolName: 'web 获取'));
+      handler.handle(
+        const ServerToolStart(id: 'srvtoolu_1', toolName: 'web 获取'),
+      );
+      handler.handle(
+        const ToolCallDelta(
+          id: 'srvtoolu_1',
+          inputDelta: '{"url":"https://example.com"}',
+        ),
+      );
+      handler.handle(const ToolCallEnd('srvtoolu_1'));
+      handler.handle(
+        const ServerToolEnd(
+          id: 'srvtoolu_1',
+          output: <String, dynamic>{'content': 'ok'},
+        ),
+      );
+
+      final card = jsonDecode(
+        handler.parts.whereType<ToolCallPart>().single.payloadJson,
+      );
+      expect(card['arguments'], {'url': 'https://example.com'});
+    },
+  );
+
+  test(
+    'an empty input reported for a card does not erase the streamed one',
+    () {
+      // Empty arguments are no news, whoever reports them: a decoder closing an
+      // unfinished call still knows less about its input than the deltas do.
+      final handler = StreamChunkHandler();
+      handler.handle(const ToolCallStart(id: 'srvtoolu_1', toolName: 'web 获取'));
+      handler.handle(
+        const ToolCallDelta(
+          id: 'srvtoolu_1',
+          inputDelta: '{"url":"https://example.com"}',
+        ),
+      );
+      handler.handle(
+        const ServerToolEnd(
+          id: 'srvtoolu_1',
+          input: <String, dynamic>{},
+          status: ServerToolStatus.failed,
+        ),
+      );
+
+      final card = jsonDecode(
+        handler.parts.whereType<ToolCallPart>().single.payloadJson,
+      );
+      expect(card['arguments'], {'url': 'https://example.com'});
+    },
+  );
+
+  test('a generated file becomes an image part only when it is one', () {
+    final handler = StreamChunkHandler();
+    handler.handle(
+      const GeneratedFile(
+        uri: 'kelivo-file:///upload/chart.png',
+        name: 'chart.png',
+        mime: 'image/png',
+      ),
+    );
+    handler.handle(
+      const GeneratedFile(
+        uri: 'kelivo-file:///upload/data.csv',
+        name: 'data.csv',
+        mime: 'text/csv',
+      ),
+    );
+    handler.handle(
+      const GeneratedFile(uri: '', name: 'nothing.txt', mime: 'text/plain'),
+    );
+
+    expect(handler.parts, hasLength(2));
+    final image = handler.parts[0] as ImagePart;
+    expect(image.uri, 'kelivo-file:///upload/chart.png');
+    expect(image.mime, 'image/png');
+    final file = handler.parts[1] as FilePart;
+    expect(file.uri, 'kelivo-file:///upload/data.csv');
+    expect(file.name, 'data.csv');
+  });
+
   test('creates a text part on Delta when Start was omitted', () {
     final handler = StreamChunkHandler();
     handler.handle(const TextDelta(id: 't', text: 'Hello'));
@@ -83,6 +172,20 @@ void main() {
     expect(payloads.map((p) => p['id']), ['a', 'b']);
     expect(payloads[0]['arguments']['query'], 'Kotlin');
     expect(payloads[1]['arguments']['query'], 'Ktor');
+  });
+
+  test('ImageDelta does not publish an accumulating data URI', () {
+    final handler = StreamChunkHandler();
+    handler.handle(const ImageStart(id: 'img', mimeType: 'image/png'));
+    handler.handle(const ImageDelta(id: 'img', data: 'aaa'));
+    handler.handle(const ImageDelta(id: 'img', data: 'bbb'));
+
+    expect(handler.parts.whereType<ImagePart>(), isEmpty);
+
+    handler.handle(const ImageEnd('img'));
+    final image = handler.parts.single as ImagePart;
+    expect(image.uri, 'data:image/png;base64,aaabbb');
+    expect(image.id, 'img');
   });
 
   test('ImageSnapshot replaces previous data for the same id', () {
@@ -484,6 +587,43 @@ void main() {
     },
   );
 
+  test('Finish re-encodes tool payloads so late blocks reach the metadata', () {
+    final handler = StreamChunkHandler();
+    // Providers hand out a live reference to the block list they keep
+    // appending to, so a payload encoded mid-turn misses everything that
+    // arrives after the tool chunk.
+    final blocks = <Map<String, dynamic>>[
+      {'type': 'server_tool_use', 'id': 's1', 'name': 'web_search'},
+    ];
+    final metadata = <String, dynamic>{
+      'anthropic': <String, dynamic>{'assistant_blocks': blocks},
+    };
+    handler.handle(
+      ToolCallStart(id: 's1', toolName: 'search_web', metadata: metadata),
+    );
+
+    List<String> replayedBlocks() {
+      final payload =
+          jsonDecode(handler.parts.whereType<ToolCallPart>().single.payloadJson)
+              as Map;
+      final list =
+          ((payload['metadata'] as Map)['anthropic'] as Map)['assistant_blocks']
+              as List;
+      return [for (final b in list) (b as Map)['type'].toString()];
+    }
+
+    expect(replayedBlocks(), ['server_tool_use']);
+
+    blocks.add({'type': 'web_search_tool_result', 'tool_use_id': 's1'});
+    blocks.add({'type': 'text', 'text': 'Kyoto has many temples.'});
+    handler.handle(const Finish(finishReason: 'end_turn'));
+
+    expect(replayedBlocks(), [
+      'server_tool_use',
+      'web_search_tool_result',
+      'text',
+    ]);
+  });
   test('handleResult keeps image URIs as-is and does not add data:', () {
     final handler = StreamChunkHandler();
     handler.handleResult(
@@ -506,5 +646,51 @@ void main() {
       'kelivo-file:///images/a.png',
     ]);
     expect(handler.parts.whereType<TextPart>().single.text, 'done');
+  });
+
+  test('RetryPending is forwarded to onRetry and not folded into parts', () {
+    final seen = <RetryPending>[];
+    final handler = StreamChunkHandler(onRetry: seen.add);
+    handler.handle(
+      const RetryPending(
+        attempt: 1,
+        maxRetries: 3,
+        delay: Duration(seconds: 2),
+        errorText: 'HTTP 429',
+      ),
+    );
+    handler.handle(const TextDelta(id: 't', text: 'hello'));
+    expect(seen, hasLength(1));
+    expect(seen.single.attempt, 1);
+    expect(seen.single.maxRetries, 3);
+    expect(handler.parts.whereType<TextPart>().single.text, 'hello');
+  });
+
+  test('RetryAttemptStart is not folded into parts', () {
+    final handler = StreamChunkHandler();
+    handler.handle(const RetryAttemptStart());
+    handler.handle(const TextDelta(id: 't', text: 'hello'));
+    expect(handler.parts.whereType<TextPart>().single.text, 'hello');
+  });
+
+  test('RetryPending.deadlineAt uses the stamped retryAt', () {
+    final retryAt = DateTime(2026, 8, 31, 12);
+    final pending = RetryPending(
+      attempt: 1,
+      maxRetries: 3,
+      delay: const Duration(seconds: 5),
+      retryAt: retryAt,
+    );
+    expect(pending.deadlineAt(DateTime(2026, 8, 31, 12, 0, 4)), retryAt);
+  });
+
+  test('RetryPending.deadlineAt falls back to now plus delay', () {
+    const pending = RetryPending(
+      attempt: 1,
+      maxRetries: 3,
+      delay: Duration(seconds: 5),
+    );
+    final now = DateTime(2026, 8, 31, 12);
+    expect(pending.deadlineAt(now), now.add(const Duration(seconds: 5)));
   });
 }

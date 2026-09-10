@@ -3,9 +3,10 @@ import 'dart:isolate';
 
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
-import 'package:sqlite3/common.dart' show AllowedArgumentCount;
+import 'package:sqlite3/common.dart' show AllowedArgumentCount, CommonDatabase;
 
 import '../../utils/app_directories.dart';
+import 'schema_versions.dart';
 
 part 'app_database.g.dart';
 
@@ -60,6 +61,22 @@ class ConversationRows extends Table {
       // ignore: recursive_getters
       .check(lastMemoryExtractedOrder.isBiggerOrEqualValue(-1))
       .withDefault(const Constant(-1))();
+  // Columns below are grouped by the schema version that appended them. New
+  // columns must always be appended at the end of the table: only that makes
+  // ALTER TABLE ADD COLUMN on a migrated database yield the same column order
+  // as createAll on a fresh one — ChatDatabaseRepository validates column
+  // order exactly.
+  //
+  // v2: per-conversation model override; null means inherit from the
+  // assistant, then from the global default.
+  TextColumn get chatModelProvider => text().nullable()();
+  TextColumn get chatModelId => text().nullable()();
+  // v3: schema-less extension point for conversation-scoped feature fields
+  // (workspace binding, subagent parentage, group-chat participants, ...).
+  // Keys must be feature-prefixed (e.g. "workspace.cwd"). A field that ever
+  // needs an index, foreign key, or CHECK must be promoted to a real column
+  // in a later additive migration instead of living here forever.
+  TextColumn get extrasJson => text().withDefault(const Constant('{}'))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -129,6 +146,20 @@ class MessageRows extends Table {
       integer()
       // ignore: recursive_getters
       .check(messageOrder.isBiggerOrEqualValue(0))();
+  // v3: last row mutation, in support of sync/LWW. Null means "never updated
+  // since insert" — readers must treat the effective value as
+  // COALESCE(updated_at, timestamp). Every UPDATE path in
+  // ChatDatabaseRepository is responsible for bumping it; inserts leave it
+  // null on purpose so the migration needs no backfill rewrite.
+  IntColumn get updatedAt =>
+      integer().map(const MicrosecondDateTimeConverter()).nullable()();
+  // v3: authoring identity when the role alone is ambiguous (group chat,
+  // multi-agent, proactive letters). Null = implied by role, i.e. the
+  // conversation's single assistant or the user.
+  TextColumn get senderId => text().nullable()();
+  // v3: schema-less extension point for message-scoped feature fields. Same
+  // discipline as ConversationRows.extrasJson.
+  TextColumn get extrasJson => text().withDefault(const Constant('{}'))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -253,6 +284,10 @@ class AssetRows extends Table {
       integer().map(const MicrosecondDateTimeConverter())();
   IntColumn get lastReferencedAt =>
       integer().map(const MicrosecondDateTimeConverter())();
+  // v3: schema-less extension point for asset-intrinsic metadata that later
+  // media kinds need (mime type, video duration, ...). Same discipline as
+  // ConversationRows.extrasJson.
+  TextColumn get extrasJson => text().withDefault(const Constant('{}'))();
 
   @override
   Set<Column<Object>> get primaryKey => {id};
@@ -629,6 +664,64 @@ class MessagePromptRows extends Table {
   ];
 }
 
+/// v3: generic deletion log, written so multi-device sync can propagate
+/// deletes long after they happened.
+///
+/// Only `scope = 'conversation'` is written today (inside
+/// `ChatDatabaseRepository.deleteConversation`'s transaction, pruned at 90
+/// days). Other scopes are reserved for future entity kinds. Bulk resets
+/// (`clearAllData`, overwrite restore) clear this table instead of writing to
+/// it: replacing the whole local state is not a cross-device deletion intent.
+class TombstoneRows extends Table {
+  TextColumn get scope =>
+      text()
+      // ignore: recursive_getters
+      .check(scope.isNotValue(''))();
+  TextColumn get entityId =>
+      text()
+      // ignore: recursive_getters
+      .check(entityId.isNotValue(''))();
+  IntColumn get deletedAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+  TextColumn get payload => text().withDefault(const Constant('{}'))();
+
+  @override
+  Set<Column<Object>> get primaryKey => {scope, entityId};
+}
+
+/// v3: shared host for future entity kinds, so a new kind of user-managed
+/// entity (theme, plugin, workspace, ssh profile, generation job, ...) does
+/// not require a new table and therefore no schema migration.
+///
+/// Structurally this is the generalisation of the thirteen per-kind business
+/// tables (`assistant_rows` etc.): string id + sort_order + JSON payload +
+/// updated_at, plus a `kind` discriminator and an optional `owner_id` for
+/// entities scoped to another entity (mirrors
+/// `assistant_memory_rows.assistant_id`). Existing kinds stay in their own
+/// tables; only kinds introduced after schema 3 live here.
+@TableIndex(
+  name: 'idx_extension_entities_kind_order',
+  columns: {#kind, #sortOrder},
+)
+class ExtensionEntityRows extends Table {
+  TextColumn get kind =>
+      text()
+      // ignore: recursive_getters
+      .check(kind.isNotValue(''))();
+  TextColumn get id => text()();
+  IntColumn get sortOrder =>
+      integer()
+      // ignore: recursive_getters
+      .check(sortOrder.isBiggerOrEqualValue(0))();
+  TextColumn get ownerId => text().nullable()();
+  TextColumn get payload => text()();
+  IntColumn get updatedAt =>
+      integer().map(const MicrosecondDateTimeConverter())();
+
+  @override
+  Set<Column<Object>> get primaryKey => {kind, id};
+}
+
 @DriftDatabase(
   tables: [
     ConversationRows,
@@ -658,6 +751,8 @@ class MessagePromptRows extends Table {
     MemoryEntryRows,
     UserProfileFieldRows,
     MessagePromptRows,
+    TombstoneRows,
+    ExtensionEntityRows,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -665,9 +760,25 @@ class AppDatabase extends _$AppDatabase {
 
   static const databaseFileName = 'kelivo.db';
 
-  // Schema 1 is the first published SQLite contract. Every other non-zero
-  // version belongs to an unpublished or future format and is rejected.
-  static const currentSchemaVersion = 1;
+  // Schema 1 is the first published SQLite contract; schema 2 adds the
+  // per-conversation model override; schema 3 lays the extension groundwork
+  // (extras_json columns, message updated_at/sender_id, tombstone_rows,
+  // extension_entity_rows) so later features can ship without further
+  // migrations. Every version outside [publishedSchemaVersions] belongs to an
+  // unpublished or future format and is rejected.
+  static const currentSchemaVersion = 3;
+
+  /// Every schema that has ever shipped. A file at any of these can be
+  /// upgraded by `SchemaMigrations`; anything else is rejected outright.
+  static const publishedSchemaVersions = <int>{1, 2, 3};
+
+  /// Whether a live application connection may use a file as-is: either freshly
+  /// created (0) or already at the current schema.
+  ///
+  /// Upgrades never happen implicitly on an ordinary open — they are performed
+  /// only by `SchemaMigrations`, through [upgradeExecutor].
+  static bool acceptsLiveSchema(int userVersion) =>
+      userVersion == 0 || userVersion == currentSchemaVersion;
   // Keep SQLite's established 1000-page cadence explicit. At the usual 4 KiB
   // page size this starts a checkpoint around 4 MiB, but page size remains the
   // source of truth.
@@ -706,9 +817,7 @@ class AppDatabase extends _$AppDatabase {
     return NativeDatabase.createInBackground(
       file,
       setup: (database) {
-        final installedSchema = database.userVersion;
-        if (installedSchema != 0 &&
-            installedSchema != AppDatabase.currentSchemaVersion) {
+        if (!AppDatabase.acceptsLiveSchema(database.userVersion)) {
           throw StateError('database_schema_version');
         }
         // This callback is registered and invoked by SQLite on drift's worker
@@ -732,6 +841,32 @@ class AppDatabase extends _$AppDatabase {
         database.execute('PRAGMA journal_size_limit = $journalSizeLimitBytes;');
       },
     );
+  }
+
+  /// An executor that admits any published schema so drift's migrator can run.
+  ///
+  /// Only `SchemaMigrations` may use this. Every other connection goes through
+  /// [_openExecutor], which rejects a file that is not already current.
+  static QueryExecutor upgradeExecutor(File file) =>
+      NativeDatabase.createInBackground(file, setup: _migrationSetup);
+
+  /// Setup for [upgradeExecutor].
+  ///
+  /// Must stay a capture-free static tear-off: `createInBackground` sends this
+  /// closure to drift's worker isolate.
+  ///
+  /// Deliberately does not set `journal_mode = WAL`. A backup snapshot arrives
+  /// in DELETE mode and has to leave in DELETE mode, and `synchronous = FULL`
+  /// is the right trade for a one-shot structural rewrite.
+  static void _migrationSetup(CommonDatabase database) {
+    final installedSchema = database.userVersion;
+    if (installedSchema != 0 &&
+        !AppDatabase.publishedSchemaVersions.contains(installedSchema)) {
+      throw StateError('database_schema_version');
+    }
+    database.execute('PRAGMA foreign_keys = ON;');
+    database.execute('PRAGMA busy_timeout = $busyTimeoutMillis;');
+    database.execute('PRAGMA synchronous = FULL;');
   }
 
   /// Samples the isolate executing callbacks on the live SQLite connection.
@@ -775,9 +910,38 @@ FROM probe;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onUpgrade: (_, _, _) async {
-      throw StateError('database_schema_version');
-    },
+    // Reachable only through [upgradeExecutor]; every other executor rejects a
+    // non-current file before drift's migrator runs. See SchemaMigrations for
+    // the procedure that adds a version. onDowngrade stays unset so drift's
+    // default (throw) applies.
+    onUpgrade: stepByStep(
+      from1To2: (m, schema) async {
+        await m.addColumn(
+          schema.conversationRows,
+          schema.conversationRows.chatModelProvider,
+        );
+        await m.addColumn(
+          schema.conversationRows,
+          schema.conversationRows.chatModelId,
+        );
+      },
+      // Purely additive; no data rewrite. message_rows.updated_at is nullable
+      // by design so no backfill is needed (null reads as "= timestamp").
+      from2To3: (m, schema) async {
+        await m.addColumn(
+          schema.conversationRows,
+          schema.conversationRows.extrasJson,
+        );
+        await m.addColumn(schema.messageRows, schema.messageRows.updatedAt);
+        await m.addColumn(schema.messageRows, schema.messageRows.senderId);
+        await m.addColumn(schema.messageRows, schema.messageRows.extrasJson);
+        await m.addColumn(schema.assetRows, schema.assetRows.extrasJson);
+        await m.createTable(schema.tombstoneRows);
+        await m.createTable(schema.extensionEntityRows);
+        // stepByStep does not create new indexes automatically.
+        await m.create(schema.idxExtensionEntitiesKindOrder);
+      },
+    ),
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON;');
       await customStatement('PRAGMA busy_timeout = 5000;');

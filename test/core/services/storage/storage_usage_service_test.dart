@@ -8,6 +8,8 @@ import 'package:sqlite3/sqlite3.dart';
 
 import 'package:Kelivo/core/database/app_database.dart';
 import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/database/database_installation_gate.dart';
+import 'package:Kelivo/core/services/backup/local_snapshot_schedule.dart';
 import 'package:Kelivo/core/services/backup/restore_workspace_lock.dart';
 import 'package:Kelivo/core/services/storage/storage_usage_service.dart';
 
@@ -236,6 +238,74 @@ void main() {
     );
   });
 
+  test(
+    'set-aside databases are listed, clearable, and not swept as reclaimable',
+    () async {
+      const prefix =
+          '${AppDatabase.databaseFileName}'
+          '${DatabaseInstallationGate.displacedDatabasePrefix}';
+      await _writeSizedFile(tempDir, '${prefix}0000000000000001', 96);
+      await _writeSizedFile(tempDir, '${prefix}0000000000000001-wal', 32);
+
+      final before = await StorageUsageService.computeReport();
+      final displaced = before.categories.singleWhere(
+        (category) =>
+            category.key == StorageUsageCategoryKey.displacedDatabases,
+      );
+      expect(displaced.stats.bytes, 128);
+      expect(displaced.stats.fileCount, 2);
+      expect(displaced.subcategories.single.id, 'displaced_databases');
+      // A copy can be the only surviving version of the user's data, so the
+      // "space you can reclaim" prompt must not offer to sweep it.
+      expect(before.clearable.bytes, 0);
+      expect(before.clearable.fileCount, 0);
+
+      await StorageUsageService.clearDisplacedDatabases();
+      final after = await StorageUsageService.computeReport();
+      expect(
+        after.categories.where(
+          (category) =>
+              category.key == StorageUsageCategoryKey.displacedDatabases,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test('local copies are accounted for on their own, not as "other"', () async {
+    final snapshots = Directory(
+      p.join(tempDir.path, LocalSnapshotPaths.directoryName),
+    );
+    await snapshots.create(recursive: true);
+    await _writeSizedFile(
+      snapshots,
+      LocalSnapshotPaths.fileNameFor(DateTime.utc(2026, 5, 1)),
+      512,
+    );
+    await _writeSizedFile(
+      snapshots,
+      '${LocalSnapshotPaths.fileNameFor(DateTime.utc(2026, 5, 1))}'
+      '${LocalSnapshotPaths.metadataSuffix}',
+      64,
+    );
+
+    final report = await StorageUsageService.computeReport();
+    final copies = report.categories.singleWhere(
+      (category) => category.key == StorageUsageCategoryKey.localSnapshots,
+    );
+
+    expect(copies.stats.bytes, 576);
+    expect(copies.stats.fileCount, 2);
+    expect(copies.subcategories.single.id, 'local_snapshots');
+    expect(copies.subcategories.single.path, snapshots.path);
+    // Restorable data is never offered up as space to reclaim.
+    expect(report.clearable.bytes, 0);
+    final other = report.categories.singleWhere(
+      (category) => category.key == StorageUsageCategoryKey.other,
+    );
+    expect(other.stats.bytes, 0);
+  });
+
   test('restore traces stay hidden while a restore run is active', () async {
     const runId = '0123456789abcdef0123456789abcdef';
     final workspace = Directory(
@@ -316,6 +386,114 @@ void main() {
         (sum, category) => sum + category.stats.bytes,
       ),
       report.totalBytes,
+    );
+  });
+
+  test('clearFonts deletes managed font files only', () async {
+    await _writeSizedFile(tempDir, p.join('fonts', 'Custom.ttf'), 40);
+    await _writeSizedFile(tempDir, p.join('fonts', 'nested', 'Extra.otf'), 12);
+    await _writeSizedFile(tempDir, 'settings.json', 8);
+    await _writeSizedFile(
+      tempDir,
+      p.join('asr_models', 'paraformer', 'model.int8.onnx'),
+      80,
+    );
+
+    await StorageUsageService.clearFonts();
+
+    expect(
+      await File(p.join(tempDir.path, 'fonts', 'Custom.ttf')).exists(),
+      isFalse,
+    );
+    expect(
+      await File(p.join(tempDir.path, 'fonts', 'nested', 'Extra.otf')).exists(),
+      isFalse,
+    );
+    expect(await File(p.join(tempDir.path, 'settings.json')).exists(), isTrue);
+    expect(
+      await File(
+        p.join(tempDir.path, 'asr_models', 'paraformer', 'model.int8.onnx'),
+      ).exists(),
+      isTrue,
+    );
+
+    final report = await StorageUsageService.computeReport();
+    final other = report.categories.singleWhere(
+      (category) => category.key == StorageUsageCategoryKey.other,
+    );
+    expect(
+      other.subcategories.where((subcategory) => subcategory.id == 'fonts'),
+      isEmpty,
+    );
+    expect(
+      other.subcategories
+          .singleWhere((subcategory) => subcategory.id == 'local_models')
+          .stats
+          .bytes,
+      80,
+    );
+  });
+
+  test('clearLocalModels deletes downloaded ASR models only', () async {
+    await _writeSizedFile(tempDir, p.join('fonts', 'Custom.ttf'), 40);
+    await _writeSizedFile(
+      tempDir,
+      p.join('asr_models', 'paraformer-zh-small-2024-03-09', 'model.int8.onnx'),
+      80,
+    );
+    await _writeSizedFile(
+      tempDir,
+      p.join('asr_models', '.downloads', 'partial.tar.bz2.part'),
+      16,
+    );
+    await _writeSizedFile(tempDir, 'settings.json', 8);
+
+    await StorageUsageService.clearLocalModels();
+
+    expect(
+      await File(
+        p.join(
+          tempDir.path,
+          'asr_models',
+          'paraformer-zh-small-2024-03-09',
+          'model.int8.onnx',
+        ),
+      ).exists(),
+      isFalse,
+    );
+    expect(
+      await File(
+        p.join(
+          tempDir.path,
+          'asr_models',
+          '.downloads',
+          'partial.tar.bz2.part',
+        ),
+      ).exists(),
+      isFalse,
+    );
+    expect(
+      await File(p.join(tempDir.path, 'fonts', 'Custom.ttf')).exists(),
+      isTrue,
+    );
+    expect(await File(p.join(tempDir.path, 'settings.json')).exists(), isTrue);
+
+    final report = await StorageUsageService.computeReport();
+    final other = report.categories.singleWhere(
+      (category) => category.key == StorageUsageCategoryKey.other,
+    );
+    expect(
+      other.subcategories.where(
+        (subcategory) => subcategory.id == 'local_models',
+      ),
+      isEmpty,
+    );
+    expect(
+      other.subcategories
+          .singleWhere((subcategory) => subcategory.id == 'fonts')
+          .stats
+          .bytes,
+      40,
     );
   });
 

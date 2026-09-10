@@ -12,12 +12,11 @@ import '../../theme/app_font_weights.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
 
 Future<void> showDesktopMcpJsonEditDialog(BuildContext context) async {
-  final cs = Theme.of(context).colorScheme;
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
     builder: (ctx) => Dialog(
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: const _DesktopMcpJsonEditDialog(),
@@ -141,6 +140,10 @@ class _DesktopMcpJsonEditDialogState extends State<_DesktopMcpJsonEditDialog> {
                     padding: const EdgeInsets.all(12),
                     child: TextField(
                       controller: _controller,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      smartDashesType: SmartDashesType.disabled,
+                      smartQuotesType: SmartQuotesType.disabled,
                       keyboardType: TextInputType.multiline,
                       maxLines: null,
                       style: TextStyle(

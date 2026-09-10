@@ -8,9 +8,11 @@ import 'dart:ui' as ui;
 
 import '../icons/lucide_adapter.dart' as lucide;
 import '../l10n/app_localizations.dart';
+import '../features/settings/pages/google_fonts_picker_page.dart';
 import '../theme/app_font_weights.dart';
 import '../theme/palettes.dart';
 import '../core/providers/settings_provider.dart';
+import '../core/services/chat/chat_service.dart';
 import '../core/providers/model_provider.dart';
 import '../core/services/logging/flutter_logger.dart';
 import '../core/services/model_override_resolver.dart';
@@ -47,7 +49,10 @@ import 'desktop_settings_navigation_bus.dart';
 import '../shared/widgets/snackbar.dart';
 import 'setting/default_model_pane.dart';
 import 'setting/search_services_pane.dart';
+import 'setting/tool_schemas_pane.dart';
 import 'setting/mcp_pane.dart';
+import 'setting/workspace_pane.dart';
+import 'setting/skills_settings_pane.dart';
 import 'setting/tts_services_pane.dart';
 import 'setting/memory_settings_pane.dart';
 import 'setting/quick_phrases_pane.dart';
@@ -56,6 +61,7 @@ import 'setting/world_book_pane.dart';
 import 'setting/backup_pane.dart';
 import 'setting/hotkeys_pane.dart';
 import 'setting/network_proxy_pane.dart';
+import 'setting/auto_retry_pane.dart';
 import 'setting/about_pane.dart';
 import 'setting/stats_pane.dart';
 import 'package:system_fonts/system_fonts.dart';
@@ -98,7 +104,10 @@ enum _SettingsMenuItem {
   providers,
   defaultModel,
   search,
+  toolSchemas,
   mcp,
+  workspace,
+  skills,
   quickPhrases,
   instructionInjection,
   worldBook,
@@ -212,8 +221,20 @@ class _DesktopSettingsPageState extends State<DesktopSettingsPage> {
                           return const DesktopSearchServicesPane(
                             key: ValueKey('search'),
                           );
+                        case _SettingsMenuItem.toolSchemas:
+                          return const DesktopToolSchemasPane(
+                            key: ValueKey('toolSchemas'),
+                          );
                         case _SettingsMenuItem.mcp:
                           return const DesktopMcpPane(key: ValueKey('mcp'));
+                        case _SettingsMenuItem.workspace:
+                          return const DesktopWorkspacePane(
+                            key: ValueKey('workspace'),
+                          );
+                        case _SettingsMenuItem.skills:
+                          return const DesktopSkillsSettingsPane(
+                            key: ValueKey('skills'),
+                          );
                         case _SettingsMenuItem.networkProxy:
                           return const DesktopNetworkProxyPane(
                             key: ValueKey('networkProxy'),
@@ -300,6 +321,16 @@ class _SettingsMenu extends StatelessWidget {
       (_SettingsMenuItem.search, lucide.Lucide.Earth, l10n.settingsPageSearch),
       (_SettingsMenuItem.mcp, lucide.Lucide.Terminal, l10n.settingsPageMcp),
       (
+        _SettingsMenuItem.workspace,
+        lucide.Lucide.FolderCode,
+        l10n.workspaceDeskMenuWorkspace,
+      ),
+      (
+        _SettingsMenuItem.skills,
+        lucide.Lucide.WandSparkles,
+        l10n.workspaceDeskMenuSkills,
+      ),
+      (
         _SettingsMenuItem.quickPhrases,
         lucide.Lucide.Zap,
         l10n.settingsPageQuickPhrase,
@@ -335,6 +366,11 @@ class _SettingsMenu extends StatelessWidget {
         _SettingsMenuItem.stats,
         lucide.Lucide.ChartColumnBig,
         l10n.settingsPageStatistics,
+      ),
+      (
+        _SettingsMenuItem.toolSchemas,
+        lucide.Lucide.Wrench,
+        l10n.toolSchemaSettingsPageTitle,
       ),
       (
         _SettingsMenuItem.about,

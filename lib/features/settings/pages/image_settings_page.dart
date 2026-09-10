@@ -9,7 +9,7 @@ import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/ios_switch.dart';
 import '../../../shared/widgets/ios_tactile.dart';
-import 'package:Kelivo/theme/app_semantic_colors.dart';
+import '../../../shared/widgets/section_card.dart';
 
 class ImageSettingsPage extends StatelessWidget {
   const ImageSettingsPage({super.key});
@@ -84,6 +84,20 @@ class ImageSettingsPage extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           _SettingsSection(
+            title: l10n.imageSettingsPageSendSectionTitle,
+            children: [
+              _ToggleRow(
+                title: l10n.imageSettingsPageMarkdownImageLinksTitle,
+                subtitle: l10n.imageSettingsPageMarkdownImageLinksSubtitle,
+                value: settings.sendMarkdownImageLinksAsImages,
+                onChanged: (value) => context
+                    .read<SettingsProvider>()
+                    .setSendMarkdownImageLinksAsImages(value),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          _SettingsSection(
             title: l10n.imageSettingsPageQualitySectionTitle,
             footer: l10n.imageSettingsPageFooter,
             children: qualityRows,
@@ -107,10 +121,7 @@ class _SettingsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final bg = context.appColors.surfaceCard;
+    final cs = Theme.of(context).colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -126,16 +137,8 @@ class _SettingsSection extends StatelessWidget {
             ),
           ),
         ),
-        Container(
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-              width: 0.6,
-            ),
-          ),
-          clipBehavior: Clip.antiAlias,
+        SectionCard(
+          padding: EdgeInsets.zero,
           child: Column(
             children: [
               for (var i = 0; i < children.length; i++) ...[

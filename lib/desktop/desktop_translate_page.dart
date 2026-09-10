@@ -9,6 +9,7 @@ import '../icons/lucide_adapter.dart' as lucide;
 import '../l10n/app_localizations.dart';
 import '../utils/brand_assets.dart';
 import '../core/providers/settings_provider.dart';
+import '../theme/app_semantic_colors.dart';
 import '../core/providers/assistant_provider.dart';
 import '../core/services/api/chat_api_service.dart';
 import '../core/services/api/stream/stream_chunk.dart';
@@ -35,6 +36,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
 
   StreamSubscription? _subscription;
   bool _translating = false;
+  late final String _requestId = 'desktop-translate-${identityHashCode(this)}';
 
   @override
   void initState() {
@@ -45,6 +47,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
 
   @override
   void dispose() {
+    ChatApiService.cancelRequest(_requestId);
     _subscription?.cancel();
     _source.dispose();
     _output.dispose();
@@ -178,6 +181,8 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
         thinkingBudget: settings.translateGenerationThinkingBudgetFor(
           context.read<AssistantProvider>().currentAssistant?.thinkingBudget,
         ),
+        requestId: _requestId,
+        parseMarkdownImageLinks: settings.sendMarkdownImageLinksAsImages,
       );
 
       _subscription = stream.listen(
@@ -217,6 +222,7 @@ class _DesktopTranslatePageState extends State<DesktopTranslatePage> {
   }
 
   Future<void> _stopTranslate() async {
+    ChatApiService.cancelRequest(_requestId);
     try {
       await _subscription?.cancel();
     } catch (_) {}
@@ -440,13 +446,7 @@ class _LanguageDropdownState extends State<_LanguageDropdown> {
 
     _entry = OverlayEntry(
       builder: (ctx) {
-        final usePure = Provider.of<SettingsProvider>(
-          ctx,
-          listen: false,
-        ).usePureBackground;
-        final bgColor = usePure
-            ? Theme.of(ctx).colorScheme.surface
-            : (Theme.of(context).colorScheme.surfaceContainerHigh);
+        final bgColor = ctx.appColors.surfaceCard;
 
         return Stack(
           children: [

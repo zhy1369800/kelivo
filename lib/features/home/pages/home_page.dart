@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'dart:io' show File, Platform;
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:provider/provider.dart';
 import '../../../l10n/app_localizations.dart';
@@ -23,25 +24,30 @@ import '../../../core/models/chat_input_data.dart';
 import '../../../core/models/chat_message.dart';
 import '../../../core/models/compress_context_options.dart';
 import '../../../core/services/android_process_text.dart';
+import '../../../core/services/incoming_share_service.dart';
 import '../../../core/services/logging/flutter_logger.dart';
-import '../../../utils/sandbox_path_resolver.dart';
 import '../../../utils/platform_utils.dart';
 import '../../../desktop/search_provider_popover.dart';
 import '../../../desktop/reasoning_budget_popover.dart';
-import '../../../desktop/mcp_servers_popover.dart';
+import '../../../desktop/tools_popover.dart';
+import '../../../desktop/workspace_dialog.dart';
+import '../../../desktop/skills_popover.dart';
 import '../../../desktop/mini_map_popover.dart';
 import '../../../desktop/quick_phrase_popover.dart';
 import '../../../desktop/instruction_injection_popover.dart';
 import '../../../desktop/world_book_popover.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../chat/widgets/bottom_tools_sheet.dart';
+import '../../chat/widgets/chat_tools_sheet.dart';
+import '../../chat/utils/ensure_conversation.dart';
 import '../../chat/widgets/context_management_sheet.dart';
 import '../../chat/widgets/reasoning_budget_sheet.dart';
 import '../../search/widgets/search_settings_sheet.dart';
+import '../../chat/widgets/frosted/chat_frosted_backdrop.dart';
+import '../../chat/widgets/chat_assistant_background.dart';
 import '../../model/widgets/model_select_sheet.dart';
 import '../../mcp/pages/mcp_page.dart';
 import '../../provider/pages/providers_page.dart';
-import '../../assistant/widgets/mcp_assistant_sheet.dart';
 import '../../quick_phrase/pages/quick_phrases_page.dart';
 import '../../quick_phrase/widgets/quick_phrase_menu.dart';
 import '../widgets/chat_input_bar.dart';
@@ -698,7 +704,6 @@ class _HomePageState extends State<HomePage>
   scroll_ctrl.ChatAutoFollowScrollController _scrollController =
       scroll_ctrl.ChatAutoFollowScrollController();
   String? _scrollConversationId;
-  final BackdropKey _messageListBackdropKey = BackdropKey();
   final GlobalKey _inputBarKey = GlobalKey();
   final GlobalKey _selectionMiniMapKey = GlobalKey();
   final GlobalKey _selectionActionBarKey = GlobalKey();
@@ -706,6 +711,10 @@ class _HomePageState extends State<HomePage>
   double _lastViewInsetBottom = 0;
   StreamSubscription<String>? _processTextSub;
   VoiceChatController? _voiceChatController;
+  IncomingShareService? _incomingShares;
+  late final Future<void> _chatReady;
+  bool _readingIncomingShares = false;
+  bool _incomingShareChanged = false;
 
   // ============================================================================
   // Page Controller (manages all business logic and state)
@@ -738,8 +747,9 @@ class _HomePageState extends State<HomePage>
     _controller.addListener(_onControllerChanged);
     _drawerController.addListener(_onDrawerValueChanged);
 
-    _controller.initChat();
+    _chatReady = _controller.initChat();
     _initProcessText();
+    _initIncomingShares();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
@@ -763,6 +773,7 @@ class _HomePageState extends State<HomePage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _controller.onAppLifecycleStateChanged(state);
+    if (state == AppLifecycleState.resumed) _readIncomingShares();
   }
 
   @override
@@ -791,6 +802,7 @@ class _HomePageState extends State<HomePage>
       WidgetsBinding.instance.removeObserver(this);
     } catch (_) {}
     _processTextSub?.cancel();
+    _incomingShares?.dispose();
     _controller.removeListener(_onControllerChanged);
     _drawerController.removeListener(_onDrawerValueChanged);
     _inputFocus.dispose();
@@ -836,6 +848,84 @@ class _HomePageState extends State<HomePage>
     });
   }
 
+  void _initIncomingShares() {
+    if (!PlatformUtils.isMobile) return;
+    _incomingShares = IncomingShareService()
+      ..listen(
+        onChanged: _readIncomingShares,
+        onFailed: _showIncomingShareFailure,
+      );
+    _incomingShares!.progress.addListener(() {
+      _mediaController.shareImport.value = _incomingShares!.progress.value;
+    });
+    _mediaController.cancelShareImport = () =>
+        unawaited(_incomingShares!.cancelImport());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _readIncomingShares());
+  }
+
+  void _showIncomingShareFailure() {
+    if (!mounted) return;
+    showAppSnackBar(
+      context,
+      message: AppLocalizations.of(context)!.incomingShareFailed,
+      type: NotificationType.error,
+    );
+  }
+
+  Future<void> _readIncomingShares() async {
+    final service = _incomingShares;
+    if (service == null || !mounted) return;
+    _incomingShareChanged = true;
+    if (_readingIncomingShares) return;
+    _readingIncomingShares = true;
+    try {
+      await _chatReady;
+      while (mounted && _incomingShareChanged) {
+        _incomingShareChanged = false;
+        final shares = await service.pending();
+        if (!mounted || shares.isEmpty) continue;
+        final hasContent = shares.any(
+          (share) => share.text.trim().isNotEmpty || share.files.isNotEmpty,
+        );
+        if (hasContent) {
+          final homeRoute = ModalRoute.of(context);
+          Navigator.of(
+            context,
+          ).popUntil((route) => route == homeRoute || route.isFirst);
+          _drawerController.close();
+          await WidgetsBinding.instance.endOfFrame;
+          if (!mounted) return;
+          final ChatInputData input;
+          try {
+            input = await service.prepare(shares);
+          } on ShareImportCancelled {
+            await service.acknowledge(shares);
+            continue;
+          }
+          var accepted = false;
+          try {
+            if (!mounted) return;
+            // Check the current draft at delivery time: preparing a large
+            // attachment may take long enough for the user to keep typing.
+            accepted = await _controller.acceptIncomingShareDraft(input);
+          } finally {
+            if (!accepted) await service.discardPrepared(input);
+          }
+        }
+        if (shares.any((share) => share.failedFiles > 0)) {
+          _showIncomingShareFailure();
+        }
+        await service.acknowledge(shares);
+      }
+    } on MissingPluginException {
+      // The desktop/test host does not have a mobile incoming-share inbox.
+    } catch (_) {
+      _showIncomingShareFailure();
+    } finally {
+      _readingIncomingShares = false;
+    }
+  }
+
   void _handleProcessText(String text) {
     if (!mounted) return;
     final trimmed = text.trim();
@@ -875,7 +965,11 @@ class _HomePageState extends State<HomePage>
     final settings = context.watch<SettingsProvider>();
     final assistant = context.watch<AssistantProvider>().currentAssistant;
 
-    final modelInfo = getModelDisplayInfo(settings, assistant: assistant);
+    final modelInfo = getModelDisplayInfo(
+      settings,
+      conversation: _controller.currentConversation,
+      assistant: assistant,
+    );
 
     final title = _controller.isTemporaryConversation
         ? AppLocalizations.of(context)!.temporaryChatTitle
@@ -943,7 +1037,8 @@ class _HomePageState extends State<HomePage>
       canToggleTemporaryConversation:
           _controller.canToggleTemporaryConversation,
       temporaryConversationEnabled: _controller.isTemporaryConversation,
-      onSelectModel: () => showModelSelectSheet(context),
+      onSelectModel: () =>
+          showModelSelectSheet(context, controller: _controller),
       globalSearchMode: _controller.isGlobalSearchMode,
       globalSearchQuery: _controller.globalSearchQuery,
       onGlobalSearchQueryChanged: _controller.setGlobalSearchQuery,
@@ -981,7 +1076,7 @@ class _HomePageState extends State<HomePage>
       // (MobileBackgroundLayer); painting it again inside the body would only
       // duplicate it in a box that shrinks with the keyboard.
       topBackground: backgroundImageActive
-          ? _buildChatBackground(context, cs)
+          ? const ChatAssistantBackground(expand: false, pinnedToBackdrop: true)
           : null,
       backgroundImageActive: backgroundImageActive,
       content: Builder(
@@ -1080,7 +1175,8 @@ class _HomePageState extends State<HomePage>
       onGlobalSearchQueryChanged: _controller.setGlobalSearchQuery,
       onOpenGlobalSearchResult: (convId, msgId) => _controller
           .openGlobalSearchResult(conversationId: convId, messageId: msgId),
-      onSelectModel: () => showModelSelectSheet(context),
+      onSelectModel: () =>
+          showModelSelectSheet(context, controller: _controller),
       onSidebarWidthChanged: _controller.updateSidebarWidth,
       onSidebarWidthChangeEnd: _controller.saveSidebarWidth,
       onRightSidebarWidthChanged: _controller.updateRightSidebarWidth,
@@ -1178,7 +1274,12 @@ class _HomePageState extends State<HomePage>
     return ChatInputOverlayLayout(
       topInset: _chatTopOverlayInset(context),
       topBackground: backgroundImageActive
-          ? _buildAssistantBackground(context)
+          ? const ChatAssistantBackground(
+              desktop: true,
+              includeSurfaceFill: true,
+              applyMaskStrength: false,
+              pinnedToBackdrop: true,
+            )
           : null,
       backgroundImageActive: backgroundImageActive,
       content: GestureDetector(
@@ -1245,125 +1346,16 @@ class _HomePageState extends State<HomePage>
   // UI Component Builders
   // ============================================================================
 
-  Widget _buildChatBackground(BuildContext context, ColorScheme cs) {
-    return Builder(
-      builder: (context) {
-        final bg = context
-            .watch<AssistantProvider>()
-            .currentAssistant
-            ?.background;
-        final maskStrength = context
-            .watch<SettingsProvider>()
-            .chatBackgroundMaskStrength;
-        if (bg == null || bg.trim().isEmpty) return const SizedBox.shrink();
-        ImageProvider provider;
-        if (bg.startsWith('http')) {
-          provider = NetworkImage(bg);
-        } else {
-          final localPath = SandboxPathResolver.fix(bg);
-          final file = File(localPath);
-          if (!file.existsSync()) return const SizedBox.shrink();
-          provider = FileImage(file);
-        }
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  image: DecorationImage(
-                    image: provider,
-                    fit: BoxFit.cover,
-                    colorFilter: ColorFilter.mode(
-                      cs.shadow.withValues(alpha: 0.04),
-                      BlendMode.srcATop,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: () {
-                        final top = (0.20 * maskStrength).clamp(0.0, 1.0);
-                        final bottom = (0.50 * maskStrength).clamp(0.0, 1.0);
-                        return [
-                          cs.surface.withValues(alpha: top),
-                          cs.surface.withValues(alpha: bottom),
-                        ];
-                      }(),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   Widget _buildAssistantBackground(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final assistant = context.watch<AssistantProvider>().currentAssistant;
-    final bgRaw = (assistant?.background ?? '').trim();
-    Widget? bg;
-    if (bgRaw.isNotEmpty) {
-      if (bgRaw.startsWith('http')) {
-        bg = Image.network(
-          bgRaw,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-        );
-      } else {
-        try {
-          final fixed = SandboxPathResolver.fix(bgRaw);
-          final f = File(fixed);
-          if (f.existsSync()) {
-            bg = Image(image: FileImage(f), fit: BoxFit.cover);
-          }
-        } catch (_) {}
-      }
-    }
-    return IgnorePointer(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          ColoredBox(color: cs.surface),
-          if (bg != null) Opacity(opacity: 0.9, child: bg),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  cs.surface.withValues(alpha: 0.08),
-                  cs.surface.withValues(alpha: 0.36),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+    return const ChatAssistantBackground(
+      desktop: true,
+      includeSurfaceFill: true,
+      applyMaskStrength: false,
     );
   }
 
   bool _assistantBackgroundActive(BuildContext context) {
-    final bgRaw =
-        (context.watch<AssistantProvider>().currentAssistant?.background ?? '')
-            .trim();
-    if (bgRaw.isEmpty) return false;
-    if (bgRaw.startsWith('http')) return true;
-    try {
-      final fixed = SandboxPathResolver.fix(bgRaw);
-      return File(fixed).existsSync();
-    } catch (_) {
-      return false;
-    }
+    return ChatBackdropSpec.resolve(context).active;
   }
 
   double _chatTopOverlayInset(BuildContext context) {
@@ -1385,111 +1377,122 @@ class _HomePageState extends State<HomePage>
     }
 
     final settings = context.watch<SettingsProvider>();
-    final suggestionsEnabled =
-        settings.suggestionModelProvider != null &&
-        settings.suggestionModelId != null;
+    final suggestionsEnabled = settings.isSuggestionGenerationEnabled;
     final assistant = context.watch<AssistantProvider>().currentAssistant;
-    return BackdropGroup(
-      backdropKey: _messageListBackdropKey,
-      child: MessageListView(
-        isProcessingFiles: _controller.isProcessingFiles,
-        scrollController: _scrollController,
-        listController: _controller.scrollCtrl.messageListController,
-        messages: _controller.chatController.collapsedMessages,
-        renderModels: _controller.chatController.messageRenderModels,
-        byGroup: _controller.chatController.groupedMessages,
-        versionSelections: _controller.versionSelections,
-        reasoning: _controller.reasoning,
-        reasoningSegments: _controller.reasoningSegments,
-        contentSplits: _controller.contentSplits,
-        toolParts: _controller.toolParts,
-        translations: _buildTranslationUiStates(),
-        selecting: _controller.selecting,
-        selectedItems: _controller.selectedItems,
-        suggestions: suggestionsEnabled
-            ? (_controller.currentConversation?.chatSuggestions ??
-                  const <String>[])
-            : const <String>[],
-        topContentPadding: topContentPadding,
-        bottomContentPadding: bottomContentPadding,
-        dividerPadding: dividerPadding,
-        streamingContentNotifier: _controller.streamingContentNotifier,
-        spotlightMessageId: _controller.spotlightMessageId,
-        spotlightToken: _controller.spotlightToken,
-        removingSlotIds: _controller.removingSlotIds,
-        hasMoreBefore: _controller.chatController.hasMoreBefore,
-        isLoadingWindow: _controller.isLoadingWindow,
-        onLoadMoreBefore: _controller.loadMoreBefore,
-        hasMoreAfter: _controller.chatController.hasMoreAfter,
-        onLoadMoreAfter: _controller.loadMoreAfter,
-        onUserScrollIntent: _controller.scrollCtrl.handleUserScrollIntent,
-        chatFontScale: settings.chatFontScale,
-        collapseThinking: settings.autoCollapseThinking,
-        showThinkingCards: settings.showThinkingCards,
-        showToolCards: settings.showToolCards,
-        collapsedCodeLines: settings.autoCollapseCodeBlock
-            ? settings.autoCollapseCodeBlockLines
-            : null,
-        // Mirrors the wrap decision in the code block renderer.
-        wrapCodeBlocks:
-            Platform.isMacOS ||
-            Platform.isWindows ||
-            Platform.isLinux ||
-            settings.mobileCodeBlockWrap,
-        showModelIcon: settings.showModelIcon,
-        showUserAvatar: settings.showUserAvatar,
-        showTokenStats: settings.showTokenStats,
-        assistant: assistant,
-        onVersionChange: (groupId, version) async {
-          await _controller.setSelectedVersion(groupId, version);
-        },
-        onRegenerateMessage: (message) =>
-            _controller.regenerateAtMessage(message),
-        onResendMessage: (message) => _controller.regenerateAtMessage(message),
-        onTranslateMessage: (message) => _controller.translateMessage(message),
-        onEditMessage: (message) => _controller.editMessage(message),
-        onDeleteMessage: (message, byGroup) =>
-            _handleDeleteMessage(context, message, byGroup),
-        onDeleteAllVersions: (message, byGroup) => _handleDeleteMessage(
-          context,
-          message,
-          byGroup,
-          deleteAllVersions: true,
-        ),
-        onForkConversation: _controller.isTemporaryConversation
-            ? null
-            : (message) => _controller.forkConversation(message),
-        onShareMessage: (index, messages) =>
-            _controller.shareMessage(index, messages),
-        onSelectMessages: (index, messages) =>
-            _controller.startMessageSelection(
-              messageIndex: index,
-              messageList: messages,
-              mode: ChatSelectionMode.delete,
-            ),
-        onSpeakMessage: (message) => _controller.speakMessage(message),
-        onSuggestionTap: (suggestion) => _controller.sendSuggestion(suggestion),
-        onRecoveredAskUserAnswer: (message, part, result) =>
-            _controller.submitRecoveredAskUserAnswer(message, part, result),
-        onToggleSelection: (messageId, selected) {
-          _controller.toggleSelection(messageId, selected);
-        },
-        onToggleReasoning: (messageId) {
-          _controller.toggleReasoning(messageId);
-        },
-        onToggleTranslation: (messageId) {
-          _controller.toggleTranslation(messageId);
-        },
-        onToggleReasoningSegment: (messageId, segmentIndex) {
-          _controller.toggleReasoningSegment(messageId, segmentIndex);
-        },
+    return MessageListView(
+      processingFilesMessageId: _controller.processingFilesMessageId,
+      scrollController: _scrollController,
+      listController: _controller.scrollCtrl.messageListController,
+      messages: _controller.chatController.collapsedMessages,
+      renderModels: _controller.chatController.messageRenderModels,
+      byGroup: _controller.chatController.groupedMessages,
+      versionSelections: _controller.versionSelections,
+      reasoning: _controller.reasoning,
+      reasoningSegments: _controller.reasoningSegments,
+      contentSplits: _controller.contentSplits,
+      toolParts: _controller.toolParts,
+      translations: _buildTranslationUiStates(),
+      selecting: _controller.selecting,
+      selectedItems: _controller.selectedItems,
+      suggestions: suggestionsEnabled
+          ? (_controller.currentConversation?.chatSuggestions ??
+                const <String>[])
+          : const <String>[],
+      topContentPadding: topContentPadding,
+      bottomContentPadding: bottomContentPadding,
+      dividerPadding: dividerPadding,
+      streamingContentNotifier: _controller.streamingContentNotifier,
+      spotlightMessageId: _controller.spotlightMessageId,
+      spotlightToken: _controller.spotlightToken,
+      removingSlotIds: _controller.removingSlotIds,
+      hasMoreBefore: _controller.chatController.hasMoreBefore,
+      isLoadingWindow: _controller.isLoadingWindow,
+      onLoadMoreBefore: _controller.loadMoreBefore,
+      hasMoreAfter: _controller.chatController.hasMoreAfter,
+      onLoadMoreAfter: _controller.loadMoreAfter,
+      onUserScrollIntent: _controller.scrollCtrl.handleUserScrollIntent,
+      chatFontScale: settings.chatFontScale,
+      collapseThinking: settings.autoCollapseThinking,
+      collapseThinkingSteps: settings.collapseThinkingSteps,
+      showThinkingCards: settings.showThinkingCards,
+      showToolCards: settings.showToolCards,
+      showProducedFiles: settings.showProducedFiles,
+      showToolResultSummary: settings.showToolResultSummary,
+      hideToolResultImages: settings.hideToolResultImages,
+      collapsedCodeLines: settings.autoCollapseCodeBlock
+          ? settings.autoCollapseCodeBlockLines
+          : null,
+      // Mirrors the wrap decision in the code block renderer.
+      wrapCodeBlocks:
+          Platform.isMacOS ||
+          Platform.isWindows ||
+          Platform.isLinux ||
+          settings.mobileCodeBlockWrap,
+      showModelIcon: settings.showModelIcon,
+      showUserAvatar: settings.showUserAvatar,
+      showTokenStats: settings.showTokenStats,
+      assistant: assistant,
+      onVersionChange: (groupId, version) async {
+        await _controller.setSelectedVersion(groupId, version);
+      },
+      onRegenerateMessage: (message) =>
+          _controller.regenerateAtMessage(message),
+      onResendMessage: (message) => _controller.regenerateAtMessage(message),
+      onTranslateMessage: (message) => _controller.translateMessage(message),
+      onEditMessage: (message) => _controller.editMessage(message),
+      onDeleteMessage: (message, byGroup) =>
+          _handleDeleteMessage(context, message, byGroup),
+      onDeleteAllVersions: (message, byGroup) => _handleDeleteMessage(
+        context,
+        message,
+        byGroup,
+        deleteAllVersions: true,
       ),
+      onForkConversation: _controller.isTemporaryConversation
+          ? null
+          : (message) => _controller.forkConversation(message),
+      onShareMessage: (index, messages) =>
+          _controller.shareMessage(index, messages),
+      onSelectMessages: (index, messages) => _controller.startMessageSelection(
+        messageIndex: index,
+        messageList: messages,
+        mode: ChatSelectionMode.delete,
+      ),
+      onSpeakMessage: (message) => _controller.speakMessage(message),
+      onSuggestionTap: (suggestion) => _controller.sendSuggestion(suggestion),
+      onRecoveredAskUserAnswer: (message, part, result) =>
+          _controller.submitRecoveredAskUserAnswer(message, part, result),
+      onToggleSelection: (messageId, selected) {
+        _controller.toggleSelection(messageId, selected);
+      },
+      onToggleReasoning: (messageId) {
+        _controller.toggleReasoning(messageId);
+      },
+      onToggleTranslation: (messageId) {
+        _controller.toggleTranslation(messageId);
+      },
+      onToggleReasoningSegment: (messageId, segmentIndex) {
+        _controller.toggleReasoningSegment(messageId, segmentIndex);
+      },
     );
   }
 
   Widget _buildChatInputBar(BuildContext context, {required bool isTablet}) {
+    final conversation = _controller.currentConversation;
+    final settings = context.watch<SettingsProvider>();
+    final chatModel = resolveChatModel(
+      settings,
+      conversation: conversation,
+      assistant: context.watch<AssistantProvider>().currentAssistant,
+    );
     return ChatInputSection(
       inputBarKey: _inputBarKey,
+      chatModelProviderKey: chatModel.providerKey,
+      chatModelId: chatModel.modelId,
+      chatModelIsConversationOverride:
+          settings.perChatModelEnabled &&
+          conversation?.chatModelProvider != null &&
+          conversation?.chatModelId != null,
       inputFocus: _inputFocus,
       inputController: _inputController,
       mediaController: _mediaController,
@@ -1503,27 +1506,60 @@ class _HomePageState extends State<HomePage>
           ? AppLocalizations.of(context)!.messageEditPageSaveAndSend
           : null,
       onMore: _toggleTools,
-      onSelectModel: () => showModelSelectSheet(context),
+      onSelectModel: () =>
+          showModelSelectSheet(context, controller: _controller),
       onLongPressSelectModel: () {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const ProvidersPage()));
       },
-      onOpenMcp: () {
+      onOpenWorkspace: () {
         final a = context.read<AssistantProvider>().currentAssistant;
-        if (a != null) {
-          if (PlatformUtils.isDesktop) {
-            showDesktopMcpServersPopover(
-              context,
-              anchorKey: _inputBarKey,
-              assistantId: a.id,
-            );
-          } else {
-            showAssistantMcpSheet(context, assistantId: a.id);
-          }
+        if (PlatformUtils.isDesktop) {
+          showDesktopWorkspaceDialog(
+            context,
+            conversationListenable: _controller,
+            conversationId: () => _controller.currentConversation?.id,
+            assistantId: a?.id,
+          );
+        } else {
+          _toggleTools();
         }
       },
-      onLongPressMcp: () {
+      onOpenSkills: () async {
+        final assistant = context.read<AssistantProvider>().currentAssistant;
+        final id = await ensureConversationId(
+          context,
+          conversationId: _controller.currentConversation?.id,
+          assistantId: assistant?.id,
+        );
+        if (id == null || !context.mounted) return;
+        await showDesktopSkillsPopover(
+          context,
+          anchorKey: _inputBarKey,
+          conversationId: id,
+          assistant: assistant,
+        );
+      },
+      onOpenTools: () {
+        final a = context.read<AssistantProvider>().currentAssistant;
+        if (a == null) return;
+        if (PlatformUtils.isDesktop) {
+          showDesktopToolsPopover(
+            context,
+            anchorKey: _inputBarKey,
+            assistantId: a.id,
+          );
+        } else {
+          _controller.dismissKeyboard();
+          showChatToolsSheet(
+            context,
+            assistantId: a.id,
+            conversationId: _controller.currentConversation?.id,
+          );
+        }
+      },
+      onLongPressTools: () {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const McpPage()));
@@ -1533,13 +1569,31 @@ class _HomePageState extends State<HomePage>
         final assistantProvider = context.read<AssistantProvider>();
         final settingsProvider = context.read<SettingsProvider>();
         final assistant = assistantProvider.currentAssistant;
-        if (assistant != null) {
+        if (assistant == null) return;
+        if (PlatformUtils.isDesktop) {
+          // Desktop popover keeps the legacy global-settings sync flow.
           if (assistant.thinkingBudget != null) {
             settingsProvider.setThinkingBudget(assistant.thinkingBudget);
           }
           await _openReasoningSettings();
           if (!mounted) return;
           final chosen = settingsProvider.thinkingBudget;
+          await assistantProvider.updateAssistant(
+            assistant.copyWith(thinkingBudget: chosen),
+          );
+          return;
+        }
+        // Mobile: seed the sheet via initialBudget instead of pre-writing
+        // global settings. setThinkingBudget notifies synchronously and would
+        // rebuild the home page (message list, input bar, drawer) on the
+        // first frames of the sheet's entrance animation, dropping frames.
+        int? chosen;
+        await _openReasoningSettings(
+          initialBudget: assistant.thinkingBudget,
+          onChanged: (v) => chosen = v,
+        );
+        if (!mounted) return;
+        if (chosen != null && chosen != assistant.thinkingBudget) {
           await assistantProvider.updateAssistant(
             assistant.copyWith(thinkingBudget: chosen),
           );
@@ -1835,19 +1889,53 @@ class _HomePageState extends State<HomePage>
   // Action Handlers (UI-specific, not in controller)
   // ============================================================================
 
+  /// The model this chat sends with: the conversation's own override first,
+  /// then the assistant's model, then the global default.
+  ({String? providerKey, String? modelId}) _resolvedChatModel() =>
+      resolveChatModel(
+        context.read<SettingsProvider>(),
+        conversation: _controller.currentConversation,
+        assistant: context.read<AssistantProvider>().currentAssistant,
+      );
+
   void _openSearchSettings() {
+    final model = _resolvedChatModel();
     if (PlatformUtils.isDesktop) {
-      showDesktopSearchProviderPopover(context, anchorKey: _inputBarKey);
+      showDesktopSearchProviderPopover(
+        context,
+        anchorKey: _inputBarKey,
+        chatModelProviderKey: model.providerKey,
+        chatModelId: model.modelId,
+      );
     } else {
-      showSearchSettingsSheet(context);
+      showSearchSettingsSheet(
+        context,
+        chatModelProviderKey: model.providerKey,
+        chatModelId: model.modelId,
+      );
     }
   }
 
-  Future<void> _openReasoningSettings() async {
+  Future<void> _openReasoningSettings({
+    int? initialBudget,
+    ValueChanged<int>? onChanged,
+  }) async {
+    final model = _resolvedChatModel();
     if (PlatformUtils.isDesktop) {
-      await showDesktopReasoningBudgetPopover(context, anchorKey: _inputBarKey);
+      await showDesktopReasoningBudgetPopover(
+        context,
+        anchorKey: _inputBarKey,
+        modelProvider: model.providerKey,
+        modelId: model.modelId,
+      );
     } else {
-      await showReasoningBudgetSheet(context);
+      await showReasoningBudgetSheet(
+        context,
+        modelProvider: model.providerKey,
+        modelId: model.modelId,
+        initialBudget: initialBudget,
+        onChanged: onChanged,
+      );
     }
   }
 
@@ -1899,48 +1987,53 @@ class _HomePageState extends State<HomePage>
 
   void _toggleTools() async {
     _controller.dismissKeyboard();
-    final cs = Theme.of(context).colorScheme;
     final assistantId = context.read<AssistantProvider>().currentAssistantId;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) {
-        return SafeArea(
-          top: false,
-          child: BottomToolsSheet(
-            onPhotos: () {
-              Navigator.of(ctx).maybePop();
-              _controller.onPickPhotos();
-            },
-            onCamera: () {
-              Navigator.of(ctx).maybePop();
-              _controller.onPickCamera();
-            },
-            onUpload: () {
-              Navigator.of(ctx).maybePop();
-              _controller.onPickFiles();
-            },
-            onClear: () async {
-              await Navigator.of(ctx).maybePop();
-              _showContextManagementSheet();
-            },
-            assistantId: assistantId,
-          ),
+        return ListenableBuilder(
+          listenable: _controller,
+          builder: (context, _) {
+            return SafeArea(
+              top: false,
+              child: BottomToolsSheet(
+                onPhotos: () {
+                  Navigator.of(ctx).maybePop();
+                  _controller.onPickPhotos();
+                },
+                onCamera: () {
+                  Navigator.of(ctx).maybePop();
+                  _controller.onPickCamera();
+                },
+                onUpload: () {
+                  Navigator.of(ctx).maybePop();
+                  _controller.onPickFiles();
+                },
+                onClear: () async {
+                  await Navigator.of(ctx).maybePop();
+                  _showContextManagementSheet();
+                },
+                assistantId: assistantId,
+                conversationId: _controller.currentConversation?.id,
+                onClose: () => Navigator.of(ctx).maybePop(),
+              ),
+            );
+          },
         );
       },
     );
   }
 
   void _showContextManagementSheet() async {
-    final cs = Theme.of(context).colorScheme;
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),

@@ -16,6 +16,7 @@ import 'package:Kelivo/core/database/business_preferences.dart';
 import 'package:Kelivo/core/database/business_repository.dart';
 import 'package:Kelivo/core/database/business_restore_service.dart';
 import 'package:Kelivo/core/database/chat_database_repository.dart';
+import 'package:Kelivo/core/database/schema_migrations.dart';
 import 'package:Kelivo/core/models/backup.dart';
 import 'package:Kelivo/core/models/chat_message.dart';
 import 'package:Kelivo/core/models/conversation.dart';
@@ -26,6 +27,7 @@ import 'package:Kelivo/core/providers/backup_provider.dart';
 import 'package:Kelivo/core/services/backup/backup_cancel_token.dart';
 import 'package:Kelivo/core/services/backup/backup_task_progress.dart';
 import 'package:Kelivo/core/services/backup/data_sync.dart';
+import 'package:Kelivo/core/services/backup/restore_previous_plan.dart';
 import 'package:Kelivo/core/services/backup/restore_receipt.dart';
 import 'package:Kelivo/core/services/backup/restore_startup_gate.dart';
 import 'package:Kelivo/core/services/chat/chat_service.dart';
@@ -164,7 +166,8 @@ _expectedPackedEntriesFromManifest(File zipFile) async {
     final manifestEntry = archive.findFile('manifest.json');
     expect(manifestEntry, isNotNull);
     final manifestBytes = manifestEntry!.readBytes()!;
-    final manifest = jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>;
+    final manifest =
+        jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>;
     final rawEntries = manifest['entries'] as Map;
     return {
       for (final entry in rawEntries.entries)
@@ -275,6 +278,13 @@ Future<File> _createSqliteBackupFixture({
   bool includeFiles = false,
   String? assetContent,
   Object? businessEntityRowIds,
+  int? schemaVersionOverride,
+  int? minimumReadableOverride,
+  Map<String, String> extraEntries = const {},
+  Map<String, Object> extraManifestFields = const {},
+  Map<String, Object> extraManifestDatabaseFields = const {},
+  int? formatVersionOverride,
+  int? minimumReadableFormatOverride,
 }) async {
   if (assetContent != null && !includeFiles) {
     throw ArgumentError.value(assetContent, 'assetContent');
@@ -336,11 +346,23 @@ Future<File> _createSqliteBackupFixture({
         'sha256': await _fileSha256(assetFile),
       },
   };
+  final extraFiles = <String, File>{};
+  for (final extra in extraEntries.entries) {
+    final file = File('${root.path}/${prefix}_extra_${extraFiles.length}.bin');
+    await file.writeAsString(extra.value, flush: true);
+    extraFiles[extra.key] = file;
+    entries[extra.key] = {
+      'bytes': await file.length(),
+      'sha256': await _fileSha256(file),
+    };
+  }
   final manifestFile = File('${root.path}/${prefix}_manifest.json');
   await manifestFile.writeAsString(
     jsonEncode({
       'format': 'kelivo-backup',
-      'formatVersion': 2,
+      'formatVersion': formatVersionOverride ?? 2,
+      if (minimumReadableFormatOverride != null)
+        'minimumReadableFormatVersion': minimumReadableFormatOverride,
       'payloadKind': 'sqlite',
       'createdAtUtc': '2026-07-09T00:00:00.000Z',
       'appVersion': '1.0.0-test+1',
@@ -349,9 +371,13 @@ Future<File> _createSqliteBackupFixture({
       'secretsIncluded': secretsIncluded,
       if (businessEntityRowIds != null)
         'businessEntityRowIds': businessEntityRowIds,
+      ...extraManifestFields,
       'database': {
+        ...extraManifestDatabaseFields,
         'entry': 'database/kelivo.db',
-        'schemaVersion': snapshotInfo.schemaVersion,
+        'schemaVersion': schemaVersionOverride ?? snapshotInfo.schemaVersion,
+        if (minimumReadableOverride != null)
+          SchemaMigrations.minimumReadableManifestKey: minimumReadableOverride,
         'conversationCount': snapshotInfo.conversationCount,
         'messageCount': snapshotInfo.messageCount,
       },
@@ -366,6 +392,9 @@ Future<File> _createSqliteBackupFixture({
   encoder.addFileSync(databaseFile, 'database/kelivo.db');
   if (assetFile != null) {
     encoder.addFileSync(assetFile, 'upload/fixture.txt');
+  }
+  for (final extra in extraFiles.entries) {
+    encoder.addFileSync(extra.value, extra.key);
   }
   encoder.closeSync();
   return zipFile;
@@ -410,6 +439,63 @@ void main() {
       await businessDatabase.close();
       if (await root.exists()) {
         await root.delete(recursive: true);
+      }
+    });
+
+    test('remapped conversations retain session output files', () async {
+      final fixture = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'review-remap',
+        settings: {},
+        includeFiles: true,
+        extraEntries: {
+          'sessions/fixture-conversation/outputs/report.txt': 'backup output',
+        },
+      );
+      final chat = ChatService();
+      await chat.init();
+      try {
+        await chat.restoreConversation(
+          Conversation(
+            id: 'fixture-conversation',
+            title: 'Different local conversation',
+          ),
+          [],
+        );
+        final local = File(
+          '${root.path}/sessions/fixture-conversation/outputs/report.txt',
+        );
+        await local.parent.create(recursive: true);
+        await local.writeAsString('local output');
+        final sync = DataSync(
+          businessRepository: businessRepository,
+          chatService: chat,
+        );
+        await sync.restoreFromLocalFile(
+          fixture,
+          const WebDavConfig(includeChats: true, includeFiles: true),
+          mode: RestoreMode.merge,
+        );
+        final newId = sync
+            .lastMergeReport!
+            .remappedConversationIds['fixture-conversation'];
+        expect(newId, isNotNull);
+        expect(
+          await File(
+            '${root.path}/sessions/fixture-conversation/outputs/report.txt',
+          ).readAsString(),
+          'local output',
+        );
+        expect(
+          await File(
+            '${root.path}/sessions/$newId/outputs/report.txt',
+          ).readAsString(),
+          'backup output',
+          reason:
+              'Imported conversation $newId must be able to open its outputs',
+        );
+      } finally {
+        await chat.close();
       }
     });
 
@@ -582,7 +668,9 @@ void main() {
           expectedEntries: expected,
         );
 
-        final mutated = Map<String, ({int bytes, String sha256})>.from(expected);
+        final mutated = Map<String, ({int bytes, String sha256})>.from(
+          expected,
+        );
         mutated['manifest.json'] = (
           bytes: expected['manifest.json']?.bytes ?? 1,
           sha256: '0' * 64,
@@ -607,10 +695,9 @@ void main() {
     test('export does not create a sibling extract directory', () async {
       final uploadDir = Directory('${root.path}/upload');
       await uploadDir.create(recursive: true);
-      await File('${uploadDir.path}/payload.bin').writeAsBytes(
-        List<int>.filled(32 * 1024, 5),
-        flush: true,
-      );
+      await File(
+        '${uploadDir.path}/payload.bin',
+      ).writeAsBytes(List<int>.filled(32 * 1024, 5), flush: true);
       final tmpDir = Directory('${root.path}/tmp');
       await tmpDir.create(recursive: true);
       final createdVerify = <String>[];
@@ -691,9 +778,9 @@ void main() {
     test('cancelling packing deletes the work directory', () async {
       final uploadDir = Directory('${root.path}/upload');
       await uploadDir.create(recursive: true);
-      await File('${uploadDir.path}/payload.bin').writeAsBytes(
-        List<int>.filled(2 * 1024 * 1024, 3),
-      );
+      await File(
+        '${uploadDir.path}/payload.bin',
+      ).writeAsBytes(List<int>.filled(2 * 1024 * 1024, 3));
 
       final token = BackupCancelToken();
       addTearDown(token.dispose);
@@ -765,7 +852,10 @@ void main() {
         ),
         throwsA(isA<BackupCancelledException>()),
       );
-      expect(events.map((event) => event.phase), contains(BackupPhase.verifying));
+      expect(
+        events.map((event) => event.phase),
+        contains(BackupPhase.verifying),
+      );
       final tmp = Directory('${root.path}/tmp');
       if (await tmp.exists()) {
         final leftovers = tmp
@@ -928,10 +1018,7 @@ void main() {
             .listSync(followLinks: false)
             .map((entity) => p.basename(entity.path))
             .toList();
-        expect(
-          leftovers.where((name) => name.startsWith('restore_')),
-          isEmpty,
-        );
+        expect(leftovers.where((name) => name.startsWith('restore_')), isEmpty);
       }
     });
 
@@ -1009,64 +1096,56 @@ void main() {
         final token = BackupCancelToken();
         addTearDown(token.dispose);
         final phases = <BackupPhase>[];
-        final future = DataSync(
-          businessRepository: businessRepository,
-          chatService: ChatService(),
-        ).listBackupFiles(
-          WebDavConfig(
-            url: 'http://${server.address.address}:${server.port}',
-            path: 'kelivo_backups',
-          ),
-          onProgress: (progress) => phases.add(progress.phase),
-          cancelToken: token,
-        );
+        final future =
+            DataSync(
+              businessRepository: businessRepository,
+              chatService: ChatService(),
+            ).listBackupFiles(
+              WebDavConfig(
+                url: 'http://${server.address.address}:${server.port}',
+                path: 'kelivo_backups',
+              ),
+              onProgress: (progress) => phases.add(progress.phase),
+              cancelToken: token,
+            );
         await Future<void>.delayed(const Duration(milliseconds: 40));
         token.cancel();
 
-        await expectLater(
-          future,
-          throwsA(isA<BackupCancelledException>()),
-        );
+        await expectLater(future, throwsA(isA<BackupCancelledException>()));
         expect(phases, contains(BackupPhase.listingRemote));
       },
     );
 
-    test(
-      'cancelling staging leaves no published restore receipt',
-      () async {
-        final zipFile = await _createSqliteBackupFixture(
-          root: root,
-          prefix: 'staging_cancel',
-          settings: const {},
-        );
-        final token = BackupCancelToken();
-        addTearDown(token.dispose);
-        final chatService = ChatService();
-        addTearDown(chatService.close);
+    test('cancelling staging leaves no published restore receipt', () async {
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'staging_cancel',
+        settings: const {},
+      );
+      final token = BackupCancelToken();
+      addTearDown(token.dispose);
+      final chatService = ChatService();
+      addTearDown(chatService.close);
 
-        await expectLater(
-          DataSync(
-            businessRepository: businessRepository,
-            chatService: chatService,
-          ).restoreFromLocalFile(
-            zipFile,
-            const WebDavConfig(includeChats: true, includeFiles: false),
-            onProgress: (progress) {
-              if (progress.phase == BackupPhase.stagingCandidate) {
-                token.cancel();
-              }
-            },
-            cancelToken: token,
-          ),
-          throwsA(isA<BackupCancelledException>()),
-        );
+      await expectLater(
+        DataSync(
+          businessRepository: businessRepository,
+          chatService: chatService,
+        ).restoreFromLocalFile(
+          zipFile,
+          const WebDavConfig(includeChats: true, includeFiles: false),
+          onProgress: (progress) {
+            if (progress.phase == BackupPhase.stagingCandidate) {
+              token.cancel();
+            }
+          },
+          cancelToken: token,
+        ),
+        throwsA(isA<BackupCancelledException>()),
+      );
 
-        expect(
-          await RestoreStartupGate.inspect(appDataDirectory: root),
-          isNull,
-        );
-      },
-    );
+      expect(await RestoreStartupGate.inspect(appDataDirectory: root), isNull);
+    });
 
     test(
       'normal backup includes credentials and declares that in manifest',
@@ -1590,6 +1669,334 @@ void main() {
       );
     });
 
+    test('ignores unknown archive entries from a newer build', () async {
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'forward_extra_entry',
+        settings: const {},
+        schemaVersionOverride: AppDatabase.currentSchemaVersion + 1,
+        extraEntries: const {
+          'future/thing.bin': 'something this build knows nothing about',
+        },
+      );
+      final chatService = ChatService();
+
+      await DataSync(
+        businessRepository: businessRepository,
+        chatService: chatService,
+      ).restoreFromLocalFile(
+        zipFile,
+        const WebDavConfig(includeChats: true, includeFiles: false),
+        allowUnverifiedForwardCompatible: true,
+      );
+
+      // Dropped from the staged candidate rather than carried into app data:
+      // the archive-level counterpart of the unknown tables and columns the
+      // database normalizer strips.
+      final runDirectory = await _singleRestoreRunDirectory(root);
+      final candidateManifest =
+          jsonDecode(
+                await File(
+                  '${runDirectory.path}/candidate/manifest.json',
+                ).readAsString(),
+              )
+              as Map<String, dynamic>;
+      expect(
+        (candidateManifest['entries'] as Map).keys,
+        isNot(contains('future/thing.bin')),
+      );
+      expect(await Directory('${root.path}/future').exists(), isFalse);
+    });
+
+    test('rejects unknown archive entries from a same-version build', () async {
+      // Nothing vouches for these, and no newer build wrote them: the archive
+      // is simply malformed.
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'same_version_extra_entry',
+        settings: const {},
+        extraEntries: const {'future/thing.bin': 'unexpected'},
+      );
+
+      await expectLater(
+        DataSync(
+          businessRepository: businessRepository,
+          chatService: ChatService(),
+        ).restoreFromLocalFile(
+          zipFile,
+          const WebDavConfig(includeChats: true, includeFiles: false),
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            'manifest_entry_scope:future/thing.bin',
+          ),
+        ),
+      );
+    });
+
+    test('ignores unknown manifest fields from a newer build', () async {
+      // The archive-entry counterpart is covered above; this is the metadata
+      // one. Every validator downstream is single-version -- RestoreBundleStaging
+      // checks the manifest's root key set exactly -- so an unrecognised field
+      // has to be dropped in the preflight or the restore fails after the user
+      // already consented to it.
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'forward_extra_manifest_field',
+        settings: const {},
+        schemaVersionOverride: AppDatabase.currentSchemaVersion + 1,
+        extraManifestFields: const {'futureTopLevel': 'ignored'},
+        extraManifestDatabaseFields: const {'codecVersion': 2},
+      );
+      final chatService = ChatService();
+
+      await DataSync(
+        businessRepository: businessRepository,
+        chatService: chatService,
+      ).restoreFromLocalFile(
+        zipFile,
+        const WebDavConfig(includeChats: true, includeFiles: false),
+        allowUnverifiedForwardCompatible: true,
+      );
+
+      final runDirectory = await _singleRestoreRunDirectory(root);
+      final candidateManifest =
+          jsonDecode(
+                await File(
+                  '${runDirectory.path}/candidate/manifest.json',
+                ).readAsString(),
+              )
+              as Map<String, dynamic>;
+      expect(candidateManifest.keys, isNot(contains('futureTopLevel')));
+      expect(
+        (candidateManifest['database'] as Map).keys,
+        isNot(contains('codecVersion')),
+      );
+    });
+
+    test('rejects unknown manifest fields from a same-version build', () async {
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'same_version_extra_manifest_field',
+        settings: const {},
+        extraManifestDatabaseFields: const {'codecVersion': 2},
+      );
+
+      await expectLater(
+        DataSync(
+          businessRepository: businessRepository,
+          chatService: ChatService(),
+        ).restoreFromLocalFile(
+          zipFile,
+          const WebDavConfig(includeChats: true, includeFiles: false),
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            'restore_staging_database',
+          ),
+        ),
+      );
+    });
+
+    test('accepts a newer archive format that vouches for this build', () async {
+      // The archive format and the database schema move independently: a newer
+      // build can add an ignorable directory without touching the schema at
+      // all. Keying tolerance to the schema alone would reject this.
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'forward_format_only',
+        settings: const {},
+        formatVersionOverride: 3,
+        minimumReadableFormatOverride: 2,
+        extraEntries: const {'stickers/future.bin': 'ignorable'},
+        extraManifestFields: const {'futureTopLevel': 'ignored'},
+      );
+      final chatService = ChatService();
+
+      await DataSync(
+        businessRepository: businessRepository,
+        chatService: chatService,
+      ).restoreFromLocalFile(
+        zipFile,
+        const WebDavConfig(includeChats: true, includeFiles: false),
+      );
+
+      final runDirectory = await _singleRestoreRunDirectory(root);
+      final candidateManifest =
+          jsonDecode(
+                await File(
+                  '${runDirectory.path}/candidate/manifest.json',
+                ).readAsString(),
+              )
+              as Map<String, dynamic>;
+      // Reduced to this build's format, so the staged candidate is an ordinary
+      // one that the single-version validators accept unchanged.
+      expect(candidateManifest['formatVersion'], 2);
+      expect(candidateManifest.keys, isNot(contains('futureTopLevel')));
+      expect(
+        candidateManifest.keys,
+        isNot(contains('minimumReadableFormatVersion')),
+      );
+      expect(
+        (candidateManifest['entries'] as Map).keys,
+        isNot(contains('stickers/future.bin')),
+      );
+      expect(await Directory('${root.path}/stickers').exists(), isFalse);
+    });
+
+    test('refuses a newer archive format that vouches for nothing', () async {
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'forward_format_undeclared',
+        settings: const {},
+        formatVersionOverride: 3,
+      );
+
+      await expectLater(
+        DataSync(
+          businessRepository: businessRepository,
+          chatService: ChatService(),
+        ).restoreFromLocalFile(
+          zipFile,
+          const WebDavConfig(includeChats: true, includeFiles: false),
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            'manifest_version',
+          ),
+        ),
+      );
+    });
+
+    test('refuses a newer archive format that demands a newer build', () async {
+      final zipFile = await _createSqliteBackupFixture(
+        root: root,
+        prefix: 'forward_format_too_new',
+        settings: const {},
+        formatVersionOverride: 3,
+        minimumReadableFormatOverride: 3,
+      );
+
+      await expectLater(
+        DataSync(
+          businessRepository: businessRepository,
+          chatService: ChatService(),
+        ).restoreFromLocalFile(
+          zipFile,
+          const WebDavConfig(includeChats: true, includeFiles: false),
+        ),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            'manifest_version',
+          ),
+        ),
+      );
+    });
+
+    test('every backup this build writes declares its readers', () async {
+      // Without this the whole mechanism is inert: a future build has nothing
+      // to check against and must refuse today's archives.
+      final zipFile =
+          await DataSync(
+            businessRepository: businessRepository,
+            chatService: ChatService(),
+          ).exportToFile(
+            const WebDavConfig(includeChats: false, includeFiles: false),
+          );
+      final archive = ZipDecoder().decodeBytes(await zipFile.readAsBytes());
+      final manifest =
+          jsonDecode(
+                utf8.decode(
+                  archive.findFile('manifest.json')!.content as List<int>,
+                ),
+              )
+              as Map<String, dynamic>;
+
+      expect(manifest['formatVersion'], 2);
+      expect(manifest['minimumReadableFormatVersion'], 2);
+      expect(
+        manifest['minimumReadableFormatVersion'],
+        lessThanOrEqualTo(manifest['formatVersion'] as int),
+        reason:
+            'declaring a minimum above our own version tells every future '
+            'build we are unreadable',
+      );
+    });
+
+    test('accepts a newer settings-only backup with unknown entries', () async {
+      // A settings-only backup carries no database block at all, so a
+      // schema-version comparison can never recognise it as newer. Only the
+      // archive format can.
+      final settingsFile = File('${root.path}/future_settings_only.json');
+      await settingsFile.writeAsString(
+        jsonEncode({'preserved_setting': 'imported'}),
+        flush: true,
+      );
+      final extraFile = File('${root.path}/future_settings_only_extra.bin');
+      await extraFile.writeAsString('ignorable', flush: true);
+      final manifestFile = File('${root.path}/future_settings_only_man.json');
+      await manifestFile.writeAsString(
+        jsonEncode({
+          'format': 'kelivo-backup',
+          'formatVersion': 3,
+          'minimumReadableFormatVersion': 2,
+          'payloadKind': 'settings-only',
+          'createdAtUtc': '2026-07-09T00:00:00.000Z',
+          'appVersion': 'future',
+          'includeChats': false,
+          'includeFiles': false,
+          'secretsIncluded': true,
+          'entries': {
+            'settings.json': {
+              'bytes': await settingsFile.length(),
+              'sha256': await _fileSha256(settingsFile),
+            },
+            'stickers/future.bin': {
+              'bytes': await extraFile.length(),
+              'sha256': await _fileSha256(extraFile),
+            },
+          },
+        }),
+        flush: true,
+      );
+      final zipFile = File('${root.path}/future_settings_only.zip');
+      final encoder = ZipFileEncoder();
+      encoder.create(zipFile.path);
+      encoder.addFileSync(manifestFile, 'manifest.json');
+      encoder.addFileSync(settingsFile, 'settings.json');
+      encoder.addFileSync(extraFile, 'stickers/future.bin');
+      encoder.closeSync();
+
+      await BusinessRestoreService(
+        businessRepository,
+      ).overwrite({'preserved_setting': 'local'});
+      final chatService = ChatService();
+      await chatService.init();
+      addTearDown(chatService.close);
+
+      await DataSync(
+        businessRepository: businessRepository,
+        chatService: chatService,
+      ).restoreFromLocalFile(
+        zipFile,
+        const WebDavConfig(includeChats: false, includeFiles: false),
+      );
+
+      final restored = await BusinessRestoreService(
+        businessRepository,
+      ).exportSettings();
+      expect(restored['preserved_setting'], 'imported');
+      expect(await Directory('${root.path}/stickers').exists(), isFalse);
+    });
+
     test('retains a prepared SQLite candidate under app data', () async {
       final zipFile = await _createSqliteBackupFixture(
         root: root,
@@ -1773,7 +2180,7 @@ void main() {
     );
 
     test('empty versioned asset roots clear old files on startup', () async {
-      for (final rootName in const ['upload', 'images', 'avatars', 'fonts']) {
+      for (final rootName in RestorePreviousAssetsPlan.rootNames) {
         final directory = Directory('${root.path}/$rootName');
         await directory.create(recursive: true);
         await File('${directory.path}/old.bin').writeAsBytes([1, 2, 3]);
@@ -1793,7 +2200,7 @@ void main() {
         const WebDavConfig(includeChats: true, includeFiles: true),
       );
 
-      for (final rootName in const ['upload', 'images', 'avatars', 'fonts']) {
+      for (final rootName in RestorePreviousAssetsPlan.rootNames) {
         expect(
           await File('${root.path}/$rootName/old.bin').exists(),
           isTrue,
@@ -1804,12 +2211,135 @@ void main() {
       final terminal = await _recoverAcrossColdRestart(appDataDirectory: root);
       expect(terminal?.state, RestoreReceiptState.committed);
 
-      for (final rootName in const ['upload', 'images', 'avatars', 'fonts']) {
+      for (final rootName in RestorePreviousAssetsPlan.rootNames) {
         final directory = Directory('${root.path}/$rootName');
         expect(await directory.exists(), isTrue, reason: rootName);
         expect(await directory.list().toList(), isEmpty, reason: rootName);
       }
     });
+
+    test(
+      'packs skills, workspaces, and sessions and excludes environment',
+      () async {
+        final nested = <String, List<int>>{
+          'skills/demo/SKILL.md': utf8.encode('# skill'),
+          'workspaces/ws1/files/note.txt': utf8.encode('workspace file'),
+          'sessions/conv1/attachments/a.bin': [1, 2, 3, 4],
+        };
+        for (final entry in nested.entries) {
+          final file = File(p.join(root.path, entry.key));
+          await file.parent.create(recursive: true);
+          await file.writeAsBytes(entry.value, flush: true);
+        }
+        final environmentFile = File(
+          p.join(root.path, 'environment', 'rootfs.img'),
+        );
+        await environmentFile.parent.create(recursive: true);
+        await environmentFile.writeAsBytes(
+          List<int>.filled(64 * 1024, 9),
+          flush: true,
+        );
+        final assetBytes = nested.values.fold<int>(
+          0,
+          (sum, bytes) => sum + bytes.length,
+        );
+
+        final events = <BackupProgress>[];
+        final backupFile =
+            await DataSync(
+              businessRepository: businessRepository,
+              chatService: ChatService(),
+            ).prepareBackupFile(
+              const WebDavConfig(includeChats: false, includeFiles: true),
+              onProgress: events.add,
+            );
+        addTearDown(() => DataSync.cleanupTemporaryBackupFile(backupFile));
+
+        final packing = events
+            .where(
+              (event) =>
+                  event.phase == BackupPhase.packing && event.total != null,
+            )
+            .toList();
+        expect(packing, isNotEmpty);
+        expect(packing.last.total, greaterThanOrEqualTo(assetBytes));
+        expect(packing.last.processed, packing.last.total);
+
+        final input = InputFileStream(backupFile.path);
+        Archive? archive;
+        try {
+          archive = ZipDecoder().decodeStream(input);
+          for (final name in nested.keys) {
+            expect(archive.findFile(name), isNotNull, reason: name);
+          }
+          expect(archive.findFile('environment/rootfs.img'), isNull);
+          final manifest =
+              jsonDecode(
+                    utf8.decode(
+                      archive.findFile('manifest.json')!.readBytes()!,
+                    ),
+                  )
+                  as Map<String, dynamic>;
+          final manifestEntries = manifest['entries'] as Map;
+          expect(manifestEntries.keys, containsAll(nested.keys));
+          expect(
+            manifestEntries.keys.any(
+              (name) => name.toString().startsWith('environment'),
+            ),
+            isFalse,
+          );
+        } finally {
+          archive?.clearSync();
+          input.closeSync();
+        }
+      },
+    );
+
+    test(
+      'restore recreates skills, workspaces, and sessions after startup',
+      () async {
+        final nested = <String, String>{
+          'skills/demo/SKILL.md': '# skill',
+          'workspaces/ws1/files/note.txt': 'workspace file',
+          'sessions/conv1/outputs/out.txt': 'session output',
+        };
+        final zipFile = await _createSqliteBackupFixture(
+          root: root,
+          prefix: 'new_asset_roots',
+          settings: const {},
+          includeFiles: true,
+          extraEntries: nested,
+        );
+
+        await DataSync(
+          businessRepository: businessRepository,
+          chatService: ChatService(),
+        ).restoreFromLocalFile(
+          zipFile,
+          const WebDavConfig(includeChats: true, includeFiles: true),
+        );
+
+        for (final path in nested.keys) {
+          expect(await File(p.join(root.path, path)).exists(), isFalse);
+        }
+
+        final terminal = await _recoverAcrossColdRestart(
+          appDataDirectory: root,
+        );
+        expect(terminal?.state, RestoreReceiptState.committed);
+
+        for (final entry in nested.entries) {
+          expect(
+            await File(p.join(root.path, entry.key)).readAsString(),
+            entry.value,
+          );
+        }
+        expect(
+          await Directory(p.join(root.path, 'environment')).exists(),
+          isFalse,
+        );
+      },
+    );
 
     test('retains every selected SQLite and asset component', () async {
       final zipFile = await _createSqliteBackupFixture(

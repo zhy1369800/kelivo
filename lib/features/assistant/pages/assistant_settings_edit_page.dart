@@ -20,6 +20,7 @@ import 'package:syncfusion_flutter_sliders/sliders.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../chat/widgets/chat_message_widget.dart';
+import '../../chat/widgets/chat_gradient_background.dart';
 import '../../home/widgets/assistant_avatar.dart';
 import '../../chat/widgets/reasoning_budget_sheet.dart';
 import '../../model/widgets/model_select_sheet.dart';
@@ -44,7 +45,9 @@ import '../../../core/services/haptics.dart';
 import '../../../desktop/desktop_context_menu.dart';
 import '../../../desktop/setting/memory_dialogs.dart';
 import '../../../desktop/widgets/desktop_select_dropdown.dart';
+import '../../home/services/local_tool_toggle.dart';
 import '../../home/services/local_tools_service.dart';
+import '../../../core/models/health_data_type.dart';
 import '../../../icons/lucide_adapter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/emoji_picker_dialog.dart';
@@ -62,9 +65,14 @@ import '../../../core/services/native_file_system_service.dart';
 import '../../../utils/sandbox_path_resolver.dart';
 import '../utils/assistant_edit_tab_layout.dart';
 import 'assistant_regex_tab.dart';
+import 'assistant_settings_edit_skills_tab.dart';
+import 'assistant_settings_edit_workspace_tab.dart';
+import 'health_data_settings_page.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
 
 part 'assistant_settings_edit_basic_tab.dart';
+part '../widgets/assistant_gradient_settings.dart';
 part 'assistant_settings_edit_prompt_tab.dart';
 part 'assistant_settings_edit_memory_tab.dart';
 part 'assistant_settings_edit_memory_tab_legacy.dart';
@@ -121,6 +129,12 @@ List<_AssistantEditTabSpec> _assistantEditTabSpecs(
       child: _LocalToolsTab(assistantId: assistantId),
     ),
     _AssistantEditTabSpec(
+      id: assistantEditTabSkills,
+      label: l10n.skillsTab,
+      icon: Lucide.WandSparkles,
+      child: AssistantSettingsEditSkillsTab(assistantId: assistantId),
+    ),
+    _AssistantEditTabSpec(
       id: assistantEditTabMcp,
       label: l10n.assistantEditPageMcpTab,
       icon: Lucide.Terminal,
@@ -143,6 +157,12 @@ List<_AssistantEditTabSpec> _assistantEditTabSpecs(
       label: l10n.assistantEditPageRegexTab,
       icon: Lucide.CaseSensitive,
       child: AssistantRegexTab(assistantId: assistantId),
+    ),
+    _AssistantEditTabSpec(
+      id: assistantEditTabWorkspace,
+      label: l10n.assistantEditPageWorkspaceTab,
+      icon: Lucide.FolderCode,
+      child: AssistantSettingsEditWorkspaceTab(assistantId: assistantId),
     ),
   ];
 }
@@ -424,7 +444,7 @@ class _AssistantDetailOutlinePage extends StatelessWidget {
       children: [
         _AssistantOutlineHeader(assistant: assistant, prompt: prompt),
         const SizedBox(height: 18),
-        _iosSectionCard(
+        SectionCard(
           children: [
             for (var i = 0; i < tabs.length; i++) ...[
               _AssistantOutlineItem(tab: tabs[i], assistantId: assistant.id),
@@ -451,7 +471,6 @@ class _AssistantOutlineHeader extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
     final name = assistant.name.trim().isNotEmpty
         ? assistant.name.trim()
         : l10n.assistantEditPageTitle;
@@ -461,10 +480,7 @@ class _AssistantOutlineHeader extends StatelessWidget {
       decoration: BoxDecoration(
         color: context.appColors.surfaceCard,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: cs.outlineVariant.withValues(alpha: isDark ? 0.1 : 0.08),
-          width: 0.7,
-        ),
+        border: Border.all(color: context.appColors.hairline, width: 0.7),
       ),
       child: Column(
         children: [
@@ -741,7 +757,7 @@ class _AssistantOutlineModeSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return _iosSectionCard(
+    return SectionCard(
       children: [
         _iosSwitchRow(
           context,
@@ -848,10 +864,46 @@ class _AssistantTabLayoutTile extends StatelessWidget {
   }
 }
 
-class _SegTabBar extends StatelessWidget {
+class _SegTabBar extends StatefulWidget {
   const _SegTabBar({required this.controller, required this.tabs});
   final TabController controller;
   final List<String> tabs;
+
+  @override
+  State<_SegTabBar> createState() => _SegTabBarState();
+}
+
+class _SegTabBarState extends State<_SegTabBar> {
+  final ScrollController _scroll = ScrollController();
+  bool _showStartFade = false;
+  bool _showEndFade = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_syncFades);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncFades());
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_syncFades);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _syncFades() {
+    if (!_scroll.hasClients) return;
+    final pos = _scroll.position;
+    final overflow = pos.maxScrollExtent > 0.5;
+    final showStart = overflow && pos.pixels > 0.5;
+    final showEnd = overflow && pos.pixels < pos.maxScrollExtent - 0.5;
+    if (showStart == _showStartFade && showEnd == _showEndFade) return;
+    setState(() {
+      _showStartFade = showStart;
+      _showEndFade = showEnd;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -870,13 +922,14 @@ class _SegTabBar extends StatelessWidget {
     )).toDouble();
 
     return AnimatedBuilder(
-      animation: controller.animation ?? controller,
+      animation: widget.controller.animation ?? widget.controller,
       builder: (context, _) {
         final rawIndex =
-            controller.animation?.value ?? controller.index.toDouble();
+            widget.controller.animation?.value ??
+            widget.controller.index.toDouble();
         final selectedIndex = visualAssistantEditTabIndex(
           animationValue: rawIndex,
-          tabCount: tabs.length,
+          tabCount: widget.tabs.length,
         );
 
         return LayoutBuilder(
@@ -885,22 +938,23 @@ class _SegTabBar extends StatelessWidget {
             final double innerAvailWidth = availWidth - innerPadding * 2;
             final double segWidth = math.max(
               minSegWidth,
-              (innerAvailWidth - gap * (tabs.length - 1)) / tabs.length,
+              (innerAvailWidth - gap * (widget.tabs.length - 1)) /
+                  widget.tabs.length,
             );
             final double rowWidth =
-                segWidth * tabs.length + gap * (tabs.length - 1);
+                segWidth * widget.tabs.length + gap * (widget.tabs.length - 1);
 
             final Color shellBg = context.appColors.surfaceCard; // 白底胶囊，无边框阴影
 
             List<Widget> children = [];
-            for (int index = 0; index < tabs.length; index++) {
+            for (int index = 0; index < widget.tabs.length; index++) {
               final bool selected = selectedIndex == index;
               children.add(
                 SizedBox(
                   width: segWidth,
                   height: double.infinity,
                   child: _TactileRow(
-                    onTap: () => controller.animateTo(index),
+                    onTap: () => widget.controller.animateTo(index),
                     builder: (pressed) {
                       // 背景不随按压变化：仅选中时有浅主题底色，未选中透明
                       final Color baseBg = selected
@@ -940,7 +994,7 @@ class _SegTabBar extends StatelessWidget {
                             curve: Curves.easeOutCubic,
                             builder: (context, color, _) {
                               return Text(
-                                tabs[index],
+                                widget.tabs[index],
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -956,7 +1010,7 @@ class _SegTabBar extends StatelessWidget {
                   ),
                 ),
               );
-              if (index != tabs.length - 1) {
+              if (index != widget.tabs.length - 1) {
                 children.add(const SizedBox(width: gap));
               }
             }
@@ -970,15 +1024,66 @@ class _SegTabBar extends StatelessWidget {
               clipBehavior: Clip.hardEdge,
               child: Padding(
                 padding: const EdgeInsets.all(innerPadding),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minWidth: innerAvailWidth),
-                    child: SizedBox(
-                      width: rowWidth,
-                      child: Row(children: children),
-                    ),
+                child: NotificationListener<ScrollMetricsNotification>(
+                  onNotification: (_) {
+                    _syncFades();
+                    return false;
+                  },
+                  child: Stack(
+                    children: [
+                      SingleChildScrollView(
+                        controller: _scroll,
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minWidth: innerAvailWidth,
+                          ),
+                          child: SizedBox(
+                            width: rowWidth,
+                            child: Row(children: children),
+                          ),
+                        ),
+                      ),
+                      if (_showStartFade)
+                        Positioned(
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 80,
+                          child: IgnorePointer(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    shellBg,
+                                    shellBg.withValues(alpha: 0),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (_showEndFade)
+                        Positioned(
+                          right: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 80,
+                          child: IgnorePointer(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    shellBg.withValues(alpha: 0),
+                                    shellBg,
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -1162,32 +1267,6 @@ class _TactileIconButtonState extends State<_TactileIconButton> {
       ),
     );
   }
-}
-
-Widget _iosSectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final cs = theme.colorScheme;
-      final isDark = theme.brightness == Brightness.dark;
-      final Color bg = context.appColors.surfaceCard;
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Column(children: children),
-        ),
-      );
-    },
-  );
 }
 
 Widget _iosDivider(BuildContext context) {
@@ -1454,7 +1533,7 @@ Widget _iosSwitchRow(
           ),
         ),
         if (tip != null) MemoryTipIcon(message: tip),
-        IosSwitch(value: value, onChanged: onChanged),
+        IosSwitch(value: value, onChanged: onChanged, semanticLabel: label),
       ],
     ),
   );
@@ -1558,10 +1637,12 @@ class _IosButtonState extends State<_IosButton> {
 // ===== Desktop Assistant Dialog (reuses mobile tabs) =====
 
 enum _AssistantDesktopMenu {
+  workspace,
   basic,
   prompts,
   memory,
   localTools,
+  skills,
   mcp,
   quick,
   custom,
@@ -1572,13 +1653,12 @@ Future<void> showAssistantDesktopDialog(
   BuildContext context, {
   required String assistantId,
 }) async {
-  final cs = Theme.of(context).colorScheme;
   await showDialog<void>(
     context: context,
     barrierDismissible: true,
     builder: (ctx) {
       return Dialog(
-        backgroundColor: cs.surface,
+        backgroundColor: context.overlaySurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -1662,6 +1742,11 @@ class _DesktopAssistantDialogShellState
                   switchInCurve: Curves.easeOutCubic,
                   child: () {
                     switch (_menu) {
+                      case _AssistantDesktopMenu.workspace:
+                        return AssistantSettingsEditWorkspaceTab(
+                          assistantId: widget.assistantId,
+                          key: const ValueKey('workspace'),
+                        );
                       case _AssistantDesktopMenu.basic:
                         return _DesktopAssistantBasicPane(
                           assistantId: widget.assistantId,
@@ -1673,6 +1758,10 @@ class _DesktopAssistantDialogShellState
                         return _MemoryTab(assistantId: widget.assistantId);
                       case _AssistantDesktopMenu.localTools:
                         return _LocalToolsTab(assistantId: widget.assistantId);
+                      case _AssistantDesktopMenu.skills:
+                        return AssistantSettingsEditSkillsTab(
+                          assistantId: widget.assistantId,
+                        );
                       case _AssistantDesktopMenu.mcp:
                         return _McpTab(assistantId: widget.assistantId);
                       case _AssistantDesktopMenu.quick:
@@ -1717,10 +1806,12 @@ class _DesktopAssistantMenuState extends State<_DesktopAssistantMenu> {
       (_AssistantDesktopMenu.prompts, l10n.assistantEditPagePromptsTab),
       (_AssistantDesktopMenu.memory, l10n.assistantEditPageMemoryTab),
       (_AssistantDesktopMenu.localTools, l10n.assistantEditPageLocalToolsTab),
+      (_AssistantDesktopMenu.skills, l10n.skillsTab),
       (_AssistantDesktopMenu.mcp, l10n.assistantEditPageMcpTab),
       (_AssistantDesktopMenu.quick, l10n.assistantEditPageQuickPhraseTab),
       (_AssistantDesktopMenu.custom, l10n.assistantEditPageCustomTab),
       (_AssistantDesktopMenu.regex, l10n.assistantEditPageRegexTab),
+      (_AssistantDesktopMenu.workspace, l10n.assistantEditPageWorkspaceTab),
     ];
     return SizedBox(
       width: 220,
@@ -2699,7 +2790,7 @@ class _DesktopAssistantBasicPaneState
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          backgroundColor: cs.surface,
+          backgroundColor: context.overlaySurface,
           title: Text(l10n.assistantEditImageUrlDialogTitle),
           content: TextField(
             controller: controller,
@@ -2803,7 +2894,7 @@ class _DesktopAssistantBasicPaneState
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              backgroundColor: cs.surface,
+              backgroundColor: context.overlaySurface,
               title: Text(l10n.assistantEditQQAvatarDialogTitle),
               content: TextField(
                 controller: controller,

@@ -46,6 +46,13 @@ void main() {
       LocalToolNames.speechRecognizer,
       LocalToolNames.speechSynthesizer,
       LocalToolNames.shortcutAutomation,
+      LocalToolNames.fileSystem,
+      LocalToolNames.currentLocation,
+      LocalToolNames.weather,
+      LocalToolNames.healthSummary,
+      LocalToolNames.remindersQuery,
+      LocalToolNames.remindersCreate,
+      LocalToolNames.remindersComplete,
     ]);
   });
 }

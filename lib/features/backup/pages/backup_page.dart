@@ -14,6 +14,7 @@ import '../../../core/database/business_preferences.dart';
 import '../../../core/database/business_repository.dart';
 import '../../../core/models/backup.dart';
 import '../../../core/providers/backup_provider.dart';
+import '../../../core/providers/local_snapshot_provider.dart';
 import '../../../core/providers/backup_reminder_provider.dart';
 import '../../../core/providers/s3_backup_provider.dart';
 import '../../../core/providers/settings_provider.dart';
@@ -21,6 +22,7 @@ import '../../../core/services/chat/chat_service.dart';
 import '../../../core/services/backup/backup_cancel_token.dart';
 import '../../../core/services/backup/data_sync.dart';
 import '../backup_task_runner.dart';
+import 'local_snapshots_page.dart';
 import '../widgets/backup_progress_dialog.dart';
 import '../../../core/services/native_file_save.dart';
 import '../../../shared/widgets/ios_switch.dart';
@@ -28,9 +30,12 @@ import '../../../shared/widgets/loading_dialog_card.dart';
 import '../../../core/services/backup/cherry_importer.dart';
 import '../../../core/services/backup/chatbox_importer.dart';
 import '../backup_restore_error_message.dart';
+import '../forward_compat_consent_dialog.dart';
 import '../backup_restart_dialog.dart';
 import '../widgets/backup_reminder_helpers.dart';
 import 'package:Kelivo/theme/app_semantic_colors.dart';
+import 'package:Kelivo/shared/widgets/section_card.dart';
+import '../../../core/database/startup_failure_report.dart' show formatBytes;
 
 // File size formatter (B, KB, MB, GB)
 String _fmtBytes(int bytes) {
@@ -75,7 +80,7 @@ class _BackupPageState extends State<BackupPage> {
     return showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: cs.surface,
+      backgroundColor: context.overlaySurface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -297,7 +302,7 @@ class _BackupPageState extends State<BackupPage> {
               children: [
                 // Section 1: 备份管理
                 header(l10n.backupPageBackupManagement, first: true),
-                _iosSectionCard(
+                SectionCard(
                   children: [
                     _iosSwitchRow(
                       context,
@@ -336,12 +341,15 @@ class _BackupPageState extends State<BackupPage> {
                 header(l10n.backupReminderSectionTitle),
                 const _BackupReminderMobileSection(),
 
+                header(l10n.localSnapshotSectionTitle),
+                const _LocalSnapshotMobileSection(),
+
                 // Section 2: 本地备份
                 ..._buildMobileLocalBackupSection(context, l10n, vm, header),
 
                 // Section 3: WebDAV备份
                 header(l10n.backupPageWebDavBackup),
-                _iosSectionCard(
+                SectionCard(
                   children: [
                     _iosNavRow(
                       context,
@@ -419,7 +427,7 @@ class _BackupPageState extends State<BackupPage> {
                               await showModalBottomSheet(
                                 context: context,
                                 isScrollControlled: true,
-                                backgroundColor: cs.surface,
+                                backgroundColor: context.overlaySurface,
                                 shape: const RoundedRectangleBorder(
                                   borderRadius: BorderRadius.vertical(
                                     top: Radius.circular(16),
@@ -518,7 +526,7 @@ class _BackupPageState extends State<BackupPage> {
                                       await showModalBottomSheet(
                                         context: context,
                                         isScrollControlled: true,
-                                        backgroundColor: cs.surface,
+                                        backgroundColor: context.overlaySurface,
                                         shape: const RoundedRectangleBorder(
                                           borderRadius: BorderRadius.vertical(
                                             top: Radius.circular(16),
@@ -637,11 +645,17 @@ class _BackupPageState extends State<BackupPage> {
                                                   item,
                                                   mode: mode,
                                                   onProgress: handle.report,
-                                                  cancelToken: handle.cancelToken,
+                                                  cancelToken:
+                                                      handle.cancelToken,
+                                                  onForwardCompatibility:
+                                                      forwardCompatibilityPrompt(
+                                                        context,
+                                                      ),
                                                 ),
                                               );
                                             } catch (e) {
-                                              if (e is BackupCancelledException) {
+                                              if (e
+                                                  is BackupCancelledException) {
                                                 return;
                                               }
                                               if (!context.mounted) return;
@@ -707,6 +721,10 @@ class _BackupPageState extends State<BackupPage> {
                                           mode: mode,
                                           onProgress: handle.report,
                                           cancelToken: handle.cancelToken,
+                                          onForwardCompatibility:
+                                              forwardCompatibilityPrompt(
+                                                context,
+                                              ),
                                         ),
                                       );
                                     } catch (e) {
@@ -783,7 +801,7 @@ class _BackupPageState extends State<BackupPage> {
 
                 // Section 3: S3 备份
                 header(l10n.backupPageS3Backup),
-                _iosSectionCard(
+                SectionCard(
                   children: [
                     _iosNavRow(
                       context,
@@ -857,7 +875,7 @@ class _BackupPageState extends State<BackupPage> {
                               await showModalBottomSheet(
                                 context: context,
                                 isScrollControlled: true,
-                                backgroundColor: cs.surface,
+                                backgroundColor: context.overlaySurface,
                                 shape: const RoundedRectangleBorder(
                                   borderRadius: BorderRadius.vertical(
                                     top: Radius.circular(16),
@@ -945,7 +963,7 @@ class _BackupPageState extends State<BackupPage> {
                                       await showModalBottomSheet(
                                         context: context,
                                         isScrollControlled: true,
-                                        backgroundColor: cs.surface,
+                                        backgroundColor: context.overlaySurface,
                                         shape: const RoundedRectangleBorder(
                                           borderRadius: BorderRadius.vertical(
                                             top: Radius.circular(16),
@@ -1059,15 +1077,23 @@ class _BackupPageState extends State<BackupPage> {
                                             try {
                                               await _runWithImportingOverlay(
                                                 context,
-                                                (handle) => s3Vm.restoreFromItem(
+                                                (
+                                                  handle,
+                                                ) => s3Vm.restoreFromItem(
                                                   item,
                                                   mode: mode,
                                                   onProgress: handle.report,
-                                                  cancelToken: handle.cancelToken,
+                                                  cancelToken:
+                                                      handle.cancelToken,
+                                                  onForwardCompatibility:
+                                                      forwardCompatibilityPrompt(
+                                                        context,
+                                                      ),
                                                 ),
                                               );
                                             } catch (e) {
-                                              if (e is BackupCancelledException) {
+                                              if (e
+                                                  is BackupCancelledException) {
                                                 return;
                                               }
                                               if (!context.mounted) return;
@@ -1132,6 +1158,10 @@ class _BackupPageState extends State<BackupPage> {
                                           mode: mode,
                                           onProgress: handle.report,
                                           cancelToken: handle.cancelToken,
+                                          onForwardCompatibility:
+                                              forwardCompatibilityPrompt(
+                                                context,
+                                              ),
                                         ),
                                       );
                                     } catch (e) {
@@ -1222,7 +1252,7 @@ class _BackupPageState extends State<BackupPage> {
   ) {
     return [
       header(l10n.backupPageLocalBackup),
-      _iosSectionCard(
+      SectionCard(
         children: [
           _iosNavRow(
             context,
@@ -1445,6 +1475,15 @@ class _BackupPageState extends State<BackupPage> {
     if (mode == null) return;
     if (!context.mounted) return;
 
+    // Settle the schema question before the progress dialog goes up.
+    final decision = await resolveForwardCompatibility(context, File(path));
+    if (!context.mounted) return;
+    if (decision == ForwardCompatDecision.cancelled) return;
+    if (decision == ForwardCompatDecision.unreadable) {
+      showAppSnackBar(context, message: l10n.backupPageSchemaTooNewMessage);
+      return;
+    }
+
     try {
       await _runWithImportingOverlay(
         context,
@@ -1453,6 +1492,8 @@ class _BackupPageState extends State<BackupPage> {
           mode: mode,
           onProgress: handle.report,
           cancelToken: handle.cancelToken,
+          allowUnverifiedForwardCompatible:
+              decision == ForwardCompatDecision.proceedUnverified,
         ),
       );
     } catch (error) {
@@ -1502,6 +1543,62 @@ class _BackupPageState extends State<BackupPage> {
   }
 }
 
+class _LocalSnapshotMobileSection extends StatelessWidget {
+  const _LocalSnapshotMobileSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final vm = context.watch<LocalSnapshotProvider>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SectionCard(
+          children: [
+            _iosSwitchRow(
+              context,
+              icon: Lucide.Shield,
+              label: l10n.localSnapshotEnabledTitle,
+              value: vm.settings.enabled,
+              onChanged: (value) => context
+                  .read<LocalSnapshotProvider>()
+                  .updateSettings(vm.settings.copyWith(enabled: value)),
+            ),
+            _iosDivider(context),
+            _iosNavRow(
+              context,
+              icon: Lucide.Database,
+              label: l10n.localSnapshotManageCopies,
+              detailText: l10n.localSnapshotUsage(
+                vm.copies.length,
+                formatBytes(vm.totalBytes),
+              ),
+              onTap: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(builder: (_) => const LocalSnapshotsPage()),
+              ),
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Text(
+            vm.settings.enabled
+                ? l10n.localSnapshotEnabledSubtitle
+                : l10n.localSnapshotCopiesScopeNote,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.45,
+              color: cs.onSurface.withValues(alpha: 0.55),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _BackupReminderMobileSection extends StatelessWidget {
   const _BackupReminderMobileSection();
 
@@ -1510,7 +1607,7 @@ class _BackupReminderMobileSection extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final reminder = context.watch<BackupReminderProvider>();
 
-    return _iosSectionCard(
+    return SectionCard(
       children: [
         _iosSwitchRow(
           context,
@@ -1601,7 +1698,7 @@ Future<void> _showBackupReminderFrequencySheet(BuildContext context) async {
   final provider = context.read<BackupReminderProvider>();
   final selected = await showModalBottomSheet<int>(
     context: context,
-    backgroundColor: Theme.of(context).colorScheme.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -1908,32 +2005,6 @@ class _SmallTactileIconState extends State<_SmallTactileIcon> {
       ),
     );
   }
-}
-
-Widget _iosSectionCard({required List<Widget> children}) {
-  return Builder(
-    builder: (context) {
-      final theme = Theme.of(context);
-      final cs = theme.colorScheme;
-      final isDark = theme.brightness == Brightness.dark;
-      final Color bg = context.appColors.surfaceCard;
-      return Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: isDark ? 0.08 : 0.06),
-            width: 0.6,
-          ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Column(children: children),
-        ),
-      );
-    },
-  );
 }
 
 Widget _iosDivider(BuildContext context) {
@@ -2470,7 +2541,7 @@ class _WebDavSettingsPageState extends State<_WebDavSettingsPage> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
-                  _iosSectionCard(
+                  SectionCard(
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
@@ -2648,7 +2719,7 @@ class _S3SettingsPageState extends State<_S3SettingsPage> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
-                  _iosSectionCard(
+                  SectionCard(
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),

@@ -67,7 +67,7 @@ Future<T?> showAppDialog<T>(
                     ),
                     child: DecoratedBox(
                       decoration: ShapeDecoration(
-                        color: cs.surface,
+                        color: ctx.overlaySurface,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                           side: BorderSide(
@@ -114,7 +114,7 @@ Future<T?> _showAppSheet<T>(
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: cs.surface,
+    backgroundColor: context.overlaySurface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
@@ -219,11 +219,15 @@ class AppDialogHeader extends StatelessWidget {
               ),
             ),
             ...?actions,
-            IosIconButton(
-              icon: Lucide.X,
-              size: 18,
-              color: cs.onSurface.withValues(alpha: 0.62),
-              onTap: () => Navigator.of(context).maybePop(),
+            Tooltip(
+              message: AppLocalizations.of(context)!.commonClose,
+              child: IosIconButton(
+                icon: Lucide.X,
+                size: 18,
+                color: cs.onSurface.withValues(alpha: 0.62),
+                semanticLabel: AppLocalizations.of(context)!.commonClose,
+                onTap: () => Navigator.of(context).maybePop(),
+              ),
             ),
           ],
         ),

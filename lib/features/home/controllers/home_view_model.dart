@@ -20,7 +20,9 @@ import '../../chat/widgets/chat_message_widget.dart' show ToolUIPart;
 import '../services/message_builder_service.dart';
 import '../services/message_generation_service.dart';
 import '../services/chat_suggestion_service.dart';
+import '../utils/model_display_helper.dart';
 import 'chat_actions.dart';
+import 'file_processing_indicator_controller.dart';
 import 'chat_controller.dart';
 import 'generation_controller.dart';
 import 'stream_controller.dart' as stream_ctrl;
@@ -169,8 +171,8 @@ class HomeViewModel extends ChangeNotifier {
   /// Called when streaming finishes (UI may show notification).
   void Function(String conversationId)? onStreamFinished;
 
-  /// Called when a successful assistant reply is finalized.
-  void Function(ChatMessage message)? onAssistantMessageFinished;
+  /// Completes once downstream work has taken over background execution.
+  FutureOr<void> Function(ChatMessage message)? onAssistantMessageFinished;
 
   /// Called to schedule inline image sanitization.
   void Function(String messageId, String content, {bool immediate})?
@@ -229,7 +231,13 @@ class HomeViewModel extends ChangeNotifier {
     return queued;
   }
 
-  final ValueNotifier<bool> isProcessingFiles = ValueNotifier<bool>(false);
+  final FileProcessingIndicatorController _fileProcessingIndicator =
+      FileProcessingIndicatorController();
+
+  /// Id of the assistant message whose attachments are being parsed, or null.
+  /// Scoped to a single message so the indicator never appears on every reply.
+  ValueNotifier<String?> get processingFilesMessageId =>
+      _fileProcessingIndicator.messageId;
 
   // ============================================================================
   // Internal Callbacks
@@ -302,8 +310,8 @@ class HomeViewModel extends ChangeNotifier {
     onStreamFinished?.call(conversationId);
   }
 
-  void _onAssistantMessageFinished(ChatMessage message) {
-    onAssistantMessageFinished?.call(message);
+  Future<void> _onAssistantMessageFinished(ChatMessage message) async {
+    await onAssistantMessageFinished?.call(message);
     _onMaybeOrganizeMemory(message.conversationId);
   }
 
@@ -336,13 +344,15 @@ class HomeViewModel extends ChangeNotifier {
     }
   }
 
-  void _onFileProcessingStarted() {
-    isProcessingFiles.value = true;
-  }
+  /// Drops the indicator immediately, ignoring the minimum-visible hold. Used
+  /// when the conversation the indicator belonged to is no longer on screen.
+  void resetFileProcessingIndicator() => _fileProcessingIndicator.reset();
 
-  void _onFileProcessingFinished() {
-    isProcessingFiles.value = false;
-  }
+  void _onFileProcessingStarted(String messageId) =>
+      _fileProcessingIndicator.start(messageId);
+
+  void _onFileProcessingFinished(String? messageId) =>
+      _fileProcessingIndicator.finish(messageId);
 
   // ============================================================================
   // Public Methods - Message Actions
@@ -410,24 +420,16 @@ class HomeViewModel extends ChangeNotifier {
 
     await _clearSuggestionsFor(conversation.id);
 
-    if (input.documents.isNotEmpty) {
-      isProcessingFiles.value = true;
-    }
-
     onHapticFeedback?.call();
 
+    // The indicator is raised by the generation itself, once the assistant
+    // message it belongs to exists — nothing to raise or leak here.
     final result = await _chatActions.sendMessage(
       input: input,
       conversation: conversation,
     );
 
     if (!result.success) {
-      // Clear the flag this call raised before any early return; the
-      // concurrent winner only clears the indicator when it has files of its
-      // own, so a loser with documents would otherwise leak it.
-      if (input.documents.isNotEmpty) {
-        isProcessingFiles.value = false;
-      }
       // A concurrent send already owns this conversation; it owns the UI
       // state too, so the loser exits silently.
       if (result.errorMessage == 'in_flight') return false;
@@ -872,7 +874,7 @@ class HomeViewModel extends ChangeNotifier {
     final assistantProvider = _contextProvider.read<AssistantProvider>();
 
     // Reset processing state on switch
-    isProcessingFiles.value = false;
+    resetFileProcessingIndicator();
 
     if (currentConversation?.id == id) return;
 
@@ -889,10 +891,10 @@ class HomeViewModel extends ChangeNotifier {
         _chatController.setCurrentConversationAndLoad(convo),
         if (assistantSwitch != null) assistantSwitch,
       ]);
-      _streamController.clearGeminiThoughtSigs();
       // Arm the new list's initial position before listeners can paint it with
       // the previous conversation's scroll offset.
       onConversationSwitched?.call();
+      restoreRetryUiFromStreamingState();
       notifyListeners();
       unawaited(_drainQueuedInputIfReady(id));
     }
@@ -907,7 +909,7 @@ class HomeViewModel extends ChangeNotifier {
     String id,
   ) async {
     // Reset processing state on switch
-    isProcessingFiles.value = false;
+    resetFileProcessingIndicator();
 
     if (currentConversation?.id == id) return null;
 
@@ -939,10 +941,10 @@ class HomeViewModel extends ChangeNotifier {
       prepared.conversation.assistantId,
     );
     if (assistantSwitch != null) unawaited(assistantSwitch);
-    _streamController.clearGeminiThoughtSigs();
     // Arm the new list's initial position before listeners can paint it with
     // the previous conversation's scroll offset.
     onConversationSwitched?.call();
+    restoreRetryUiFromStreamingState();
     notifyListeners();
     unawaited(_drainQueuedInputIfReady(id));
   }
@@ -968,7 +970,7 @@ class HomeViewModel extends ChangeNotifier {
     if (!_contextProvider.mounted) return;
 
     // Reset processing state on create
-    isProcessingFiles.value = false;
+    resetFileProcessingIndicator();
 
     final ap = _contextProvider.read<AssistantProvider>();
     try {
@@ -1025,7 +1027,7 @@ class HomeViewModel extends ChangeNotifier {
     await _chatActions.flushConversationProgress(currentConversation);
     if (!_contextProvider.mounted) return;
 
-    isProcessingFiles.value = false;
+    resetFileProcessingIndicator();
 
     if (_chatService.isTemporaryConversation(convo.id)) {
       await createNewConversation();
@@ -1076,6 +1078,26 @@ class HomeViewModel extends ChangeNotifier {
   }
 
   /// Clear context (toggle truncate at tail).
+  /// Sets or clears the current conversation's model override.
+  ///
+  /// Passing null for both makes the conversation follow the assistant again.
+  Future<void> setConversationModel({
+    String? providerKey,
+    String? modelId,
+  }) async {
+    final convo = currentConversation;
+    if (convo == null) return;
+    final updated = await _chatService.setConversationModel(
+      convo.id,
+      providerKey: providerKey,
+      modelId: modelId,
+    );
+    if (updated != null) {
+      _chatController.updateCurrentConversation(updated);
+      notifyListeners();
+    }
+  }
+
   Future<void> clearContext() async {
     final convo = currentConversation;
     if (convo == null) return;
@@ -1165,6 +1187,7 @@ class HomeViewModel extends ChangeNotifier {
               .replaceAll('{content}', text)
               .replaceAll('{locale}', locale);
           return (await ChatApiService.generateText(
+            conversationId: convo.id,
             config: cfg,
             modelId: mdlId,
             prompt: prompt,
@@ -1348,6 +1371,12 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Re-apply auto-retry countdown from still-running background streams.
+  void restoreRetryUiFromStreamingState() {
+    final cid = currentConversation?.id;
+    if (cid != null) _chatActions.restoreRetryUi(cid);
+  }
+
   void _restoreMessageUiState() {
     for (int i = 0; i < messages.length; i++) {
       final m = messages[i];
@@ -1355,12 +1384,9 @@ class HomeViewModel extends ChangeNotifier {
         _streamController.restoreMessageUiState(
           m,
           getToolEventsFromDb: (id) => _chatService.getToolEvents(id),
-          getGeminiThoughtSigFromDb: (id) =>
-              _chatService.getGeminiThoughtSignature(id),
         );
 
-        // Clean content from gemini thought signatures
-        final cleanedContent = _streamController.captureGeminiThoughtSignature(
+        final cleanedContent = _chatService.migrateLegacyGeminiThoughtSignature(
           m.content,
           m.id,
         );
@@ -1378,6 +1404,7 @@ class HomeViewModel extends ChangeNotifier {
         );
       }
     }
+    restoreRetryUiFromStreamingState();
   }
 
   /// Serialize reasoning segments to JSON string.
@@ -1427,6 +1454,13 @@ class HomeViewModel extends ChangeNotifier {
   Future<void> debugMaybeGenerateSummaryFor(String conversationId) =>
       _maybeGenerateSummaryFor(conversationId);
 
+  /// Test entry for [_maybeGenerateTitleFor].
+  @visibleForTesting
+  Future<void> debugMaybeGenerateTitleFor(
+    String conversationId, {
+    bool force = false,
+  }) => _maybeGenerateTitleFor(conversationId, force: force);
+
   @visibleForTesting
   static int computeClearContextRemainingMessageCount({
     required int totalMessages,
@@ -1457,22 +1491,21 @@ class HomeViewModel extends ChangeNotifier {
     }
 
     final settings = _contextProvider.read<SettingsProvider>();
+    if (!settings.isTitleGenerationEnabled) return;
+
     final assistantProvider = _contextProvider.read<AssistantProvider>();
 
     // Get assistant for this conversation
     final assistant = convo.assistantId != null
         ? assistantProvider.getById(convo.assistantId!)
         : assistantProvider.currentAssistant;
-
-    // Decide model: prefer title model, else fall back to assistant's model, then to global default
-    final provKey =
-        settings.titleModelProvider ??
-        assistant?.chatModelProvider ??
-        settings.currentModelProvider;
-    final mdlId =
-        settings.titleModelId ??
-        assistant?.chatModelId ??
-        settings.currentModelId;
+    final chatModel = resolveChatModel(
+      settings,
+      conversation: convo,
+      assistant: assistant,
+    );
+    final provKey = settings.titleModelProvider ?? chatModel.providerKey;
+    final mdlId = settings.titleModelId ?? chatModel.modelId;
     if (provKey == null || mdlId == null) return;
     final cfg = settings.getProviderConfig(provKey);
     final budget = settings.titleGenerationThinkingBudgetFor(
@@ -1490,6 +1523,7 @@ class HomeViewModel extends ChangeNotifier {
 
     try {
       final title = (await ChatApiService.generateText(
+        conversationId: convo.id,
         config: cfg,
         modelId: mdlId,
         prompt: prompt,
@@ -1631,6 +1665,7 @@ class HomeViewModel extends ChangeNotifier {
 
     try {
       final summary = (await ChatApiService.generateText(
+        conversationId: convo.id,
         config: cfg,
         modelId: mdlId,
         prompt: prompt,
@@ -1724,15 +1759,21 @@ class HomeViewModel extends ChangeNotifier {
     if (convo == null) return;
 
     final settings = _contextProvider.read<SettingsProvider>();
-    final provKey = settings.suggestionModelProvider;
-    final mdlId = settings.suggestionModelId;
-    if (provKey == null || mdlId == null) return;
+    if (!settings.isSuggestionGenerationEnabled) return;
 
     // Read context-dependent inputs before the async gap below.
     final assistantProvider = _contextProvider.read<AssistantProvider>();
     final assistant = convo.assistantId != null
         ? assistantProvider.getById(convo.assistantId!)
         : assistantProvider.currentAssistant;
+    final chatModel = resolveChatModel(
+      settings,
+      conversation: convo,
+      assistant: assistant,
+    );
+    final provKey = settings.suggestionModelProvider ?? chatModel.providerKey;
+    final mdlId = settings.suggestionModelId ?? chatModel.modelId;
+    if (provKey == null || mdlId == null) return;
     final locale = Localizations.localeOf(_contextProvider).toLanguageTag();
     final budget = settings.suggestionGenerationThinkingBudgetFor(
       assistant?.thinkingBudget,
@@ -1756,6 +1797,7 @@ class HomeViewModel extends ChangeNotifier {
     try {
       await _chatService.clearConversationSuggestions(conversationId);
       final suggestions = await _suggestionService.generate(
+        conversationId: conversationId,
         settings: settings,
         providerKey: provKey,
         modelId: mdlId,

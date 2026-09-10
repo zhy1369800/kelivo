@@ -71,11 +71,15 @@ class BrandAssets {
         MapEntry(RegExp(r'cohere|command-.+'), 'cohere-color.svg'),
         MapEntry(RegExp(r'kelivo'), 'kelivo.png'),
         MapEntry(RegExp(r'tensdaq'), 'tensdaq-color.svg'),
+        MapEntry(RegExp(r'marucode|muteki'), 'marucode.png'),
         MapEntry(RegExp(r'longcat'), 'longcat.png'),
         MapEntry(RegExp(r'iflow|心流'), 'iflow-color.svg'),
         MapEntry(RegExp(r'sora'), 'sora-color.svg'),
         MapEntry(RegExp(r'bing|必应'), 'bing-color.svg'),
         MapEntry(RegExp(r'tavily'), 'tavily-color.svg'),
+        MapEntry(RegExp(r'anysearch'), 'anysearch.svg'),
+        MapEntry(RegExp(r'parallel'), 'parallel.svg'),
+        MapEntry(RegExp(r'^you(?:\.com)?(?:\s+search)?$'), 'you.svg'),
         MapEntry(RegExp(r'exa'), 'exa-color.svg'),
         MapEntry(RegExp(r'linkup'), 'linkup.svg'),
         MapEntry(RegExp(r'brave'), 'brave-color.svg'),
@@ -270,6 +274,11 @@ class BrandAssets {
       asset: 'assets/icons/tensdaq-color.svg',
     ),
     BrandIconOption(
+      id: 'marucode',
+      label: 'MaruCode',
+      asset: 'assets/icons/marucode.png',
+    ),
+    BrandIconOption(
       id: 'longcat',
       label: 'LongCat',
       asset: 'assets/icons/longcat.png',
@@ -294,6 +303,17 @@ class BrandAssets {
       label: 'Tavily',
       asset: 'assets/icons/tavily-color.svg',
     ),
+    BrandIconOption(
+      id: 'anysearch',
+      label: 'AnySearch',
+      asset: 'assets/icons/anysearch.svg',
+    ),
+    BrandIconOption(
+      id: 'parallel',
+      label: 'Parallel',
+      asset: 'assets/icons/parallel.svg',
+    ),
+    BrandIconOption(id: 'you', label: 'You.com', asset: 'assets/icons/you.svg'),
     BrandIconOption(
       id: 'exa',
       label: 'Exa',
@@ -381,6 +401,8 @@ class BrandAssets {
     'firecrawl.svg',
     'stepfun.svg',
     'fish-audio.svg',
+    'anysearch.svg',
+    'parallel.svg',
   };
 
   // Build the LobeHub static SVG CDN URL from an icon name (e.g. 'openai').

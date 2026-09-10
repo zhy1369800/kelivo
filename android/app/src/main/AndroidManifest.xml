@@ -4,16 +4,28 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.VIBRATE"/>
     <!-- Microphone access for voice input waveform -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Foreground service + notifications for background execution (Android only) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
      <!-- Assistant local tools: calendar query/create -->
      <uses-permission android:name="android.permission.READ_CALENDAR" />
      <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+     <!-- Assistant local tools: one-shot foreground location -->
+     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+     <uses-feature android:name="android.hardware.location" android:required="false" />
+     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+     <uses-feature android:name="android.hardware.location.network" android:required="false" />
      <!-- Assistant local tools: screen time. Special permission granted by the
           user via the 'Usage access' settings page (opened by the tool). -->
      <uses-permission
@@ -25,16 +37,17 @@
          export), so system backup is disabled. -->
     <application
         android:label="Kelivo"
-        android:name="${applicationName}"
+        android:name=".KelivoApplication"
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
         android:icon="@mipmap/ic_launcher">
+        <!-- Shares from another task must reach the existing chat composer. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
@@ -57,6 +70,19 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <data android:mimeType="text/plain"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
         </activity>
         <activity
             android:name=".McpOAuthCallbackActivity"
@@ -73,9 +99,23 @@
                 <data android:scheme="psyche.kelivo" android:host="mcp-oauth-callback"/>
             </intent-filter>
         </activity>
+        <!-- A separate process keeps Android SQLite handles separate from Drift's
+             native SQLite connection and works without starting a Flutter engine. -->
+        <provider
+            android:name=".workspace.WorkspaceDocumentsProvider"
+            android:authorities="${applicationId}.workspace.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS"
+            android:process=":workspace_documents">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
         <!-- Foreground service to keep Flutter isolate alive for background generation -->
         <service
-            android:name="de.julianassmann.flutter_background.IsolateHolderService"
+            android:name=".background.GenerationForegroundService"
+            android:stopWithTask="false"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
         <activity

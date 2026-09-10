@@ -8,7 +8,7 @@ import '../../../models/token_usage.dart';
 import '../../../providers/model_provider.dart';
 import '../../../providers/settings_provider.dart';
 import '../../../utils/multimodal_input_utils.dart';
-import '../../../../utils/sandbox_path_resolver.dart';
+import '../../../../utils/mcp_structured_image.dart';
 import '../builtin_tools.dart';
 import '../chat_api_helpers.dart';
 import '../generation/tool_loop_runner.dart';
@@ -16,7 +16,16 @@ import '../stream/sse_framing.dart';
 import '../stream/stream_chunk.dart';
 import '../stream/stream_chunk_emit.dart';
 import '../stream/stream_chunk_ids.dart';
+import 'claude/claude_container.dart';
 import 'claude/claude_decoder.dart';
+import 'claude/claude_files.dart';
+import 'claude/claude_history.dart';
+
+export 'claude/claude_history.dart'
+    show
+        normalizeClaudeImageMime,
+        isClaudeSupportedImageMime,
+        claudeToolResultContent;
 
 int _defaultClaudeMaxOutputTokens(String modelId) {
   final lower = modelId.trim().toLowerCase();
@@ -27,24 +36,6 @@ int _defaultClaudeMaxOutputTokens(String modelId) {
     return 128000;
   }
   return 64000;
-}
-
-String normalizeClaudeImageMime(String mime) {
-  final normalized = mime.trim().toLowerCase();
-  if (normalized == 'image/jpg') return 'image/jpeg';
-  return normalized;
-}
-
-bool isClaudeSupportedImageMime(String mime) {
-  switch (normalizeClaudeImageMime(mime)) {
-    case 'image/jpeg':
-    case 'image/png':
-    case 'image/gif':
-    case 'image/webp':
-      return true;
-    default:
-      return false;
-  }
 }
 
 Stream<StreamChunk> sendClaudeStream(
@@ -62,7 +53,9 @@ Stream<StreamChunk> sendClaudeStream(
   Map<String, String>? extraHeaders,
   Map<String, dynamic>? extraBody,
   bool stream = true,
+  bool builtInSearchOnly = false,
   bool skipImageParsing = false,
+  StreamRoundRunner? retryRound,
 }) async* {
   final upstreamModelId = apiModelId(config, modelId);
   // Endpoint and headers (constant across rounds)
@@ -76,6 +69,9 @@ Stream<StreamChunk> sendClaudeStream(
     modelId,
   ).abilities.contains(ModelAbility.reasoning);
   final skipRedactedThinkingBlocks = BuiltInToolsHelper.isOpenRouterProvider(
+    config,
+  );
+  final replayServerToolBlocks = BuiltInToolsHelper.isOfficialAnthropicEndpoint(
     config,
   );
 
@@ -96,273 +92,18 @@ Stream<StreamChunk> sendClaudeStream(
     nonSystemMessages.add(
       Map<String, dynamic>.from(m)
         ..remove(multimodalInternalRevisionIdKey)
+        ..remove(multimodalInternalGeminiThoughtSignatureKey)
         ..['role'] = role.isEmpty ? 'user' : role,
     );
   }
 
-  // Transform last user message to include images per Anthropic schema
-  final initialMessages = <Map<String, dynamic>>[];
-  final pendingToolResults = <Map<String, dynamic>>[];
-  void flushPendingToolResults() {
-    if (pendingToolResults.isEmpty) return;
-    initialMessages.add({
-      'role': 'user',
-      'content': List<Map<String, dynamic>>.from(pendingToolResults),
-    });
-    pendingToolResults.clear();
-  }
-
-  Map<String, dynamic>? toolUseBlockFromToolCall(Map tc) {
-    final id = (tc['id'] ?? '').toString();
-    final fn = tc['function'];
-    if (id.isEmpty || fn is! Map) return null;
-    Map<String, dynamic> input = const <String, dynamic>{};
-    try {
-      input = (jsonDecode((fn['arguments'] ?? '{}').toString()) as Map)
-          .cast<String, dynamic>();
-    } catch (_) {}
-    return {
-      'type': 'tool_use',
-      'id': id,
-      'name': (fn['name'] ?? '').toString(),
-      'input': input,
-    };
-  }
-
-  Set<String> toolUseIdsInBlocks(List<Map<String, dynamic>> blocks) {
-    return blocks
-        .where((block) => block['type'] == 'tool_use')
-        .map((block) => (block['id'] ?? '').toString())
-        .where((id) => id.isNotEmpty)
-        .toSet();
-  }
-
-  Map<String, dynamic>? assistantBlockForClaudeRequest(Map block) {
-    final type = (block['type'] ?? '').toString();
-    if (skipRedactedThinkingBlocks && type == 'redacted_thinking') {
-      return null;
-    }
-    return block.map((key, value) => MapEntry(key.toString(), value));
-  }
-
-  List<Map<String, dynamic>> assistantBlocksForClaudeRequest(
-    Iterable<Map> blocks,
-  ) {
-    return [
-      for (final block in blocks)
-        if (assistantBlockForClaudeRequest(block) case final sanitized?)
-          sanitized,
-    ];
-  }
-
-  List<Map<String, dynamic>>? anthropicBlocksFromToolCallMetadata(
-    List toolCalls,
-  ) {
-    final expectedIds = toolCalls
-        .whereType<Map>()
-        .map((tc) => (tc['id'] ?? '').toString())
-        .where((id) => id.isNotEmpty)
-        .toSet();
-    List<Map<String, dynamic>>? bestBlocks;
-    var bestMatchCount = -1;
-
-    for (final tc in toolCalls) {
-      if (tc is! Map) continue;
-      final meta = tc['metadata'];
-      if (meta is! Map) continue;
-      final anthropic = meta['anthropic'];
-      if (anthropic is! Map) continue;
-      final blocks = anthropic['assistant_blocks'];
-      if (blocks is! List || blocks.isEmpty) continue;
-      final candidate = assistantBlocksForClaudeRequest(
-        blocks.whereType<Map>(),
-      );
-      final matchCount = toolUseIdsInBlocks(
-        candidate,
-      ).where(expectedIds.contains).length;
-      if (matchCount > bestMatchCount ||
-          (matchCount == bestMatchCount &&
-              candidate.length > (bestBlocks?.length ?? 0))) {
-        bestBlocks = candidate;
-        bestMatchCount = matchCount;
-      }
-    }
-    if (bestBlocks == null) return null;
-    if (expectedIds.isEmpty) return bestBlocks;
-
-    final presentIds = toolUseIdsInBlocks(bestBlocks);
-    if (presentIds.containsAll(expectedIds)) return bestBlocks;
-
-    final completed = <Map<String, dynamic>>[
-      for (final block in bestBlocks) Map<String, dynamic>.from(block),
-    ];
-    for (final tc in toolCalls.whereType<Map>()) {
-      final block = toolUseBlockFromToolCall(tc);
-      if (block == null) continue;
-      final id = (block['id'] ?? '').toString();
-      if (presentIds.contains(id)) continue;
-      completed.add(block);
-      presentIds.add(id);
-    }
-    return completed;
-  }
-
-  for (int i = 0; i < nonSystemMessages.length; i++) {
-    final m = nonSystemMessages[i];
-    final isLast = i == nonSystemMessages.length - 1;
-    final role = (m['role'] ?? 'user').toString();
-    if (role == 'tool') {
-      final id = (m['tool_call_id'] ?? '').toString();
-      if (id.isNotEmpty) {
-        pendingToolResults.add({
-          'type': 'tool_result',
-          'tool_use_id': id,
-          'content': (m['content'] ?? '').toString(),
-        });
-      }
-      continue;
-    }
-    flushPendingToolResults();
-
-    if (role == 'assistant' && m['tool_calls'] is List) {
-      final toolCalls = m['tool_calls'] as List;
-      final blocks =
-          anthropicBlocksFromToolCallMetadata(toolCalls) ??
-          <Map<String, dynamic>>[];
-      if (blocks.isEmpty) {
-        final text = (m['content'] ?? '').toString();
-        if (text.trim().isNotEmpty && text.trim() != '\n\n') {
-          blocks.add({'type': 'text', 'text': text});
-        }
-        for (final tc in toolCalls) {
-          if (tc is! Map) continue;
-          final block = toolUseBlockFromToolCall(tc);
-          if (block != null) blocks.add(block);
-        }
-      }
-      if (blocks.isNotEmpty) {
-        initialMessages.add({'role': 'assistant', 'content': blocks});
-      }
-      continue;
-    }
-    final raw = (m['content'] ?? '').toString();
-    // Semantic media detection only - custom attachment markers are not
-    // recognized. Attachments arrive via structured media-path keys /
-    // userImagePaths, plus Markdown ![](...).
-    final hasMarkdownImages = shouldParseMarkdownImages(
-      raw,
-      skipImageParsing: skipImageParsing,
-    );
-    final internalMediaRefs = parseInternalMediaRefs(
-      m[multimodalInternalMediaPathsKey],
-    );
-    // Consume injected media refs for user and assistant history turns.
-    final hasInternalMedia = internalMediaRefs.isNotEmpty;
-    final hasAttachedImages =
-        isLast && role == 'user' && (userImagePaths?.isNotEmpty == true);
-
-    if ((role == 'user' || role == 'assistant') &&
-        (hasMarkdownImages || hasInternalMedia || hasAttachedImages)) {
-      final parts = <Map<String, dynamic>>[];
-      final seenSources = <String>{};
-      String normalizeSrc(String src) {
-        if (src.startsWith('http') || src.startsWith('data:')) return src;
-        try {
-          return SandboxPathResolver.fix(src);
-        } catch (_) {
-          return src;
-        }
-      }
-
-      Future<void> addClaudeImage(String source, {String? explicitMime}) async {
-        final normalized = normalizeSrc(source);
-        if (!seenSources.add(normalized)) return;
-        if (source.startsWith('http://') || source.startsWith('https://')) {
-          // Preserve prior official-Claude behavior for remote URLs.
-          parts.add({'type': 'text', 'text': source});
-          return;
-        }
-        if (source.startsWith('data:')) {
-          final mime = normalizeClaudeImageMime(
-            (explicitMime != null && explicitMime.trim().isNotEmpty)
-                ? explicitMime.trim()
-                : mimeFromDataUrl(source),
-          );
-          final idx = source.indexOf('base64,');
-          if (idx > 0) {
-            parts.add({
-              'type': 'image',
-              'source': {
-                'type': 'base64',
-                'media_type': mime,
-                'data': source.substring(idx + 7),
-              },
-            });
-          }
-          return;
-        }
-        final mime = normalizeClaudeImageMime(
-          (explicitMime != null && explicitMime.trim().isNotEmpty)
-              ? explicitMime.trim()
-              : mimeFromPath(source),
-        );
-        final b64 = await tryEncodeBase64File(source, withPrefix: false);
-        if (b64 == null) return;
-        parts.add({
-          'type': 'image',
-          'source': {'type': 'base64', 'media_type': mime, 'data': b64},
-        });
-      }
-
-      final parsed = await parseTextAndImages(
-        raw,
-        allowRemoteImages: true,
-        allowLocalImages: true,
-        keepRemoteMarkdownText: true,
-        skipImageParsing: skipImageParsing,
-      );
-      if (parsed.text.isNotEmpty) {
-        parts.add({'type': 'text', 'text': parsed.text});
-      }
-      for (final ref in parsed.images) {
-        if (ref.kind == 'data' || ref.kind == 'path' || ref.kind == 'url') {
-          await addClaudeImage(ref.src);
-        }
-      }
-      final supplementalRefs = supplementalMediaRefs(
-        internalRaw: m[multimodalInternalMediaPathsKey],
-        userPaths: userImagePaths,
-        includeUserPaths: hasAttachedImages,
-      );
-      for (final mediaRef in supplementalRefs) {
-        final mime = mimeForInternalMediaRef(mediaRef);
-        // Never emit Anthropic image blocks for video/audio or other
-        // non-Claude image MIME types (e.g. video/mp4).
-        if (isVideoMime(mime) ||
-            isAudioMime(mime) ||
-            !isClaudeSupportedImageMime(mime)) {
-          final uri = mediaRef.uri;
-          final isRemote =
-              uri.startsWith('http://') || uri.startsWith('https://');
-          if (isRemote) {
-            final normalized = normalizeSrc(uri);
-            if (seenSources.add(normalized)) {
-              parts.add({'type': 'text', 'text': uri});
-            }
-          }
-          continue;
-        }
-        await addClaudeImage(mediaRef.uri, explicitMime: mediaRef.mime);
-      }
-      initialMessages.add({
-        'role': role,
-        'content': parts.isEmpty ? raw : parts,
-      });
-    } else {
-      initialMessages.add({'role': role, 'content': raw});
-    }
-  }
-  flushPendingToolResults();
+  final history = ClaudeHistory(
+    replayServerToolBlocks: replayServerToolBlocks,
+    skipRedactedThinkingBlocks: skipRedactedThinkingBlocks,
+    skipImageParsing: skipImageParsing,
+    userImagePaths: userImagePaths,
+  );
+  final initialMessages = await history.build(nonSystemMessages);
 
   // Map OpenAI-style tools to Anthropic custom tools (client tools)
   List<Map<String, dynamic>>? anthropicTools;
@@ -371,7 +112,7 @@ Stream<StreamChunk> sendClaudeStream(
     for (final t in tools) {
       final fn = (t['function'] as Map<String, dynamic>?);
       if (fn == null) continue;
-      final name = (fn['name'] ?? '').toString();
+      final name = BuiltInToolsHelper.claimedToolName(t);
       if (name.isEmpty) continue;
       final desc = (fn['description'] ?? '').toString();
       final params =
@@ -390,15 +131,37 @@ Stream<StreamChunk> sendClaudeStream(
   if (anthropicTools != null && anthropicTools.isNotEmpty) {
     allTools.addAll(anthropicTools);
   }
+  // Anthropic rejects a `tools` array holding two entries of the same name, and
+  // an MCP server is free to expose one called `web_search`, `web_fetch`, or
+  // `code_execution`. The client tools are the ones the caller asked for by
+  // name, so a hosted entry that collides with one is dropped instead of sent
+  // alongside it.
+  final claimedToolNames = <String>{
+    for (final t in allTools) (t['name'] ?? '').toString(),
+  };
+  void addHostedTool(Map<String, dynamic> tool) {
+    if (claimedToolNames.add((tool['name'] ?? '').toString())) {
+      allTools.add(tool);
+    }
+  }
+
   if (tools != null && tools.isNotEmpty) {
     for (final t in tools) {
       final type = (t['type'] ?? '').toString();
       if (type.startsWith('web_search_')) {
-        allTools.add(t);
+        addHostedTool(t);
       }
     }
   }
-  final builtIns = builtInTools(config, modelId);
+  // Utility calls (title / summary generation) only want search injected; a
+  // hosted fetch or container run on one of those is both off-contract and
+  // billed.
+  final builtIns = builtInSearchOnly
+      ? builtInTools(
+          config,
+          modelId,
+        ).where((name) => name == BuiltInToolNames.search).toSet()
+      : builtInTools(config, modelId);
   if (builtIns.contains(BuiltInToolNames.search)) {
     Map<String, dynamic> ws = const <String, dynamic>{};
     try {
@@ -415,12 +178,6 @@ Stream<StreamChunk> sendClaudeStream(
       'type': searchToolType,
       'name': 'web_search',
     };
-    if (searchToolType == 'web_search_20260209') {
-      allTools.add(<String, dynamic>{
-        'type': 'code_execution_20250825',
-        'name': 'code_execution',
-      });
-    }
     if (ws['max_uses'] is int && (ws['max_uses'] as int) > 0) {
       entry['max_uses'] = ws['max_uses'];
     }
@@ -438,8 +195,36 @@ Stream<StreamChunk> sendClaudeStream(
       entry['user_location'] = (ws['user_location'] as Map)
           .cast<String, dynamic>();
     }
-    allTools.add(entry);
+    addHostedTool(entry);
   }
+  for (final entry in BuiltInToolsHelper.claudeServerToolEntries(
+    cfg: config,
+    modelId: modelId,
+    enabled: builtIns,
+  )) {
+    addHostedTool(entry);
+  }
+
+  // Client tools are declared by `input_schema`, the Anthropic-hosted ones by
+  // `type`. The decoder needs the latter to recognise a downgraded block.
+  final declaredServerToolNames = <String>{
+    for (final t in allTools)
+      if (t['input_schema'] == null && (t['type'] ?? '').toString().isNotEmpty)
+        (t['name'] ?? '').toString(),
+  }..remove('');
+  // The `container` parameter is only accepted alongside the tool that uses it.
+  final hasCodeExecution = declaredServerToolNames.contains('code_execution');
+  // The data files the message builder left out of the prompt, on the
+  // strength of the same predicate, go up to the container instead. The tool
+  // has to be in this request for a `container_upload` to be accepted, and a
+  // utility call never declares it.
+  final uploadsDataFiles =
+      hasCodeExecution &&
+      BuiltInToolsHelper.sendsDataFilesToSandbox(
+        cfg: config,
+        modelId: modelId,
+        clientTools: tools ?? const [],
+      );
 
   // Headers (constant across rounds)
   final baseHeaders = customHeaders(
@@ -462,11 +247,86 @@ Stream<StreamChunk> sendClaudeStream(
   var streamRound = 0;
   var pendingCalls = <EmitToolCall>[];
   var lastAssistantBlocks = <Map<String, dynamic>>[];
+  // Carried through every round of this turn — after a client tool, after a
+  // pause — and stored after each so the next turn resumes in it too.
+  ClaudeContainerRef? container = history.storedContainer;
+  // Every response of this turn so far, stored against the message after each
+  // so the turn replays as the responses it was. A turn without a tool call
+  // replays from its text alone and stores nothing.
+  final turnResponses = <List<Map<String, dynamic>>>[];
+  Stream<StreamChunk> recordTurn(List<Map<String, dynamic>> response) async* {
+    turnResponses.add(response);
+    if (toolUseIdsInBlocks(turnResponses.expand((b) => b)).isNotEmpty) {
+      yield ProviderArtifact(
+        kind: claudeTurnArtifactKind,
+        payload: encodeClaudeTurn(turnResponses),
+      );
+    }
+    // Stored against this turn's message so the next turn can resume in the
+    // same container — now rather than at the end, which a cancelled turn
+    // never reaches.
+    if (hasCodeExecution && container != null) {
+      yield ProviderArtifact(
+        kind: claudeContainerArtifactKind,
+        payload: container!.encode(),
+      );
+    }
+  }
+
+  final downloadedFileIds = <String>{};
   var lastStreamResults = <Map<String, dynamic>>[];
-  var lastText = '';
+  final nonStreamText = StringBuffer();
   var pauseTurn = false;
 
+  // A container the conversation goes on using gets the files it has not
+  // seen; a fresh one — none stored, or the stored one found expired — gets
+  // every file the user attached. Either way the uploads ride the last user
+  // message, and each file goes once. A file this turn is about that cannot
+  // go up fails the turn before any request is made; an earlier turn's is
+  // reported in its place instead, so one lost attachment from long ago does
+  // not end the conversation.
+  final uploadedPaths = <String>{};
+  final turnFileUris = {for (final doc in history.turnDataFiles) doc.uri};
+  Future<void> uploadDataFiles() async {
+    if (!uploadsDataFiles) return;
+    final blocks = <Map<String, dynamic>>[];
+    for (final doc
+        in container == null ? history.dataFiles : history.unseenDataFiles) {
+      if (!uploadedPaths.add(doc.uri)) continue;
+      try {
+        final fileId = await uploadClaudeFile(
+          client: client,
+          base: base,
+          headers: baseHeaders,
+          path: doc.uri,
+          name: doc.name,
+          mime: doc.mime,
+        );
+        blocks.add({'type': 'container_upload', 'file_id': fileId});
+      } on ClaudeFileUploadException catch (e) {
+        if (turnFileUris.contains(doc.uri)) rethrow;
+        blocks.add({'type': 'text', 'text': e.toString()});
+      }
+    }
+    if (blocks.isEmpty) return;
+    final last = convo.last;
+    final content = last['content'];
+    convo[convo.length - 1] = {
+      ...last,
+      'content': [
+        if (content is List)
+          ...content
+        else if ((content ?? '').toString().isNotEmpty)
+          {'type': 'text', 'text': content.toString()},
+        ...blocks,
+      ],
+    };
+  }
+
+  await uploadDataFiles();
+
   yield* runProviderToolRounds(
+    retryRound: retryRound,
     sendRound: () async* {
       final omitSamplingParams = claudeShouldOmitSamplingParams(
         upstreamModelId,
@@ -509,25 +369,43 @@ Stream<StreamChunk> sendClaudeStream(
         if (allTools.isNotEmpty) 'tool_choice': {'type': 'auto'},
         if (thinking != null) 'thinking': thinking,
         if (outputConfig != null) 'output_config': outputConfig,
+        if (hasCodeExecution && container != null) 'container': container!.id,
       };
       final extraClaude = customBody(config, modelId, assistantBody: extraBody);
       if (extraClaude.isNotEmpty) {
         body.addAll(extraClaude);
       }
 
-      final request = http.Request('POST', url);
-      request.headers.addAll(baseHeaders);
-      request.body = jsonEncode(body);
+      http.Request buildRequest() {
+        final request = http.Request('POST', url);
+        request.headers.addAll(baseHeaders);
+        request.body = jsonEncode(body);
+        return request;
+      }
 
-      final response = await client.send(request);
+      var response = await client.send(buildRequest());
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final errorBody = await response.stream.bytesToString();
-        throw HttpException('HTTP ${response.statusCode}: $errorBody');
+        // A stored container can have expired since the last turn; forget
+        // it and let this round start a fresh one.
+        final staleContainer =
+            body.containsKey('container') &&
+            isClaudeStaleContainerError(response.statusCode, errorBody);
+        if (!staleContainer) {
+          throw HttpException('HTTP ${response.statusCode}: $errorBody');
+        }
+        container = null;
+        body.remove('container');
+        await uploadDataFiles();
+        response = await client.send(buildRequest());
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          final retryBody = await response.stream.bytesToString();
+          throw HttpException('HTTP ${response.statusCode}: $retryBody');
+        }
       }
 
       pendingCalls = [];
       lastStreamResults = [];
-      lastText = '';
       lastAssistantBlocks = [];
       pauseTurn = false;
 
@@ -539,17 +417,18 @@ Stream<StreamChunk> sendClaudeStream(
         try {
           final u = (obj['usage'] as Map?)?.cast<String, dynamic>();
           if (u != null) {
-            totalUsage = (totalUsage ?? const TokenUsage()).accumulate(
+            totalUsage = (totalUsage ?? const TokenUsage()).merge(
               claudeUsageFromMap(u),
             );
           }
         } catch (_) {}
+        container =
+            ClaudeContainerRef.fromResponse(obj['container']) ?? container;
         final content = (obj['content'] as List?) ?? const <dynamic>[];
         final List<Map<String, dynamic>> assistantBlocks =
             <Map<String, dynamic>>[];
         final Map<String, Map<String, dynamic>> toolUses =
             <String, Map<String, dynamic>>{}; // id -> {name,args}
-        final buf = StringBuffer();
         for (final it in content) {
           if (it is! Map) continue;
           final type = (it['type'] ?? '').toString();
@@ -557,7 +436,6 @@ Stream<StreamChunk> sendClaudeStream(
             final t = (it['text'] ?? '').toString();
             if (t.isNotEmpty) {
               assistantBlocks.add({'type': 'text', 'text': t});
-              buf.write(t);
             }
           } else if (type == 'thinking' ||
               (type == 'redacted_thinking' && !skipRedactedThinkingBlocks)) {
@@ -584,10 +462,47 @@ Stream<StreamChunk> sendClaudeStream(
                 'input': args,
               });
             }
+          } else if (type == 'server_tool_use' ||
+              type.endsWith('_tool_result')) {
+            // The hosted call and its result are the model's own turn: a
+            // continuation round that drops either is rejected.
+            try {
+              assistantBlocks.add(
+                Map<String, dynamic>.from(it.cast<String, dynamic>()),
+              );
+            } catch (_) {}
+            for (final fileId in claudeGeneratedFileIds(it['content'])) {
+              if (!downloadedFileIds.add(fileId)) continue;
+              final file = await downloadClaudeGeneratedFile(
+                client: client,
+                base: base,
+                headers: baseHeaders,
+                fileId: fileId,
+              );
+              if (file != null) yield file;
+            }
           }
         }
-        lastAssistantBlocks = assistantBlocks;
-        lastText = buf.toString();
+        // The continuation round sends these, so they go through the same
+        // sanitising as replayed history; the stored copy stays whole.
+        lastAssistantBlocks = history.sanitize(assistantBlocks);
+        nonStreamText.write(joinedTextOfBlocks(assistantBlocks));
+        final decoder = ClaudeStreamDecoder(
+          skipRedactedThinkingBlocks: skipRedactedThinkingBlocks,
+          serverToolNames: declaredServerToolNames,
+          sourceId: 'round-${streamRound++}',
+        );
+        for (final chunk in decoder.decodeCompleteServerTools(
+          assistantBlocks,
+        )) {
+          yield chunk;
+        }
+        yield* recordTurn(assistantBlocks);
+        if (toolUses.isEmpty) {
+          // A hosted tool that ran past the turn limit asks to be resumed,
+          // with no client tool to answer first.
+          pauseTurn = (obj['stop_reason'] ?? '').toString() == 'pause_turn';
+        }
         if (toolUses.isNotEmpty && onToolCall != null) {
           pendingCalls = [
             for (final e in toolUses.entries)
@@ -595,9 +510,6 @@ Stream<StreamChunk> sendClaudeStream(
                 id: e.key,
                 name: (e.value['name'] ?? '').toString(),
                 arguments: (e.value['args'] as Map<String, dynamic>),
-                metadata: {
-                  'anthropic': {'assistant_blocks': assistantBlocks},
-                },
               ),
           ];
         }
@@ -608,49 +520,85 @@ Stream<StreamChunk> sendClaudeStream(
       final decoder = ClaudeStreamDecoder(
         skipRedactedThinkingBlocks: skipRedactedThinkingBlocks,
         initialUsage: totalUsage,
+        serverToolNames: declaredServerToolNames,
         sourceId: 'round-${streamRound++}',
       );
       final executedToolIds = <String>{};
+      // Downloads run alongside the stream: awaiting one here would leave the
+      // SSE events unread, and the text after the tool frozen, for as long as
+      // the file takes.
+      final downloads = <Future<GeneratedFile?>>[];
+      var streamCompleted = false;
 
-      await for (final event in parseSseEventStrings(sse)) {
-        throwIfInBandStreamError(event.data);
-        final decoded = decoder.accept(event);
-        for (final chunk in decoded.chunks) {
-          yield chunk;
-          if (chunk is ToolCallEnd &&
-              decoder.isClientTool(chunk.id) &&
-              onToolCall != null &&
-              executedToolIds.add(chunk.id)) {
-            final tool = decoder.clientTools[chunk.id]!;
-            final args = tool.decodedArguments;
-            final call = emitToolCall(
-              id: tool.id,
-              name: tool.name,
-              arguments: args,
-              metadata: {
-                'anthropic': {'assistant_blocks': decoder.assistantBlocks},
-              },
-            );
-            await for (final resultChunk in executeClientTools(
-              calls: [call],
-              onToolCall: onToolCall,
-              usage: decoder.usage,
-              totalTokens: decoder.usage?.totalTokens ?? 0,
-            )) {
-              if (resultChunk is ToolCallResult) {
-                decoder.recordToolResult(
-                  tool.id,
-                  (resultChunk.output ?? '').toString(),
+      try {
+        await for (final event in parseSseEventStrings(sse)) {
+          throwIfInBandStreamError(event.data);
+          final decoded = decoder.accept(event);
+          for (final chunk in decoded.chunks) {
+            yield chunk;
+            if (chunk is ServerToolEnd) {
+              // Code execution reports what it wrote as ids the card cannot do
+              // anything with, so the bytes are fetched here and the message
+              // carries the file itself.
+              for (final fileId in claudeGeneratedFileIds(chunk.output)) {
+                if (!downloadedFileIds.add(fileId)) continue;
+                downloads.add(
+                  downloadClaudeGeneratedFile(
+                    client: client,
+                    base: base,
+                    headers: baseHeaders,
+                    fileId: fileId,
+                  ),
                 );
               }
-              yield resultChunk;
+            }
+            if (chunk is ToolCallEnd &&
+                decoder.isClientTool(chunk.id) &&
+                onToolCall != null &&
+                executedToolIds.add(chunk.id)) {
+              final tool = decoder.clientTools[chunk.id]!;
+              final args = tool.decodedArguments;
+              final call = emitToolCall(
+                id: tool.id,
+                name: tool.name,
+                arguments: args,
+              );
+              await for (final resultChunk in executeClientTools(
+                calls: [call],
+                onToolCall: onToolCall,
+                usage: decoder.usage,
+                totalTokens: decoder.usage?.totalTokens ?? 0,
+              )) {
+                if (resultChunk is ToolCallResult) {
+                  decoder.recordToolResult(
+                    tool.id,
+                    (resultChunk.output ?? '').toString(),
+                  );
+                }
+                yield resultChunk;
+              }
             }
           }
+          if (decoded.completed) break;
         }
-        if (decoded.completed) break;
+        streamCompleted = true;
+      } finally {
+        // A turn that stops here — cancelled, or on an in-band error — still
+        // sees its downloads out rather than closing the client under them;
+        // what they wrote has no message to go to, so it is removed again.
+        final files = await Future.wait(downloads);
+        if (!streamCompleted) {
+          for (final file in files) {
+            if (file != null) await discardClaudeGeneratedFile(file);
+          }
+        }
       }
       for (final chunk in decoder.onClosed()) {
         yield chunk;
+      }
+      for (final download in downloads) {
+        final file = await download;
+        if (file != null) yield file;
       }
 
       final usage = decoder.usage;
@@ -659,8 +607,12 @@ Stream<StreamChunk> sendClaudeStream(
       final toolResultsContent = decoder.toolResults;
 
       totalUsage = usage ?? totalUsage;
+      container = decoder.container ?? container;
 
-      lastAssistantBlocks = assistantBlocks;
+      // The continuation round sends these as they are, so they go through the
+      // same sanitising as replayed history — the stored copy stays whole.
+      lastAssistantBlocks = history.sanitize(assistantBlocks);
+      yield* recordTurn(assistantBlocks);
       if (decoder.clientTools.isEmpty) {
         pauseTurn = (lastStopReason ?? '') == 'pause_turn';
         return;
@@ -672,24 +624,23 @@ Stream<StreamChunk> sendClaudeStream(
             id: tool.id,
             name: tool.name,
             arguments: tool.decodedArguments,
-            metadata: {
-              'anthropic': {'assistant_blocks': assistantBlocks},
-            },
           ),
       ];
       for (final tool in decoder.clientTools.values) {
         var res = toolResultsContent[tool.id] ?? '';
         if (res.isEmpty && onToolCall != null) {
-          res = await onToolCall(
-            tool.name,
-            tool.decodedArguments,
-            toolCallId: tool.id,
-          );
+          res = ClientToolResult.fromHandler(
+            await onToolCall(
+              tool.name,
+              tool.decodedArguments,
+              toolCallId: tool.id,
+            ),
+          ).content;
         }
         lastStreamResults.add({
           'type': 'tool_result',
           'tool_use_id': tool.id,
-          if (res.isNotEmpty) 'content': res,
+          'content': claudeToolResultContent(res),
         });
       }
     },
@@ -713,7 +664,7 @@ Stream<StreamChunk> sendClaudeStream(
                 <String, dynamic>{
                   'type': 'tool_result',
                   'tool_use_id': item.call.id,
-                  'content': item.content,
+                  'content': claudeToolResultContent(item.content),
                 },
             ];
       convo = [
@@ -722,12 +673,14 @@ Stream<StreamChunk> sendClaudeStream(
         {'role': 'user', 'content': results},
       ];
     },
-    finish: () => emitDone(
-      ids: StreamChunkIds('finish'),
-      content: lastText,
-      usage: totalUsage,
-      totalTokens: totalUsage?.totalTokens ?? 0,
-    ),
+    finish: () async* {
+      yield* emitDone(
+        ids: StreamChunkIds('finish'),
+        content: nonStreamText.toString(),
+        usage: totalUsage,
+        totalTokens: totalUsage?.totalTokens ?? 0,
+      );
+    },
     usageOf: () => totalUsage,
   );
 }
