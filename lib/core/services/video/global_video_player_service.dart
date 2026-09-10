@@ -75,12 +75,20 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     _modalSourceUpdater = updater;
   }
 
+  bool _canExpand = true;
+
+  /// Whether the floating player is allowed to be expanded into a full modal preview.
+  bool get canExpand => _canExpand;
+
   /// Set the active video source.
   ///
   /// If the full modal is currently open, updates it in-place (new replaces old).
+  /// If [asPip] is true, launches directly into floating PiP mode without opening a modal.
   bool openVideo({
     required String source,
     String? title,
+    bool asPip = false,
+    bool canExpand = true,
   }) {
     final now = DateTime.now();
     // 400ms debounce
@@ -98,6 +106,18 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     if (isNewSource) {
       _playbackPositionSeconds = 0.0;
       _aspectRatio = defaultAspectRatio;
+    }
+
+    _canExpand = canExpand;
+
+    if (asPip) {
+      _activeSource = trimmed;
+      _activeTitle = title;
+      _isPlaying = true;
+      _isPipActive = true;
+      _isFullPreviewOpen = false;
+      notifyListeners();
+      return true;
     }
 
     // If modal is currently open, switch in-place
@@ -167,6 +187,7 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     _activeTitle = null;
     _playbackPositionSeconds = 0.0;
     _aspectRatio = defaultAspectRatio;
+    _canExpand = true;
     notifyListeners();
   }
 }

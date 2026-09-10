@@ -247,6 +247,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   }
 
   void _expand() {
+    if (!_video.canExpand) return;
     if (_video.activeSource != null) {
       _pausePip();
       VideoPreviewModal.show(
@@ -404,11 +405,14 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                                     ),
                                                   ),
                                                 ),
-                                                const Icon(
-                                                  Lucide.Maximize2,
-                                                  size: 13,
-                                                  color: Colors.white70,
-                                                ),
+                                                 if (_video.canExpand) ...[
+                                                   const SizedBox(width: 4),
+                                                   const Icon(
+                                                     Lucide.Maximize2,
+                                                     size: 13,
+                                                     color: Colors.white70,
+                                                   ),
+                                                 ],
                                               ],
                                             ),
                                           ),

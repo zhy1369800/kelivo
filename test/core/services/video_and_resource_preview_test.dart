@@ -133,6 +133,22 @@ void main() {
       video.stop();
       expect(video.aspectRatio, closeTo(16 / 9, 0.001));
     });
+
+    test('openVideo with asPip launches directly into PiP with custom canExpand', () {
+      final success = video.openVideo(
+        source: 'https://example.com/card_video.mp4',
+        asPip: true,
+        canExpand: false,
+      );
+      expect(success, isTrue);
+      expect(video.isPipActive, isTrue);
+      expect(video.isFullPreviewOpen, isFalse);
+      expect(video.isPlaying, isTrue);
+      expect(video.canExpand, isFalse);
+
+      video.stop();
+      expect(video.canExpand, isTrue);
+    });
   });
 
   group('ResourcePreviewService Debounce Tests', () {
