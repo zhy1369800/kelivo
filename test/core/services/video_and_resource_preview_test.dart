@@ -64,8 +64,11 @@ void main() {
       video.registerModalUpdater(null);
     });
 
-    test('stop clears all active playback states', () {
+    test('stop clears all active playback states and position', () {
       video.openVideo(source: 'https://example.com/test.mp4');
+      video.updatePlaybackPosition(12.5);
+      expect(video.playbackPositionSeconds, 12.5);
+
       video.minimizeToPip();
       expect(video.activeSource, isNotNull);
 
@@ -74,6 +77,39 @@ void main() {
       expect(video.isPlaying, isFalse);
       expect(video.isPipActive, isFalse);
       expect(video.isFullPreviewOpen, isFalse);
+      expect(video.playbackPositionSeconds, 0.0);
+    });
+
+    test('opening new video resets playback position', () {
+      video.openVideo(source: 'https://example.com/test.mp4');
+      video.updatePlaybackPosition(30.0);
+      expect(video.playbackPositionSeconds, 30.0);
+
+      video.openVideo(source: 'https://example.com/other.mp4');
+      expect(video.playbackPositionSeconds, 0.0);
+    });
+
+    test('dismissing modal without minimize stops playback completely', () {
+      video.openVideo(source: 'https://example.com/test.mp4');
+      video.markFullPreviewOpened();
+
+      // Dismissing without minimizeToPip stops playback
+      video.markFullPreviewDismissed(keepPlayingAsPip: false);
+      expect(video.isFullPreviewOpen, isFalse);
+      expect(video.isPipActive, isFalse);
+      expect(video.activeSource, isNull);
+    });
+
+    test('dismissing modal after minimizeToPip keeps PiP active', () {
+      video.openVideo(source: 'https://example.com/test.mp4');
+      video.markFullPreviewOpened();
+
+      // User explicitly clicked minimizeToPip
+      video.minimizeToPip();
+      video.markFullPreviewDismissed(keepPlayingAsPip: true);
+      expect(video.isFullPreviewOpen, isFalse);
+      expect(video.isPipActive, isTrue);
+      expect(video.activeSource, 'https://example.com/test.mp4');
     });
   });
 

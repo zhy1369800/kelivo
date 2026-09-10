@@ -30,6 +30,17 @@ class GlobalVideoPlayerService extends ChangeNotifier {
   bool get isPlaying => _isPlaying;
   bool get isPipActive => _isPipActive;
   bool get isFullPreviewOpen => _isFullPreviewOpen;
+  double _playbackPositionSeconds = 0.0;
+
+  /// Current playback position in seconds, preserved across modal and PiP transitions.
+  double get playbackPositionSeconds => _playbackPositionSeconds;
+
+  /// Updates current playback position in seconds.
+  void updatePlaybackPosition(double seconds) {
+    if (seconds >= 0) {
+      _playbackPositionSeconds = seconds;
+    }
+  }
 
   /// Whether a full modal is actively mounted and receptive to in-place source updates.
   bool get hasActiveModal => _isFullPreviewOpen && _modalSourceUpdater != null;
@@ -68,6 +79,11 @@ class GlobalVideoPlayerService extends ChangeNotifier {
 
     final trimmed = source.trim();
     if (trimmed.isEmpty) return false;
+
+    final isNewSource = _activeSource != trimmed;
+    if (isNewSource) {
+      _playbackPositionSeconds = 0.0;
+    }
 
     // If modal is currently open, switch in-place
     if (_isFullPreviewOpen && _modalSourceUpdater != null) {
@@ -117,12 +133,12 @@ class GlobalVideoPlayerService extends ChangeNotifier {
   }
 
   /// Mark full preview modal as dismissed.
-  void markFullPreviewDismissed({bool keepPlayingAsPip = true}) {
+  void markFullPreviewDismissed({bool keepPlayingAsPip = false}) {
     _isFullPreviewOpen = false;
-    if (keepPlayingAsPip && (_isPlaying || _activeSource != null)) {
+    if (keepPlayingAsPip && _isPipActive && (_isPlaying || _activeSource != null)) {
       _isPipActive = true;
-    } else {
-      _isPipActive = false;
+    } else if (!_isPipActive) {
+      stop();
     }
     notifyListeners();
   }
@@ -134,6 +150,7 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     _isFullPreviewOpen = false;
     _activeSource = null;
     _activeTitle = null;
+    _playbackPositionSeconds = 0.0;
     notifyListeners();
   }
 }

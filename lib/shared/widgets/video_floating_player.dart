@@ -62,7 +62,15 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   }
 
   void _syncPipWebView(String source) {
-    if (_lastLoadedSource == source && _pipWebCtrl != null) return;
+    if (_lastLoadedSource == source && _pipWebCtrl != null) {
+      final pos = _video.playbackPositionSeconds;
+      if (pos > 0) {
+        _pipWebCtrl!.runJavaScript(
+          'const v = document.getElementById("pip_player"); if (v && Math.abs(v.currentTime - $pos) > 1.5) { v.currentTime = $pos; } if (v && v.paused) { v.play(); }',
+        );
+      }
+      return;
+    }
     _lastLoadedSource = source;
 
     late final PlatformWebViewControllerCreationParams params;
@@ -77,17 +85,48 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
     _pipWebCtrl = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.black);
+      ..setBackgroundColor(Colors.black)
+      ..addJavaScriptChannel(
+        'KelivoVideoChannel',
+        onMessageReceived: (JavaScriptMessage msg) {
+          try {
+            final data = jsonDecode(msg.message) as Map<String, dynamic>;
+            if (data['type'] == 'timeupdate') {
+              final pos = (data['currentTime'] as num?)?.toDouble() ?? 0.0;
+              _video.updatePlaybackPosition(pos);
+            }
+          } catch (_) {}
+        },
+      );
 
     _loadPipVideo(source);
   }
 
+  void _pausePip() {
+    try {
+      _pipWebCtrl?.runJavaScript(
+        'const v = document.getElementById("pip_player"); if (v) { v.pause(); }',
+      );
+    } catch (_) {}
+  }
+
+  void _stopPip() {
+    try {
+      _pipWebCtrl?.runJavaScript(
+        'const v = document.getElementById("pip_player"); if (v) { v.pause(); v.src = ""; v.load(); }',
+      );
+      _pipWebCtrl?.loadRequest(Uri.parse('about:blank'));
+    } catch (_) {}
+    _lastLoadedSource = null;
+  }
+
   Future<void> _loadPipVideo(String source) async {
+    final startSeconds = _video.playbackPositionSeconds;
     final isNetwork =
         source.startsWith('http://') || source.startsWith('https://');
 
     if (isNetwork) {
-      final html = _buildPipHtml(source);
+      final html = _buildPipHtml(source, initialSeconds: startSeconds);
       await _pipWebCtrl?.loadHtmlString(html);
     } else {
       final resolved = await ResourcePreviewService.resolvePath(source);
@@ -95,9 +134,16 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       if (file.existsSync()) {
         try {
           final parentDir = file.parent;
+          final cleanName = p
+              .basenameWithoutExtension(file.path)
+              .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
           final previewHtml =
-              File(p.join(parentDir.path, '.kelivo_video_pip.html'));
-          final html = _buildPipHtml(file.path, isRelative: true);
+              File(p.join(parentDir.path, '.kelivo_${cleanName}_pip.html'));
+          final html = _buildPipHtml(
+            file.path,
+            isRelative: true,
+            initialSeconds: startSeconds,
+          );
           await previewHtml.writeAsString(html);
           await _pipWebCtrl?.loadFile(previewHtml.path);
           return;
@@ -108,11 +154,17 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
           } catch (_) {}
         }
       }
-      await _pipWebCtrl?.loadHtmlString(_buildPipHtml(source));
+      await _pipWebCtrl?.loadHtmlString(
+        _buildPipHtml(source, initialSeconds: startSeconds),
+      );
     }
   }
 
-  String _buildPipHtml(String videoSrc, {bool isRelative = false}) {
+  String _buildPipHtml(
+    String videoSrc, {
+    bool isRelative = false,
+    double initialSeconds = 0.0,
+  }) {
     final isNetwork =
         videoSrc.startsWith('http://') || videoSrc.startsWith('https://');
     final String srcAttr;
@@ -123,6 +175,9 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     } else {
       srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
     }
+
+    final startSec =
+        initialSeconds > 0 ? initialSeconds.toStringAsFixed(2) : '0';
 
     // In PiP mode, omit native controls, disable system PiP, auto-play with playsinline
     return '''<!DOCTYPE html>
@@ -144,12 +199,30 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 </head>
 <body>
   <video id="pip_player" src="$srcAttr" autoplay playsinline webkit-playsinline disablePictureInPicture></video>
+  <script>
+    const v = document.getElementById('pip_player');
+    const startPos = $startSec;
+    if (startPos > 0) {
+      v.addEventListener('loadedmetadata', () => {
+        try { v.currentTime = startPos; } catch(e) {}
+      }, { once: true });
+    }
+    v.addEventListener('timeupdate', () => {
+      if (window.KelivoVideoChannel && !v.paused) {
+        window.KelivoVideoChannel.postMessage(JSON.stringify({
+          type: 'timeupdate',
+          currentTime: v.currentTime
+        }));
+      }
+    });
+  </script>
 </body>
 </html>''';
   }
 
   void _expand() {
     if (_video.activeSource != null) {
+      _pausePip();
       VideoPreviewModal.show(
         context,
         source: _video.activeSource!,
@@ -169,6 +242,10 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
         if (visible && _video.activeSource != null) {
           _syncPipWebView(_video.activeSource!);
+        } else if (_video.activeSource == null) {
+          _stopPip();
+        } else if (!visible) {
+          _pausePip();
         }
 
         return IgnorePointer(
@@ -304,31 +381,6 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                           ),
                                         ),
 
-                                        // Top-Left Expand button
-                                        Positioned(
-                                          top: 5,
-                                          left: 5,
-                                          child: Container(
-                                            width: 24,
-                                            height: 24,
-                                            decoration: BoxDecoration(
-                                              color: Colors.black54,
-                                              shape: BoxShape.circle,
-                                              border: Border.all(
-                                                color: Colors.white24,
-                                                width: 0.8,
-                                              ),
-                                            ),
-                                            child: const Center(
-                                              child: Icon(
-                                                Lucide.Maximize2,
-                                                size: 13,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-
                                         // Close button (Top-Right)
                                         Positioned(
                                           top: 5,
@@ -343,6 +395,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                             },
                                             onTap: () {
                                               _isCloseButtonHit = false;
+                                              _stopPip();
                                               _video.stop();
                                             },
                                             child: Container(

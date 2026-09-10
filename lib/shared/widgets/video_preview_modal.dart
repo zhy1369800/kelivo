@@ -70,7 +70,7 @@ class VideoPreviewModal extends StatefulWidget {
     } catch (e) {
       debugPrint('Error showing VideoPreviewModal: $e');
     } finally {
-      video.markFullPreviewDismissed(keepPlayingAsPip: true);
+      video.markFullPreviewDismissed(keepPlayingAsPip: false);
     }
   }
 
@@ -97,6 +97,12 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   @override
   void dispose() {
     _video.registerModalUpdater(null);
+    try {
+      _webCtrl.runJavaScript(
+        'const v = document.getElementById("kelivo_player"); if (v) { v.pause(); v.src = ""; v.load(); }',
+      );
+      _webCtrl.loadRequest(Uri.parse('about:blank'));
+    } catch (_) {}
     super.dispose();
   }
 
@@ -108,7 +114,11 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     _loadVideoInWeb(newSource);
   }
 
-  String _buildVideoHtml(String videoSrc, {bool isRelative = false}) {
+  String _buildVideoHtml(
+    String videoSrc, {
+    bool isRelative = false,
+    double initialSeconds = 0.0,
+  }) {
     final isNetwork =
         videoSrc.startsWith('http://') || videoSrc.startsWith('https://');
     final String srcAttr;
@@ -119,6 +129,9 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     } else {
       srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
     }
+
+    final startSec =
+        initialSeconds > 0 ? initialSeconds.toStringAsFixed(2) : '0';
 
     return '''<!DOCTYPE html>
 <html>
@@ -135,11 +148,31 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     video {
       width: 100%; height: 100%; object-fit: contain; background: #000;
     }
+    video::-webkit-media-controls-picture-in-picture-button {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
   <video id="kelivo_player" src="$srcAttr" controls autoplay playsinline webkit-playsinline
          disablePictureInPicture controlsList="nofullscreen nodownload noremoteplayback"></video>
+  <script>
+    const v = document.getElementById('kelivo_player');
+    const startPos = $startSec;
+    if (startPos > 0) {
+      v.addEventListener('loadedmetadata', () => {
+        try { v.currentTime = startPos; } catch(e) {}
+      }, { once: true });
+    }
+    v.addEventListener('timeupdate', () => {
+      if (window.KelivoVideoChannel && !v.paused) {
+        window.KelivoVideoChannel.postMessage(JSON.stringify({
+          type: 'timeupdate',
+          currentTime: v.currentTime
+        }));
+      }
+    });
+  </script>
 </body>
 </html>''';
   }
@@ -158,6 +191,18 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     _webCtrl = WebViewController.fromPlatformCreationParams(params)
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
+      ..addJavaScriptChannel(
+        'KelivoVideoChannel',
+        onMessageReceived: (JavaScriptMessage msg) {
+          try {
+            final data = jsonDecode(msg.message) as Map<String, dynamic>;
+            if (data['type'] == 'timeupdate') {
+              final pos = (data['currentTime'] as num?)?.toDouble() ?? 0.0;
+              _video.updatePlaybackPosition(pos);
+            }
+          } catch (_) {}
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (_) {
@@ -172,9 +217,10 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   }
 
   Future<void> _loadVideoInWeb(String src) async {
+    final startSeconds = _video.playbackPositionSeconds;
     final isNetwork = src.startsWith('http://') || src.startsWith('https://');
     if (isNetwork) {
-      final html = _buildVideoHtml(src);
+      final html = _buildVideoHtml(src, initialSeconds: startSeconds);
       await _webCtrl.loadHtmlString(html);
     } else {
       final resolved = await ResourcePreviewService.resolvePath(src);
@@ -182,9 +228,16 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
       if (file.existsSync()) {
         try {
           final parentDir = file.parent;
+          final cleanName = p
+              .basenameWithoutExtension(file.path)
+              .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
           final previewHtml =
-              File(p.join(parentDir.path, '.kelivo_video_preview.html'));
-          final html = _buildVideoHtml(file.path, isRelative: true);
+              File(p.join(parentDir.path, '.kelivo_${cleanName}_preview.html'));
+          final html = _buildVideoHtml(
+            file.path,
+            isRelative: true,
+            initialSeconds: startSeconds,
+          );
           await previewHtml.writeAsString(html);
           await _webCtrl.loadFile(previewHtml.path);
           return;
@@ -195,7 +248,9 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
           } catch (_) {}
         }
       }
-      await _webCtrl.loadHtmlString(_buildVideoHtml(src));
+      await _webCtrl.loadHtmlString(
+        _buildVideoHtml(src, initialSeconds: startSeconds),
+      );
     }
   }
 
@@ -310,6 +365,12 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                     IconButton.filledTonal(
                       tooltip: '关闭',
                       onPressed: () {
+                        try {
+                          _webCtrl.runJavaScript(
+                            'const v = document.getElementById("kelivo_player"); if (v) { v.pause(); v.src = ""; v.load(); }',
+                          );
+                          _webCtrl.loadRequest(Uri.parse('about:blank'));
+                        } catch (_) {}
                         _video.stop();
                         Navigator.of(context).pop();
                       },
@@ -342,96 +403,109 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
               const SizedBox(height: 8),
 
-              // Main Video Display Area (Aspect ratio 1.1, matches AudioPreviewModal)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: AspectRatio(
-                  aspectRatio: 1.1,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(
-                        color: cs.outlineVariant.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      children: [
-                        WebViewWidget(controller: _webCtrl),
-                        if (!_isWebReady)
-                          Center(
-                            child: CircularProgressIndicator(
-                              color: cs.primary,
-                              strokeWidth: 2.5,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 18),
-
-              // Track Title & Subtitle Info (File name + format label)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 28),
-                child: Align(
-                  alignment: Alignment.centerLeft,
+              // Scrollable body to prevent overflow on small screens or landscape mode
+              Flexible(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.only(bottom: 28),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        _video.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: AppFontWeights.emphasis,
-                          color: cs.onSurface,
+                      // Main Video Display Area (Aspect ratio 16:9)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: AspectRatio(
+                          aspectRatio: 16 / 9,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: cs.outlineVariant.withValues(alpha: 0.3),
+                              ),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: Stack(
+                              children: [
+                                WebViewWidget(controller: _webCtrl),
+                                if (!_isWebReady)
+                                  Center(
+                                    child: CircularProgressIndicator(
+                                      color: cs.primary,
+                                      strokeWidth: 2.5,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 3),
-                      Text(
-                        _fileFormatLabel,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: cs.onSurfaceVariant.withValues(alpha: 0.75),
+
+                      const SizedBox(height: 18),
+
+                      // Track Title & Subtitle Info (File name + format label)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _video.displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: AppFontWeights.emphasis,
+                                  color: cs.onSurface,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                _fileFormatLabel,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: cs.onSurfaceVariant
+                                      .withValues(alpha: 0.75),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // Bottom Action Bar: Minimize to PiP (Large tonal button)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: FilledButton.tonalIcon(
+                            onPressed: () {
+                              _video.minimizeToPip();
+                              Navigator.of(context).pop();
+                            },
+                            icon: const Icon(Lucide.Minimize2, size: 18),
+                            label: const Text(
+                              '缩小至画中画',
+                              style: TextStyle(
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: FilledButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ],
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Bottom Action Bar: Minimize to PiP (Large tonal button)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: FilledButton.tonalIcon(
-                    onPressed: () {
-                      _video.minimizeToPip();
-                      Navigator.of(context).pop();
-                    },
-                    icon: const Icon(Lucide.Minimize2, size: 18),
-                    label: const Text(
-                      '缩小至画中画',
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
                   ),
                 ),
               ),
