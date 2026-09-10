@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -506,7 +507,8 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                                           width: 44,
                                                           height: 44,
                                                           decoration: BoxDecoration(
-                                                            color: Colors.black60,
+                                                            color: Colors.black
+                                                                .withValues(alpha: 0.65),
                                                             shape: BoxShape.circle,
                                                             border: Border.all(
                                                               color: Colors.white38,
