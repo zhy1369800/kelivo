@@ -159,11 +159,19 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   <script>
     const v = document.getElementById('kelivo_player');
     const startPos = $startSec;
-    if (startPos > 0) {
-      v.addEventListener('loadedmetadata', () => {
-        try { v.currentTime = startPos; } catch(e) {}
-      }, { once: true });
-    }
+    v.addEventListener('loadedmetadata', () => {
+      try {
+        if (startPos > 0) { v.currentTime = startPos; }
+      } catch(e) {}
+      if (window.KelivoVideoChannel && v.videoWidth && v.videoHeight) {
+        window.KelivoVideoChannel.postMessage(JSON.stringify({
+          type: 'metadata',
+          videoWidth: v.videoWidth,
+          videoHeight: v.videoHeight,
+          aspectRatio: v.videoWidth / v.videoHeight
+        }));
+      }
+    });
     v.addEventListener('timeupdate', () => {
       if (window.KelivoVideoChannel && !v.paused) {
         window.KelivoVideoChannel.postMessage(JSON.stringify({
@@ -199,6 +207,11 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
             if (data['type'] == 'timeupdate') {
               final pos = (data['currentTime'] as num?)?.toDouble() ?? 0.0;
               _video.updatePlaybackPosition(pos);
+            } else if (data['type'] == 'metadata') {
+              final ratio = (data['aspectRatio'] as num?)?.toDouble();
+              if (ratio != null) {
+                _video.updateAspectRatio(ratio);
+              }
             }
           } catch (_) {}
         },
@@ -411,31 +424,36 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Main Video Display Area (Aspect ratio 16:9)
+                      // Main Video Display Area (Adaptive Aspect Ratio)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: AspectRatio(
-                          aspectRatio: 16 / 9,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.black,
-                              borderRadius: BorderRadius.circular(18),
-                              border: Border.all(
-                                color: cs.outlineVariant.withValues(alpha: 0.3),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: MediaQuery.sizeOf(context).height * 0.50,
+                          ),
+                          child: AspectRatio(
+                            aspectRatio: _video.aspectRatio.clamp(0.56, 2.4),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black,
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(
+                                  color: cs.outlineVariant.withValues(alpha: 0.3),
+                                ),
                               ),
-                            ),
-                            clipBehavior: Clip.antiAlias,
-                            child: Stack(
-                              children: [
-                                WebViewWidget(controller: _webCtrl),
-                                if (!_isWebReady)
-                                  Center(
-                                    child: CircularProgressIndicator(
-                                      color: cs.primary,
-                                      strokeWidth: 2.5,
+                              clipBehavior: Clip.antiAlias,
+                              child: Stack(
+                                children: [
+                                  WebViewWidget(controller: _webCtrl),
+                                  if (!_isWebReady)
+                                    Center(
+                                      child: CircularProgressIndicator(
+                                        color: cs.primary,
+                                        strokeWidth: 2.5,
+                                      ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),

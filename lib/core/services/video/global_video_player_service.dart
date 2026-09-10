@@ -42,6 +42,20 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     }
   }
 
+  static const double defaultAspectRatio = 16 / 9;
+  double _aspectRatio = defaultAspectRatio;
+
+  /// Video display aspect ratio (width / height), defaults to 16:9.
+  double get aspectRatio => _aspectRatio;
+
+  /// Updates the detected aspect ratio if valid.
+  void updateAspectRatio(double ratio) {
+    if (ratio >= 0.2 && ratio <= 5.0 && (_aspectRatio - ratio).abs() > 0.01) {
+      _aspectRatio = ratio;
+      notifyListeners();
+    }
+  }
+
   /// Whether a full modal is actively mounted and receptive to in-place source updates.
   bool get hasActiveModal => _isFullPreviewOpen && _modalSourceUpdater != null;
 
@@ -83,6 +97,7 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     final isNewSource = _activeSource != trimmed;
     if (isNewSource) {
       _playbackPositionSeconds = 0.0;
+      _aspectRatio = defaultAspectRatio;
     }
 
     // If modal is currently open, switch in-place
@@ -151,6 +166,7 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     _activeSource = null;
     _activeTitle = null;
     _playbackPositionSeconds = 0.0;
+    _aspectRatio = defaultAspectRatio;
     notifyListeners();
   }
 }

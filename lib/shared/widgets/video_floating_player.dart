@@ -35,25 +35,37 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   double _dragDistance = 0.0;
   bool _isCloseButtonHit = false;
 
-  static const double _pipWidth = 208.0;
-  static const double _pipHeight = 120.0;
-
   WebViewController? _pipWebCtrl;
   String? _lastLoadedSource;
 
-  Offset _defaultPosition(Size size, EdgeInsets padding) {
+  Size _getPipSize() {
+    final ratio = _video.aspectRatio;
+    if (ratio < 0.9) {
+      // Portrait video (e.g. 9:16 vertical phone screen recordings)
+      const width = 126.0;
+      final height = (width / ratio).clamp(180.0, 224.0);
+      return Size(width, height);
+    } else {
+      // Landscape or square video (e.g. 16:9 standard video)
+      const width = 208.0;
+      final height = (width / ratio).clamp(100.0, 150.0);
+      return Size(width, height);
+    }
+  }
+
+  Offset _defaultPosition(Size size, EdgeInsets padding, Size pipSize) {
     return Offset(
-      size.width - _pipWidth - 16,
-      size.height - _pipHeight - padding.bottom - 88,
+      size.width - pipSize.width - 16,
+      size.height - pipSize.height - padding.bottom - 88,
     );
   }
 
-  Offset _clamp(Offset point, Size size, EdgeInsets padding) {
+  Offset _clamp(Offset point, Size size, EdgeInsets padding, Size pipSize) {
     const margin = 10.0;
     final minX = margin;
-    final maxX = size.width - _pipWidth - margin;
+    final maxX = size.width - pipSize.width - margin;
     final minY = padding.top + margin;
-    final maxY = size.height - _pipHeight - padding.bottom - margin;
+    final maxY = size.height - pipSize.height - padding.bottom - margin;
 
     return Offset(
       point.dx.clamp(math.min(minX, maxX), math.max(minX, maxX)),
@@ -94,6 +106,11 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
             if (data['type'] == 'timeupdate') {
               final pos = (data['currentTime'] as num?)?.toDouble() ?? 0.0;
               _video.updatePlaybackPosition(pos);
+            } else if (data['type'] == 'metadata') {
+              final ratio = (data['aspectRatio'] as num?)?.toDouble();
+              if (ratio != null) {
+                _video.updateAspectRatio(ratio);
+              }
             }
           } catch (_) {}
         },
@@ -202,11 +219,19 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   <script>
     const v = document.getElementById('pip_player');
     const startPos = $startSec;
-    if (startPos > 0) {
-      v.addEventListener('loadedmetadata', () => {
-        try { v.currentTime = startPos; } catch(e) {}
-      }, { once: true });
-    }
+    v.addEventListener('loadedmetadata', () => {
+      try {
+        if (startPos > 0) { v.currentTime = startPos; }
+      } catch(e) {}
+      if (window.KelivoVideoChannel && v.videoWidth && v.videoHeight) {
+        window.KelivoVideoChannel.postMessage(JSON.stringify({
+          type: 'metadata',
+          videoWidth: v.videoWidth,
+          videoHeight: v.videoHeight,
+          aspectRatio: v.videoWidth / v.videoHeight
+        }));
+      }
+    });
     v.addEventListener('timeupdate', () => {
       if (window.KelivoVideoChannel && !v.paused) {
         window.KelivoVideoChannel.postMessage(JSON.stringify({
@@ -262,11 +287,17 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                         constraints.maxHeight,
                       );
                       final padding = MediaQuery.paddingOf(context);
+                      final pipSize = _getPipSize();
                       final currentPos =
-                          _position ?? _defaultPosition(size, padding);
-                      final effectivePos = Offset(
-                        currentPos.dx + _dragOffset.dx,
-                        currentPos.dy + _dragOffset.dy,
+                          _position ?? _defaultPosition(size, padding, pipSize);
+                      final effectivePos = _clamp(
+                        Offset(
+                          currentPos.dx + _dragOffset.dx,
+                          currentPos.dy + _dragOffset.dy,
+                        ),
+                        size,
+                        padding,
+                        pipSize,
                       );
                       final cs = Theme.of(context).colorScheme;
 
@@ -278,8 +309,8 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                             Positioned(
                               left: effectivePos.dx,
                               top: effectivePos.dy,
-                              width: _pipWidth,
-                              height: _pipHeight,
+                              width: pipSize.width,
+                              height: pipSize.height,
                               child: GestureDetector(
                                 behavior: HitTestBehavior.opaque,
                                 onPanStart: (_) {
@@ -297,6 +328,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                       currentPos + _dragOffset,
                                       size,
                                       padding,
+                                      pipSize,
                                     );
                                     _dragOffset = Offset.zero;
                                   });

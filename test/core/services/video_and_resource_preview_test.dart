@@ -111,6 +111,28 @@ void main() {
       expect(video.isPipActive, isTrue);
       expect(video.activeSource, 'https://example.com/test.mp4');
     });
+
+    test('aspectRatio defaults to 16:9, updates with valid ratio, and resets on new video or stop', () {
+      expect(video.aspectRatio, closeTo(16 / 9, 0.001));
+
+      // Update with portrait video (e.g. 9:16)
+      video.updateAspectRatio(9 / 16);
+      expect(video.aspectRatio, closeTo(9 / 16, 0.001));
+
+      // Invalid ratio should be ignored
+      video.updateAspectRatio(0.05);
+      expect(video.aspectRatio, closeTo(9 / 16, 0.001));
+
+      // Opening new video resets to default 16:9
+      video.openVideo(source: 'https://example.com/new.mp4');
+      expect(video.aspectRatio, closeTo(16 / 9, 0.001));
+
+      // Update again and verify stop resets it
+      video.updateAspectRatio(4 / 3);
+      expect(video.aspectRatio, closeTo(4 / 3, 0.001));
+      video.stop();
+      expect(video.aspectRatio, closeTo(16 / 9, 0.001));
+    });
   });
 
   group('ResourcePreviewService Debounce Tests', () {
