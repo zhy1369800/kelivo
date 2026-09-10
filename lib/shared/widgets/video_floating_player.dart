@@ -38,17 +38,18 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   WebViewController? _pipWebCtrl;
   String? _lastLoadedSource;
 
-  Size _getPipSize() {
+  Size _getPipSize([Size? screenSize]) {
     final ratio = _video.aspectRatio;
+    final screenW = screenSize?.width ?? 390.0;
     if (ratio < 0.9) {
-      // Portrait video (e.g. 9:16 vertical phone screen recordings)
-      const width = 126.0;
-      final height = (width / ratio).clamp(180.0, 224.0);
+      // Portrait video (matches iOS native PiP default size ~42% screen width, e.g. ~164x291 on iPhone 15)
+      final width = (screenW * 0.42).clamp(152.0, 180.0);
+      final height = (width / ratio).clamp(240.0, 315.0);
       return Size(width, height);
     } else {
-      // Landscape or square video (e.g. 16:9 standard video)
-      const width = 208.0;
-      final height = (width / ratio).clamp(100.0, 150.0);
+      // Landscape video (matches iOS native PiP default size ~64% screen width, e.g. ~250x140 on iPhone 15)
+      final width = (screenW * 0.64).clamp(236.0, 276.0);
+      final height = (width / ratio).clamp(130.0, 180.0);
       return Size(width, height);
     }
   }
@@ -287,7 +288,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                         constraints.maxHeight,
                       );
                       final padding = MediaQuery.paddingOf(context);
-                      final pipSize = _getPipSize();
+                      final pipSize = _getPipSize(size);
                       final currentPos =
                           _position ?? _defaultPosition(size, padding, pipSize);
                       final effectivePos = _clamp(
@@ -347,7 +348,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                 child: Container(
                                   decoration: BoxDecoration(
                                     color: Colors.black,
-                                    borderRadius: BorderRadius.circular(16),
+                                    borderRadius: BorderRadius.circular(18),
                                     border: Border.all(
                                       color: cs.outlineVariant
                                           .withValues(alpha: 0.55),
@@ -363,7 +364,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                     ],
                                   ),
                                   child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(15),
+                                    borderRadius: BorderRadius.circular(17),
                                     child: Stack(
                                       children: [
                                         // Video surface (with IgnorePointer so all taps/drags are handled cleanly by Flutter)
