@@ -35,6 +35,10 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   double _dragDistance = 0.0;
   bool _isCloseButtonHit = false;
 
+  bool _isEnlarged = false;
+  bool _showControls = false;
+  Timer? _hideControlsTimer;
+
   WebViewController? _pipWebCtrl;
   String? _lastLoadedSource;
 
@@ -42,14 +46,22 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     final ratio = _video.aspectRatio;
     final screenW = screenSize?.width ?? 390.0;
     if (ratio < 0.9) {
-      // Portrait video (matches iOS native PiP default size ~42% screen width, e.g. ~164x291 on iPhone 15)
-      final width = (screenW * 0.42).clamp(152.0, 180.0);
-      final height = (width / ratio).clamp(240.0, 315.0);
+      // Portrait video
+      final width = _isEnlarged
+          ? (screenW * 0.62).clamp(220.0, 260.0)
+          : (screenW * 0.42).clamp(152.0, 180.0);
+      final height = _isEnlarged
+          ? (width / ratio).clamp(360.0, 460.0)
+          : (width / ratio).clamp(240.0, 315.0);
       return Size(width, height);
     } else {
-      // Landscape video (matches iOS native PiP default size ~64% screen width, e.g. ~250x140 on iPhone 15)
-      final width = (screenW * 0.64).clamp(236.0, 276.0);
-      final height = (width / ratio).clamp(130.0, 180.0);
+      // Landscape video
+      final width = _isEnlarged
+          ? (screenW * 0.92).clamp(320.0, 380.0)
+          : (screenW * 0.64).clamp(236.0, 276.0);
+      final height = _isEnlarged
+          ? (width / ratio).clamp(180.0, 240.0)
+          : (width / ratio).clamp(130.0, 180.0);
       return Size(width, height);
     }
   }
@@ -112,12 +124,58 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
               if (ratio != null) {
                 _video.updateAspectRatio(ratio);
               }
+            } else if (data['type'] == 'play') {
+              _video.setPlaying(true);
+            } else if (data['type'] == 'pause') {
+              _video.setPlaying(false);
             }
           } catch (_) {}
         },
       );
 
     _loadPipVideo(source);
+  }
+
+  void _toggleControls() {
+    _hideControlsTimer?.cancel();
+    setState(() {
+      _showControls = !_showControls;
+    });
+    if (_showControls) {
+      _hideControlsTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted && _showControls) {
+          setState(() => _showControls = false);
+        }
+      });
+    }
+  }
+
+  void _seekBy(int seconds) {
+    _hideControlsTimer?.cancel();
+    _hideControlsTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _showControls) {
+        setState(() => _showControls = false);
+      }
+    });
+    try {
+      _pipWebCtrl?.runJavaScript(
+        'const v = document.getElementById("pip_player"); if (v) { v.currentTime = Math.max(0, Math.min(v.duration || 999999, v.currentTime + ($seconds))); }',
+      );
+    } catch (_) {}
+  }
+
+  void _togglePlayPause() {
+    _hideControlsTimer?.cancel();
+    _hideControlsTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _showControls) {
+        setState(() => _showControls = false);
+      }
+    });
+    try {
+      _pipWebCtrl?.runJavaScript(
+        'const v = document.getElementById("pip_player"); if (v) { if (v.paused) { v.play(); } else { v.pause(); } }',
+      );
+    } catch (_) {}
   }
 
   void _pausePip() {
@@ -129,6 +187,8 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   }
 
   void _stopPip() {
+    _hideControlsTimer?.cancel();
+    _showControls = false;
     try {
       _pipWebCtrl?.runJavaScript(
         'const v = document.getElementById("pip_player"); if (v) { v.pause(); v.src = ""; v.load(); }',
@@ -241,21 +301,29 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         }));
       }
     });
+    v.addEventListener('play', () => {
+      if (window.KelivoVideoChannel) {
+        window.KelivoVideoChannel.postMessage(JSON.stringify({
+          type: 'play'
+        }));
+      }
+    });
+    v.addEventListener('pause', () => {
+      if (window.KelivoVideoChannel) {
+        window.KelivoVideoChannel.postMessage(JSON.stringify({
+          type: 'pause'
+        }));
+      }
+    });
   </script>
 </body>
 </html>''';
   }
 
-  void _expand() {
-    if (!_video.canExpand) return;
-    if (_video.activeSource != null) {
-      _pausePip();
-      VideoPreviewModal.show(
-        context,
-        source: _video.activeSource!,
-        title: _video.activeTitle,
-      );
-    }
+  @override
+  void dispose() {
+    _hideControlsTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -315,6 +383,24 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                               height: pipSize.height,
                               child: GestureDetector(
                                 behavior: HitTestBehavior.opaque,
+                                onDoubleTap: () {
+                                  setState(() {
+                                    _isEnlarged = !_isEnlarged;
+                                    final newPipSize = _getPipSize(size);
+                                    _position = _clamp(
+                                      currentPos,
+                                      size,
+                                      padding,
+                                      newPipSize,
+                                    );
+                                  });
+                                },
+                                onTap: () {
+                                  if (!_isCloseButtonHit) {
+                                    _toggleControls();
+                                  }
+                                  _isCloseButtonHit = false;
+                                },
                                 onPanStart: (_) {
                                   _dragDistance = 0.0;
                                 },
@@ -334,16 +420,6 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                     );
                                     _dragOffset = Offset.zero;
                                   });
-                                  if (!_isCloseButtonHit &&
-                                      _dragDistance < 8.0) {
-                                    _expand();
-                                  }
-                                  _isCloseButtonHit = false;
-                                },
-                                onTap: () {
-                                  if (!_isCloseButtonHit) {
-                                    _expand();
-                                  }
                                   _isCloseButtonHit = false;
                                 },
                                 child: Container(
@@ -378,50 +454,115 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                             ),
                                           ),
 
-                                        // Tap-to-expand overlay (bottom area)
-                                        Positioned(
-                                          left: 0,
-                                          right: 0,
-                                          bottom: 0,
-                                          height: 28,
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                            ),
-                                            color: Colors.black54,
-                                            child: Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    _video.displayName,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 10.5,
-                                                      fontWeight:
-                                                          FontWeight.w500,
-                                                    ),
+                                        // Media Controls Overlay (Fade in/out on Single Tap)
+                                        Positioned.fill(
+                                          child: AnimatedOpacity(
+                                            opacity: _showControls ? 1.0 : 0.0,
+                                            duration:
+                                                const Duration(milliseconds: 200),
+                                            curve: Curves.easeInOut,
+                                            child: IgnorePointer(
+                                              ignoring: !_showControls,
+                                              child: Container(
+                                                color: Colors.black45,
+                                                child: Center(
+                                                  child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment.center,
+                                                    children: [
+                                                      // Seek Backward 10s
+                                                      GestureDetector(
+                                                        behavior:
+                                                            HitTestBehavior.opaque,
+                                                        onTap: () => _seekBy(-10),
+                                                        child: Container(
+                                                          width: 36,
+                                                          height: 36,
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.black54,
+                                                            shape: BoxShape.circle,
+                                                            border: Border.all(
+                                                              color: Colors.white24,
+                                                              width: 0.8,
+                                                            ),
+                                                          ),
+                                                          child: const Center(
+                                                            child: Icon(
+                                                              Lucide.RotateCcw,
+                                                              size: 18,
+                                                              color: Colors.white,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 14),
+
+                                                      // Play / Pause Toggle
+                                                      GestureDetector(
+                                                        behavior:
+                                                            HitTestBehavior.opaque,
+                                                        onTap: _togglePlayPause,
+                                                        child: Container(
+                                                          width: 44,
+                                                          height: 44,
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.black60,
+                                                            shape: BoxShape.circle,
+                                                            border: Border.all(
+                                                              color: Colors.white38,
+                                                              width: 1.0,
+                                                            ),
+                                                          ),
+                                                          child: Center(
+                                                            child: Icon(
+                                                              _video.isPlaying
+                                                                  ? Lucide.Pause
+                                                                  : Lucide.Play,
+                                                              size: 22,
+                                                              color: Colors.white,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 14),
+
+                                                      // Seek Forward 10s
+                                                      GestureDetector(
+                                                        behavior:
+                                                            HitTestBehavior.opaque,
+                                                        onTap: () => _seekBy(10),
+                                                        child: Container(
+                                                          width: 36,
+                                                          height: 36,
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.black54,
+                                                            shape: BoxShape.circle,
+                                                            border: Border.all(
+                                                              color: Colors.white24,
+                                                              width: 0.8,
+                                                            ),
+                                                          ),
+                                                          child: const Center(
+                                                            child: Icon(
+                                                              Lucide.RotateCw,
+                                                              size: 18,
+                                                              color: Colors.white,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
                                                   ),
                                                 ),
-                                                 if (_video.canExpand) ...[
-                                                   const SizedBox(width: 4),
-                                                   const Icon(
-                                                     Lucide.Maximize2,
-                                                     size: 13,
-                                                     color: Colors.white70,
-                                                   ),
-                                                 ],
-                                              ],
+                                              ),
                                             ),
                                           ),
                                         ),
 
                                         // Close button (Top-Right)
                                         Positioned(
-                                          top: 5,
-                                          right: 5,
+                                          top: 6,
+                                          right: 6,
                                           child: GestureDetector(
                                             behavior: HitTestBehavior.opaque,
                                             onTapDown: (_) {
@@ -436,8 +577,8 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                               _video.stop();
                                             },
                                             child: Container(
-                                              width: 24,
-                                              height: 24,
+                                              width: 26,
+                                              height: 26,
                                               decoration: BoxDecoration(
                                                 color: Colors.black54,
                                                 shape: BoxShape.circle,
