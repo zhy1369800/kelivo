@@ -77,6 +77,10 @@ class _DisplaySettingsBody extends StatelessWidget {
                   _ToggleRowShowProviderInChatMessage(),
                   _RowDivider(),
                   _ToggleRowShowTokenStats(),
+                  _RowDivider(),
+                  _ToggleRowShowThinkingCards(),
+                  _RowDivider(),
+                  _ToggleRowShowToolCards(),
                 ],
               ),
               const SizedBox(height: 16),
@@ -107,6 +111,8 @@ class _DisplaySettingsBody extends StatelessWidget {
                   _ToggleRowCollapseThinkingSteps(),
                   _RowDivider(),
                   _ToggleRowShowToolResultSummary(),
+                  _RowDivider(),
+                  _ToggleRowHideToolResultImages(),
                   _RowDivider(),
                   _ToggleRowInsertSuggestionOnly(),
                   _RowDivider(),
@@ -2443,6 +2449,37 @@ class _ToggleRowAutoCollapseCodeBlocks extends StatelessWidget {
   }
 }
 
+class _ToggleRowShowThinkingCards extends StatelessWidget {
+  const _ToggleRowShowThinkingCards();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsPageShowThinkingCardsTitle,
+      tip: l10n.displaySettingsPageShowThinkingCardsSubtitle,
+      value: sp.showThinkingCards,
+      onChanged: (v) =>
+          context.read<SettingsProvider>().setShowThinkingCards(v),
+    );
+  }
+}
+
+class _ToggleRowShowToolCards extends StatelessWidget {
+  const _ToggleRowShowToolCards();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsPageShowToolCardsTitle,
+      tip: l10n.displaySettingsPageShowToolCardsSubtitle,
+      value: sp.showToolCards,
+      onChanged: (v) => context.read<SettingsProvider>().setShowToolCards(v),
+    );
+  }
+}
+
 class _ToggleRowAutoCollapseThinking extends StatelessWidget {
   const _ToggleRowAutoCollapseThinking();
   @override
@@ -2484,6 +2521,21 @@ class _ToggleRowShowToolResultSummary extends StatelessWidget {
       value: sp.showToolResultSummary,
       onChanged: (v) =>
           context.read<SettingsProvider>().setShowToolResultSummary(v),
+    );
+  }
+}
+
+class _ToggleRowHideToolResultImages extends StatelessWidget {
+  const _ToggleRowHideToolResultImages();
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final sp = context.watch<SettingsProvider>();
+    return _ToggleRow(
+      label: l10n.displaySettingsPageHideToolResultImagesTitle,
+      value: sp.hideToolResultImages,
+      onChanged: (v) =>
+          context.read<SettingsProvider>().setHideToolResultImages(v),
     );
   }
 }
@@ -2935,8 +2987,10 @@ class _ToggleRow extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onChanged,
+    this.tip,
   });
   final String label;
+  final String? tip;
   final bool value;
   final ValueChanged<bool>? onChanged;
   @override
@@ -2963,6 +3017,7 @@ class _ToggleRow extends StatelessWidget {
               ],
             ),
           ),
+          if (tip != null) MemoryTipIcon(message: tip!),
           const SizedBox(width: 12),
           IosSwitch(value: value, onChanged: onChanged),
         ],

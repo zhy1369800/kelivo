@@ -1,4 +1,4 @@
-// ignore: unused_import
+﻿// ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
 
@@ -122,6 +122,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get storageSpaceCategoryFiles => 'Files';
 
   @override
+  String get storageSpaceCategoryFonts => 'Fonts';
+
+  @override
+  String get storageSpaceCategoryLocalModels => 'Local Models';
+
+  @override
+  String get storageSpaceOtherHint =>
+      'Fonts, downloaded local models, and other app files.';
+
+  @override
+  String get storageSpaceSubOtherApp => 'App files';
+
+  @override
   String get storageSpaceCategoryChatData => 'Chat Records';
 
   @override
@@ -155,7 +168,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get storageSpaceCategoryLogs => 'Logs';
 
   @override
-  String get storageSpaceCategoryOther => 'App';
+  String get storageSpaceCategoryOther => 'Other';
 
   @override
   String storageSpaceFilesCount(int count) {
@@ -1789,6 +1802,70 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get backupPageExporting => 'Exporting...';
+
+  @override
+  String get backupProgressCancel => 'Cancel';
+
+  @override
+  String get backupProgressCancelled => 'Cancelled';
+
+  @override
+  String get backupProgressPreparing => 'Preparing';
+
+  @override
+  String get backupProgressSnapshotting => 'Creating database snapshot';
+
+  @override
+  String get backupProgressPacking => 'Packing';
+
+  @override
+  String get backupProgressVerifying => 'Verifying';
+
+  @override
+  String get backupProgressUploading => 'Uploading';
+
+  @override
+  String get backupProgressDownloading => 'Downloading';
+
+  @override
+  String get backupProgressExtracting => 'Extracting';
+
+  @override
+  String get backupProgressValidating => 'Validating';
+
+  @override
+  String get backupProgressReadingSettings => 'Reading settings';
+
+  @override
+  String get backupProgressStaging => 'Staging';
+
+  @override
+  String get backupProgressCommitting => 'Committing';
+
+  @override
+  String get backupProgressImportingSessions => 'Importing sessions';
+
+  @override
+  String get backupProgressImportingMessages => 'Importing messages';
+
+  @override
+  String get backupProgressMaterializingFiles => 'Writing files';
+
+  @override
+  String get backupProgressListingRemote => 'Listing remote backups';
+
+  @override
+  String get backupProgressFinalizing => 'Finishing';
+
+  @override
+  String backupProgressBytes(String done, String total) {
+    return '$done / $total';
+  }
+
+  @override
+  String backupProgressItems(String done, String total) {
+    return '$done / $total';
+  }
 
   @override
   String get backupPageExportToFile => 'Export to File';
@@ -4310,6 +4387,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get aboutPageQQGroupTwo => 'Kelivo Group 2';
 
   @override
+  String get aboutPageQQGroupThree => 'Kelivo Group 3';
+
+  @override
   String get aboutPageJoinDiscord => 'Join us on Discord';
 
   @override
@@ -4380,6 +4460,20 @@ class AppLocalizationsEn extends AppLocalizations {
       'Show token usage and message count';
 
   @override
+  String get displaySettingsPageShowThinkingCardsTitle => 'Show Thinking Cards';
+
+  @override
+  String get displaySettingsPageShowThinkingCardsSubtitle =>
+      'When off, thinking-process cards are hidden in chat.';
+
+  @override
+  String get displaySettingsPageShowToolCardsTitle => 'Show Tool Cards';
+
+  @override
+  String get displaySettingsPageShowToolCardsSubtitle =>
+      'When off, tool-use cards are hidden in chat.';
+
+  @override
   String get displaySettingsPageAutoCollapseThinkingTitle =>
       'Auto-collapse Thinking';
 
@@ -4406,6 +4500,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get displaySettingsPageShowToolResultSummarySubtitle =>
       'Display the summary text below tool steps';
+
+  @override
+  String get displaySettingsPageHideToolResultImagesTitle =>
+      'Hide images in tool results';
 
   @override
   String get displaySettingsPageRegenerateDeleteTrailingMessagesTitle =>
@@ -4460,6 +4558,14 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get displaySettingsPageShowUpdatesSubtitle =>
       'Show app update notifications';
+
+  @override
+  String get displaySettingsPageKeepScreenOnDuringGenerationTitle =>
+      'Keep Screen On While Generating';
+
+  @override
+  String get displaySettingsPageKeepScreenOnDuringGenerationSubtitle =>
+      'Prevents the lock screen from interrupting generation. Increases battery use.';
 
   @override
   String get displaySettingsPageMessageNavButtonsTitle =>
@@ -8355,4 +8461,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String remoteAgentExecutingMobileTool(String name) {
     return 'Executing mobile tool: $name…';
   }
+  String get messageStyleSettingsPageRoleUser => 'User';
+
+  @override
+  String get messageStyleSettingsPageRoleAssistant => 'Assistant';
+
+  @override
+  String get messageStyleSettingsPageRoleAssistantHint =>
+      'Assistant settings also apply to thinking, tool-call, and translation cards.';
 }

@@ -1425,6 +1425,8 @@ class _HomePageState extends State<HomePage>
         onUserScrollIntent: _controller.scrollCtrl.handleUserScrollIntent,
         chatFontScale: settings.chatFontScale,
         collapseThinking: settings.autoCollapseThinking,
+        showThinkingCards: settings.showThinkingCards,
+        showToolCards: settings.showToolCards,
         collapsedCodeLines: settings.autoCollapseCodeBlock
             ? settings.autoCollapseCodeBlockLines
             : null,

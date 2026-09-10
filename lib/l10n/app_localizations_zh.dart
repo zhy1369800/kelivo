@@ -1,4 +1,4 @@
-// ignore: unused_import
+﻿// ignore: unused_import
 import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
 
@@ -120,6 +120,18 @@ class AppLocalizationsZh extends AppLocalizations {
   String get storageSpaceCategoryFiles => '文件';
 
   @override
+  String get storageSpaceCategoryFonts => '字体';
+
+  @override
+  String get storageSpaceCategoryLocalModels => '本地模型';
+
+  @override
+  String get storageSpaceOtherHint => '包括导入字体、本地下载模型和其他应用文件。';
+
+  @override
+  String get storageSpaceSubOtherApp => '其他文件';
+
+  @override
   String get storageSpaceCategoryChatData => '聊天记录';
 
   @override
@@ -151,7 +163,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get storageSpaceCategoryLogs => '日志';
 
   @override
-  String get storageSpaceCategoryOther => '应用';
+  String get storageSpaceCategoryOther => '其他';
 
   @override
   String storageSpaceFilesCount(int count) {
@@ -1728,6 +1740,70 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get backupPageExporting => '正在导出...';
+
+  @override
+  String get backupProgressCancel => '取消';
+
+  @override
+  String get backupProgressCancelled => '已取消';
+
+  @override
+  String get backupProgressPreparing => '准备中';
+
+  @override
+  String get backupProgressSnapshotting => '正在创建数据库快照';
+
+  @override
+  String get backupProgressPacking => '正在打包';
+
+  @override
+  String get backupProgressVerifying => '正在校验';
+
+  @override
+  String get backupProgressUploading => '正在上传';
+
+  @override
+  String get backupProgressDownloading => '正在下载';
+
+  @override
+  String get backupProgressExtracting => '正在解压';
+
+  @override
+  String get backupProgressValidating => '正在验证';
+
+  @override
+  String get backupProgressReadingSettings => '正在读取设置';
+
+  @override
+  String get backupProgressStaging => '正在暂存';
+
+  @override
+  String get backupProgressCommitting => '正在提交';
+
+  @override
+  String get backupProgressImportingSessions => '正在导入会话';
+
+  @override
+  String get backupProgressImportingMessages => '正在导入消息';
+
+  @override
+  String get backupProgressMaterializingFiles => '正在写入文件';
+
+  @override
+  String get backupProgressListingRemote => '正在列出远端备份';
+
+  @override
+  String get backupProgressFinalizing => '正在完成';
+
+  @override
+  String backupProgressBytes(String done, String total) {
+    return '$done / $total';
+  }
+
+  @override
+  String backupProgressItems(String done, String total) {
+    return '$done / $total';
+  }
 
   @override
   String get backupPageExportToFile => '导出为文件';
@@ -4160,6 +4236,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get aboutPageQQGroupTwo => 'Kelivo 二群';
 
   @override
+  String get aboutPageQQGroupThree => 'Kelivo 三群';
+
+  @override
   String get aboutPageJoinDiscord => '在 Discord 中加入我们';
 
   @override
@@ -4221,6 +4300,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get displaySettingsPageShowTokenStatsSubtitle => '显示 token 用量与消息数量';
 
   @override
+  String get displaySettingsPageShowThinkingCardsTitle => '显示思考卡片';
+
+  @override
+  String get displaySettingsPageShowThinkingCardsSubtitle =>
+      '关闭后，聊天中不再显示思考过程卡片';
+
+  @override
+  String get displaySettingsPageShowToolCardsTitle => '显示工具卡片';
+
+  @override
+  String get displaySettingsPageShowToolCardsSubtitle => '关闭后，聊天中不再显示工具调用卡片';
+
+  @override
   String get displaySettingsPageAutoCollapseThinkingTitle => '自动折叠思考';
 
   @override
@@ -4243,6 +4335,9 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get displaySettingsPageShowToolResultSummarySubtitle =>
       '在工具步骤下方显示摘要文本';
+
+  @override
+  String get displaySettingsPageHideToolResultImagesTitle => '隐藏工具结果中的图片';
 
   @override
   String get displaySettingsPageRegenerateDeleteTrailingMessagesTitle =>
@@ -4292,6 +4387,14 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get displaySettingsPageShowUpdatesSubtitle => '显示应用更新通知';
+
+  @override
+  String get displaySettingsPageKeepScreenOnDuringGenerationTitle =>
+      '生成时保持屏幕常亮';
+
+  @override
+  String get displaySettingsPageKeepScreenOnDuringGenerationSubtitle =>
+      '防止生成中途锁屏导致中断，会增加耗电';
 
   @override
   String get displaySettingsPageMessageNavButtonsTitle => '消息导航按钮';
@@ -8009,6 +8112,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String remoteAgentExecutingMobileTool(String name) {
     return '正在执行手机端工具: $name…';
   }
+  String get messageStyleSettingsPageRoleUser => '用户';
+
+  @override
+  String get messageStyleSettingsPageRoleAssistant => '助手';
+
+  @override
+  String get messageStyleSettingsPageRoleAssistantHint =>
+      '助手设定同时作用于思考、工具调用和翻译卡片。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hans`).
@@ -8127,6 +8238,18 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get storageSpaceCategoryFiles => '文件';
 
   @override
+  String get storageSpaceCategoryFonts => '字体';
+
+  @override
+  String get storageSpaceCategoryLocalModels => '本地模型';
+
+  @override
+  String get storageSpaceOtherHint => '包括导入字体、本地下载模型和其他应用文件。';
+
+  @override
+  String get storageSpaceSubOtherApp => '其他文件';
+
+  @override
   String get storageSpaceCategoryChatData => '聊天记录';
 
   @override
@@ -8158,7 +8281,7 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get storageSpaceCategoryLogs => '日志';
 
   @override
-  String get storageSpaceCategoryOther => '应用';
+  String get storageSpaceCategoryOther => '其他';
 
   @override
   String storageSpaceFilesCount(int count) {
@@ -9735,6 +9858,70 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get backupPageExporting => '正在导出...';
+
+  @override
+  String get backupProgressCancel => '取消';
+
+  @override
+  String get backupProgressCancelled => '已取消';
+
+  @override
+  String get backupProgressPreparing => '准备中';
+
+  @override
+  String get backupProgressSnapshotting => '正在创建数据库快照';
+
+  @override
+  String get backupProgressPacking => '正在打包';
+
+  @override
+  String get backupProgressVerifying => '正在校验';
+
+  @override
+  String get backupProgressUploading => '正在上传';
+
+  @override
+  String get backupProgressDownloading => '正在下载';
+
+  @override
+  String get backupProgressExtracting => '正在解压';
+
+  @override
+  String get backupProgressValidating => '正在验证';
+
+  @override
+  String get backupProgressReadingSettings => '正在读取设置';
+
+  @override
+  String get backupProgressStaging => '正在暂存';
+
+  @override
+  String get backupProgressCommitting => '正在提交';
+
+  @override
+  String get backupProgressImportingSessions => '正在导入会话';
+
+  @override
+  String get backupProgressImportingMessages => '正在导入消息';
+
+  @override
+  String get backupProgressMaterializingFiles => '正在写入文件';
+
+  @override
+  String get backupProgressListingRemote => '正在列出远端备份';
+
+  @override
+  String get backupProgressFinalizing => '正在完成';
+
+  @override
+  String backupProgressBytes(String done, String total) {
+    return '$done / $total';
+  }
+
+  @override
+  String backupProgressItems(String done, String total) {
+    return '$done / $total';
+  }
 
   @override
   String get backupPageExportToFile => '导出为文件';
@@ -12167,6 +12354,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get aboutPageQQGroupTwo => 'Kelivo 二群';
 
   @override
+  String get aboutPageQQGroupThree => 'Kelivo 三群';
+
+  @override
   String get aboutPageJoinDiscord => '在 Discord 中加入我们';
 
   @override
@@ -12228,6 +12418,19 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String get displaySettingsPageShowTokenStatsSubtitle => '显示 token 用量与消息数量';
 
   @override
+  String get displaySettingsPageShowThinkingCardsTitle => '显示思考卡片';
+
+  @override
+  String get displaySettingsPageShowThinkingCardsSubtitle =>
+      '关闭后，聊天中不再显示思考过程卡片';
+
+  @override
+  String get displaySettingsPageShowToolCardsTitle => '显示工具卡片';
+
+  @override
+  String get displaySettingsPageShowToolCardsSubtitle => '关闭后，聊天中不再显示工具调用卡片';
+
+  @override
   String get displaySettingsPageAutoCollapseThinkingTitle => '自动折叠思考';
 
   @override
@@ -12250,6 +12453,9 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   @override
   String get displaySettingsPageShowToolResultSummarySubtitle =>
       '在工具步骤下方显示摘要文本';
+
+  @override
+  String get displaySettingsPageHideToolResultImagesTitle => '隐藏工具结果中的图片';
 
   @override
   String get displaySettingsPageRegenerateDeleteTrailingMessagesTitle =>
@@ -12299,6 +12505,14 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
 
   @override
   String get displaySettingsPageShowUpdatesSubtitle => '显示应用更新通知';
+
+  @override
+  String get displaySettingsPageKeepScreenOnDuringGenerationTitle =>
+      '生成时保持屏幕常亮';
+
+  @override
+  String get displaySettingsPageKeepScreenOnDuringGenerationSubtitle =>
+      '防止生成中途锁屏导致中断，会增加耗电';
 
   @override
   String get displaySettingsPageMessageNavButtonsTitle => '消息导航按钮';
@@ -15858,6 +16072,14 @@ class AppLocalizationsZhHans extends AppLocalizationsZh {
   String remoteAgentExecutingMobileTool(String name) {
     return '正在执行手机端工具: $name…';
   }
+  String get messageStyleSettingsPageRoleUser => '用户';
+
+  @override
+  String get messageStyleSettingsPageRoleAssistant => '助手';
+
+  @override
+  String get messageStyleSettingsPageRoleAssistantHint =>
+      '助手设定同时作用于思考、工具调用和翻译卡片。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -15976,6 +16198,18 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get storageSpaceCategoryFiles => '檔案';
 
   @override
+  String get storageSpaceCategoryFonts => '字體';
+
+  @override
+  String get storageSpaceCategoryLocalModels => '本地模型';
+
+  @override
+  String get storageSpaceOtherHint => '包括匯入字體、本地下載模型和其他應用程式檔案。';
+
+  @override
+  String get storageSpaceSubOtherApp => '其他檔案';
+
+  @override
   String get storageSpaceCategoryChatData => '聊天記錄';
 
   @override
@@ -16007,7 +16241,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get storageSpaceCategoryLogs => '日誌';
 
   @override
-  String get storageSpaceCategoryOther => '應用';
+  String get storageSpaceCategoryOther => '其他';
 
   @override
   String storageSpaceFilesCount(int count) {
@@ -17584,6 +17818,70 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get backupPageExporting => '正在匯出...';
+
+  @override
+  String get backupProgressCancel => '取消';
+
+  @override
+  String get backupProgressCancelled => '已取消';
+
+  @override
+  String get backupProgressPreparing => '準備中';
+
+  @override
+  String get backupProgressSnapshotting => '正在建立資料庫快照';
+
+  @override
+  String get backupProgressPacking => '正在打包';
+
+  @override
+  String get backupProgressVerifying => '正在校驗';
+
+  @override
+  String get backupProgressUploading => '正在上傳';
+
+  @override
+  String get backupProgressDownloading => '正在下載';
+
+  @override
+  String get backupProgressExtracting => '正在解壓';
+
+  @override
+  String get backupProgressValidating => '正在驗證';
+
+  @override
+  String get backupProgressReadingSettings => '正在讀取設定';
+
+  @override
+  String get backupProgressStaging => '正在暫存';
+
+  @override
+  String get backupProgressCommitting => '正在提交';
+
+  @override
+  String get backupProgressImportingSessions => '正在匯入對話';
+
+  @override
+  String get backupProgressImportingMessages => '正在匯入訊息';
+
+  @override
+  String get backupProgressMaterializingFiles => '正在寫入檔案';
+
+  @override
+  String get backupProgressListingRemote => '正在列出遠端備份';
+
+  @override
+  String get backupProgressFinalizing => '正在完成';
+
+  @override
+  String backupProgressBytes(String done, String total) {
+    return '$done / $total';
+  }
+
+  @override
+  String backupProgressItems(String done, String total) {
+    return '$done / $total';
+  }
 
   @override
   String get backupPageExportToFile => '匯出為檔案';
@@ -20014,6 +20312,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get aboutPageQQGroupTwo => 'Kelivo 二群';
 
   @override
+  String get aboutPageQQGroupThree => 'Kelivo 三群';
+
+  @override
   String get aboutPageJoinDiscord => '加入我們的 Discord';
 
   @override
@@ -20075,6 +20376,19 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get displaySettingsPageShowTokenStatsSubtitle => '顯示 token 用量與訊息數量';
 
   @override
+  String get displaySettingsPageShowThinkingCardsTitle => '顯示思考卡片';
+
+  @override
+  String get displaySettingsPageShowThinkingCardsSubtitle =>
+      '關閉後，聊天中不再顯示思考過程卡片';
+
+  @override
+  String get displaySettingsPageShowToolCardsTitle => '顯示工具卡片';
+
+  @override
+  String get displaySettingsPageShowToolCardsSubtitle => '關閉後，聊天中不再顯示工具呼叫卡片';
+
+  @override
   String get displaySettingsPageAutoCollapseThinkingTitle => '自動折疊思考';
 
   @override
@@ -20097,6 +20411,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   @override
   String get displaySettingsPageShowToolResultSummarySubtitle =>
       '在工具步驟下方顯示摘要文字';
+
+  @override
+  String get displaySettingsPageHideToolResultImagesTitle => '隱藏工具結果中的圖片';
 
   @override
   String get displaySettingsPageRegenerateDeleteTrailingMessagesTitle =>
@@ -20146,6 +20463,14 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get displaySettingsPageShowUpdatesSubtitle => '顯示應用程式更新通知';
+
+  @override
+  String get displaySettingsPageKeepScreenOnDuringGenerationTitle =>
+      '生成時保持螢幕常亮';
+
+  @override
+  String get displaySettingsPageKeepScreenOnDuringGenerationSubtitle =>
+      '防止生成途中鎖定螢幕導致中斷，會增加耗電';
 
   @override
   String get displaySettingsPageMessageNavButtonsTitle => '訊息導航按鈕';
@@ -23783,4 +24108,12 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String remoteAgentExecutingMobileTool(String name) {
     return '正在執行手機端工具: $name…';
   }
+  String get messageStyleSettingsPageRoleUser => '使用者';
+
+  @override
+  String get messageStyleSettingsPageRoleAssistant => '助手';
+
+  @override
+  String get messageStyleSettingsPageRoleAssistantHint =>
+      '助手設定同時作用於思考、工具呼叫和翻譯卡片。';
 }

@@ -176,7 +176,7 @@ class ChatCompletionsStreamDecoder implements StreamChunkDecoder {
           idx,
           () => <String, dynamic>{'id': '', 'name': '', 'args': ''},
         );
-        entry['id'] = id.isNotEmpty ? id : eventId;
+        _assignToolIds(entry, eventId: eventId, vendorId: id);
         entry['name'] = name;
         entry['args'] = argsStr;
         if (extraContent != null) {
@@ -236,28 +236,34 @@ class ChatCompletionsStreamDecoder implements StreamChunkDecoder {
     if (raw is! List) return;
     for (final t in raw) {
       if (t is! Map) continue;
-      final idx = (t['index'] as int?) ?? 0;
-      final vendorId = (t['id'] as String?)?.trim() ?? '';
+      final idx = _resolveToolCallIndex(t, fallback: 0);
+      if (idx == null) continue;
+      final rawVendorId = t['id'];
+      final vendorId = rawVendorId is String ? rawVendorId.trim() : '';
       final func = t['function'];
-      final name = func is Map ? func['name'] as String? : null;
-      final argsDelta = func is Map ? func['arguments'] as String? : null;
+      final rawName = func is Map ? func['name'] : null;
+      final name = rawName is String ? rawName : null;
+      final rawArgs = func is Map ? func['arguments'] : null;
+      final argsDelta = rawArgs is String ? rawArgs : null;
+      final extraContent = _extraContentOf(t);
+      if (vendorId.isEmpty &&
+          (name == null || name.isEmpty) &&
+          (argsDelta == null || argsDelta.isEmpty) &&
+          extraContent == null) {
+        continue;
+      }
       final firstSeen = !toolCalls.containsKey(idx);
       final entry = toolCalls.putIfAbsent(
         idx,
         () => <String, dynamic>{'id': '', 'name': '', 'args': ''},
       );
       final eventId = _toolSeriesId(idx, vendorId: vendorId);
-      if (vendorId.isNotEmpty) {
-        entry['id'] = vendorId;
-      } else if ((entry['id'] ?? '').toString().isEmpty) {
-        entry['id'] = eventId;
-      }
+      _assignToolIds(entry, eventId: eventId, vendorId: vendorId);
       final hadName = (entry['name'] ?? '').toString().isNotEmpty;
       if (name != null && name.isNotEmpty) entry['name'] = name;
       if (argsDelta != null && argsDelta.isNotEmpty) {
         entry['args'] = '${entry['args'] ?? ''}$argsDelta';
       }
-      final extraContent = _extraContentOf(t);
       final firstExtra = extraContent != null && entry['extra_content'] == null;
       if (firstExtra) {
         entry['extra_content'] = extraContent;
@@ -288,9 +294,23 @@ class ChatCompletionsStreamDecoder implements StreamChunkDecoder {
 
   void _ingestCompleteToolCalls(dynamic raw, List<StreamChunk> chunks) {
     if (raw is! List) return;
+    final reservedExplicitIndexes = <int>{};
+    for (final item in raw) {
+      if (item is! Map || !item.containsKey('index') || item['index'] == null) {
+        continue;
+      }
+      final index = _resolveToolCallIndex(item, fallback: 0);
+      if (index != null) reservedExplicitIndexes.add(index);
+    }
     for (final t in raw) {
       if (t is! Map) continue;
-      final idx = (t['index'] as int?) ?? toolCalls.length;
+      var fallbackIndex = toolCalls.length;
+      while (toolCalls.containsKey(fallbackIndex) ||
+          reservedExplicitIndexes.contains(fallbackIndex)) {
+        fallbackIndex++;
+      }
+      final idx = _resolveToolCallIndex(t, fallback: fallbackIndex);
+      if (idx == null) continue;
       final id = (t['id'] ?? '').toString();
       final func = t['function'];
       if (func is! Map) continue;
@@ -303,7 +323,7 @@ class ChatCompletionsStreamDecoder implements StreamChunkDecoder {
         idx,
         () => <String, dynamic>{'id': '', 'name': '', 'args': ''},
       );
-      entry['id'] = id.isNotEmpty ? id : eventId;
+      _assignToolIds(entry, eventId: eventId, vendorId: id);
       entry['name'] = name;
       entry['args'] = argsStr;
       if (extraContent != null) {
@@ -329,6 +349,27 @@ class ChatCompletionsStreamDecoder implements StreamChunkDecoder {
     final id = vendorId.isNotEmpty ? vendorId : _ids.next('tool');
     _toolIdsByIndex[index] = id;
     return id;
+  }
+
+  /// Persist the first-seen stream id as [series_id] and the vendor id as [id].
+  ///
+  /// OpenAI-compatible streams may emit a tool fragment before the vendor
+  /// `call_*` id arrives. UI chunks already use the first-seen series id; the
+  /// handler must use that same id so approval matching cannot desync. The
+  /// vendor id is still stored for the API transcript.
+  void _assignToolIds(
+    Map<String, dynamic> entry, {
+    required String eventId,
+    required String vendorId,
+  }) {
+    if ((entry['series_id'] ?? '').toString().isEmpty) {
+      entry['series_id'] = eventId;
+    }
+    if (vendorId.isNotEmpty) {
+      entry['id'] = vendorId;
+    } else if ((entry['id'] ?? '').toString().isEmpty) {
+      entry['id'] = eventId;
+    }
   }
 
   List<StreamChunk> _emitCompleteToolCall(
@@ -443,7 +484,8 @@ String _messageText(dynamic mc) {
     final sb = StringBuffer();
     for (final it in mc) {
       if (it is! Map) continue;
-      final t = (it['text'] ?? '') as String? ?? '';
+      final rawText = it['text'];
+      final t = rawText is String ? rawText : '';
       if (t.isNotEmpty && (it['type'] == null || it['type'] == 'text')) {
         sb.write(t);
       }
@@ -451,6 +493,23 @@ String _messageText(dynamic mc) {
     return sb.toString();
   }
   return (mc ?? '').toString();
+}
+
+int? _resolveToolCallIndex(Map toolCall, {required int fallback}) {
+  final value = toolCall['index'];
+  if (!toolCall.containsKey('index') || value == null) return fallback;
+
+  int? parsed;
+  if (value is int) {
+    parsed = value;
+  } else if (value is num &&
+      value.isFinite &&
+      value == value.truncateToDouble()) {
+    parsed = value.toInt();
+  } else if (value is String) {
+    parsed = int.tryParse(value);
+  }
+  return parsed != null && parsed >= 0 ? parsed : null;
 }
 
 List<dynamic> _imageItems(Map delta) {

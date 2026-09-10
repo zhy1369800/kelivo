@@ -58,6 +58,10 @@
   },
   "storageSpaceCategoryImages": "Images",
   "storageSpaceCategoryFiles": "Files",
+  "storageSpaceCategoryFonts": "Fonts",
+  "storageSpaceCategoryLocalModels": "Local Models",
+  "storageSpaceOtherHint": "Fonts, downloaded local models, and other app files.",
+  "storageSpaceSubOtherApp": "App files",
   "storageSpaceCategoryChatData": "Chat Records",
   "storageSpaceCategoryLegacyChatData": "Chat Records (Old)",
   "storageSpaceCategoryRestoreTraces": "Restore Traces",
@@ -68,7 +72,7 @@
   "storageSpaceCategoryAssistantData": "Assistants",
   "storageSpaceCategoryCache": "Cache",
   "storageSpaceCategoryLogs": "Logs",
-  "storageSpaceCategoryOther": "App",
+  "storageSpaceCategoryOther": "Other",
   "storageSpaceFilesCount": "{count} files",
   "@storageSpaceFilesCount": {
     "placeholders": {
@@ -733,6 +737,46 @@
   "backupPageBackupUploaded": "Backup uploaded",
   "backupPageBackup": "Backup",
   "backupPageExporting": "Exporting...",
+  "backupProgressCancel": "Cancel",
+  "backupProgressCancelled": "Cancelled",
+  "backupProgressPreparing": "Preparing",
+  "backupProgressSnapshotting": "Creating database snapshot",
+  "backupProgressPacking": "Packing",
+  "backupProgressVerifying": "Verifying",
+  "backupProgressUploading": "Uploading",
+  "backupProgressDownloading": "Downloading",
+  "backupProgressExtracting": "Extracting",
+  "backupProgressValidating": "Validating",
+  "backupProgressReadingSettings": "Reading settings",
+  "backupProgressStaging": "Staging",
+  "backupProgressCommitting": "Committing",
+  "backupProgressImportingSessions": "Importing sessions",
+  "backupProgressImportingMessages": "Importing messages",
+  "backupProgressMaterializingFiles": "Writing files",
+  "backupProgressListingRemote": "Listing remote backups",
+  "backupProgressFinalizing": "Finishing",
+  "backupProgressBytes": "{done} / {total}",
+  "@backupProgressBytes": {
+    "placeholders": {
+      "done": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "backupProgressItems": "{done} / {total}",
+  "@backupProgressItems": {
+    "placeholders": {
+      "done": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
   "backupPageExportToFile": "Export to File",
   "backupPageExportToFileSubtitle": "Export app data to a file",
   "backupPageImportBackupFile": "Import Backup File",
@@ -1892,6 +1936,7 @@
   "aboutPageJoinQQGroup": "Join our QQ Group",
   "aboutPageQQGroupOne": "Kelivo Group 1",
   "aboutPageQQGroupTwo": "Kelivo Group 2",
+  "aboutPageQQGroupThree": "Kelivo Group 3",
   "aboutPageJoinDiscord": "Join us on Discord",
   "displaySettingsPageShowUserAvatarTitle": "Show User Avatar",
   "displaySettingsPageShowUserAvatarSubtitle": "Display user avatar in chat messages",
@@ -1911,6 +1956,10 @@
   "displaySettingsPageChatModelIconSubtitle": "Show model icon in chat messages",
   "displaySettingsPageShowTokenStatsTitle": "Show Token & Context Stats",
   "displaySettingsPageShowTokenStatsSubtitle": "Show token usage and message count",
+  "displaySettingsPageShowThinkingCardsTitle": "Show Thinking Cards",
+  "displaySettingsPageShowThinkingCardsSubtitle": "When off, thinking-process cards are hidden in chat.",
+  "displaySettingsPageShowToolCardsTitle": "Show Tool Cards",
+  "displaySettingsPageShowToolCardsSubtitle": "When off, tool-use cards are hidden in chat.",
   "displaySettingsPageAutoCollapseThinkingTitle": "Auto-collapse Thinking",
   "displaySettingsPageAutoCollapseThinkingSubtitle": "Collapse reasoning after finish",
   "displaySettingsPageCollapseThinkingStepsTitle": "Collapse Thinking Steps",
@@ -1918,6 +1967,7 @@
   "displaySettingsPageShowToolResultSummaryTitle": "Show Tool Result Summary",
   "displaySettingsPageInsertSuggestionOnlyTitle": "Insert suggestions without sending",
   "displaySettingsPageShowToolResultSummarySubtitle": "Display the summary text below tool steps",
+  "displaySettingsPageHideToolResultImagesTitle": "Hide images in tool results",
   "displaySettingsPageRegenerateDeleteTrailingMessagesTitle": "Delete messages below when regenerating",
   "displaySettingsPageShowRegenerateConfirmDialogTitle": "Confirm before regenerating",
   "displaySettingsPageForkKeepMessageVersionsTitle": "Keep Message Versions When Forking",
@@ -1939,6 +1989,8 @@
   "displaySettingsPageKeepAssistantListExpandedOnSidebarCloseTitle": "Don't collapse assistant list when closing sidebar",
   "displaySettingsPageShowUpdatesTitle": "Show Updates",
   "displaySettingsPageShowUpdatesSubtitle": "Show app update notifications",
+  "displaySettingsPageKeepScreenOnDuringGenerationTitle": "Keep Screen On While Generating",
+  "displaySettingsPageKeepScreenOnDuringGenerationSubtitle": "Prevents the lock screen from interrupting generation. Increases battery use.",
   "displaySettingsPageMessageNavButtonsTitle": "Message Navigation Buttons",
   "displaySettingsPageMessageNavButtonsSubtitle": "Choose when quick jump buttons appear",
   "displaySettingsPageMessageNavButtonsModeAlways": "Always show",
@@ -3629,5 +3681,8 @@
         "type": "String"
       }
     }
-  }
+  },
+  "messageStyleSettingsPageRoleUser": "User",
+  "messageStyleSettingsPageRoleAssistant": "Assistant",
+  "messageStyleSettingsPageRoleAssistantHint": "Assistant settings also apply to thinking, tool-call, and translation cards."
 }

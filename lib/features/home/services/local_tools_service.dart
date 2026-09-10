@@ -1345,6 +1345,19 @@ class LocalToolsService {
                 'description':
                     'Transport protocol ("sse" or "http") used for "install". Only specify if user explicitly mentions it; otherwise OMIT this parameter completely.',
               },
+              'reminders': {
+                'type': 'array',
+                'items': {'type': 'integer'},
+                'description':
+                    'Optional notification reminders, as minutes before the event start '
+                    '(e.g. [10] for 10 minutes before, [0] for exactly at the start time, '
+                    '[30, 1440] for 30 minutes and 1 day before). For all-day events the '
+                    'offset counts back from the start of the day. No reminder is attached '
+                    'unless you pass this, so include one whenever the user expects to be '
+                    'notified. At most 5 reminders; values are clamped to 0-40320 minutes '
+                    '(4 weeks) and de-duplicated, and the result reports what was actually '
+                    'saved.',
+              },
             },
             'required': ['action'],
           },

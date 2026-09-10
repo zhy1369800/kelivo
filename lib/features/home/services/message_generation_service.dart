@@ -359,6 +359,7 @@ class MessageGenerationService {
         conversationId: conversationId,
         modelId: modelId,
         providerKey: providerKey,
+        temporaryAfterGroupId: anchorGroupId,
       );
       return (assistantMessage: assistantMessage, runId: null);
     }
@@ -431,6 +432,7 @@ class MessageGenerationService {
     required String providerKey,
     String? groupId,
     int version = 0,
+    String? temporaryAfterGroupId,
   }) async {
     return chatService.addMessage(
       conversationId: conversationId,
@@ -442,6 +444,7 @@ class MessageGenerationService {
       groupId: groupId,
       version: version,
       selectVersion: groupId != null,
+      temporaryAfterGroupId: temporaryAfterGroupId,
     );
   }
 
@@ -574,10 +577,12 @@ class MessageGenerationService {
 
       int aid = -1;
       for (int i = userFirst + 1; i < messages.length; i++) {
+        final candidateGroupId = messages[i].groupId ?? messages[i].id;
+        if (candidateGroupId == userGroupId) continue;
         if (messages[i].role == 'assistant') {
           aid = i;
-          break;
         }
+        break;
       }
 
       if (aid >= 0) {
