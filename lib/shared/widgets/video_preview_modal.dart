@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
@@ -10,7 +9,6 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
 import '../../icons/lucide_adapter.dart';
-import '../../theme/app_font_weights.dart';
 import 'snackbar.dart';
 
 /// In-app video preview card sheet with full playback controls,
@@ -53,20 +51,33 @@ class VideoPreviewModal extends StatefulWidget {
       return;
     }
 
-    final effectiveContext = navigator.overlay?.context ?? navigator.context;
-
     video.openVideo(source: source, title: title);
     video.markFullPreviewOpened();
 
     try {
-      await showModalBottomSheet<void>(
-        context: effectiveContext,
-        useRootNavigator: false,
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
-        builder: (ctx) => VideoPreviewModal(source: source, title: title),
+      final route = PageRouteBuilder<void>(
+        opaque: false,
+        barrierColor: Colors.black,
+        pageBuilder: (ctx, anim, secAnim) =>
+            VideoPreviewModal(source: source, title: title),
+        transitionsBuilder: (ctx, animation, secAnim, child) {
+          const curve = Curves.easeOutCubic;
+          final tween = Tween<Offset>(
+            begin: const Offset(0.0, 0.06),
+            end: Offset.zero,
+          ).chain(CurveTween(curve: curve));
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: animation.drive(tween),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 240),
+        reverseTransitionDuration: const Duration(milliseconds: 200),
       );
+      await navigator.push(route);
     } catch (e) {
       debugPrint('Error showing VideoPreviewModal: $e');
     } finally {
@@ -94,15 +105,19 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     _video.registerModalUpdater(_updateSourceInPlace);
   }
 
-  @override
-  void dispose() {
-    _video.registerModalUpdater(null);
+  void _cleanupWebPlayer() {
     try {
       _webCtrl.runJavaScript(
         'const v = document.getElementById("kelivo_player"); if (v) { v.pause(); v.src = ""; v.load(); }',
       );
       _webCtrl.loadRequest(Uri.parse('about:blank'));
     } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _video.registerModalUpdater(null);
+    _cleanupWebPlayer();
     super.dispose();
   }
 
@@ -318,212 +333,143 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     }
   }
 
-  String get _fileFormatLabel {
-    final src = _video.activeSource ?? _currentSource;
-    if (src.isEmpty) return '视频';
-    final clean = src.split('?').first.split('#').first;
-    final dotIndex = clean.lastIndexOf('.');
-    if (dotIndex != -1 && dotIndex < clean.length - 1) {
-      final ext = clean.substring(dotIndex + 1).toUpperCase();
-      return '$ext 视频';
-    }
-    return '视频';
+  void _stopVideo() {
+    _cleanupWebPlayer();
+    _video.stop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final screenH = MediaQuery.sizeOf(context).height;
-    final maxSheetH = math.max(480.0, screenH * 0.88);
-
     return ListenableBuilder(
       listenable: _video,
       builder: (context, _) {
-        return Container(
-          constraints: BoxConstraints(maxHeight: maxSheetH),
-          decoration: BoxDecoration(
-            color: cs.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 28,
-                offset: const Offset(0, -6),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+        return Scaffold(
+          backgroundColor: Colors.black,
+          body: Stack(
+            fit: StackFit.expand,
             children: [
-              // Drag Indicator Bar
-              Padding(
-                padding: const EdgeInsets.only(top: 10, bottom: 4),
-                child: Container(
-                  width: 38,
-                  height: 4.5,
-                  decoration: BoxDecoration(
-                    color: cs.onSurfaceVariant.withValues(alpha: 0.28),
-                    borderRadius: BorderRadius.circular(3),
+              // 1. Center Video Surface (Adapts dynamically to video aspect ratio)
+              Center(
+                child: AspectRatio(
+                  aspectRatio: _video.aspectRatio,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      WebViewWidget(controller: _webCtrl),
+                      if (!_isWebReady)
+                        const Center(
+                          child: CircularProgressIndicator(
+                            color: Colors.white70,
+                            strokeWidth: 2.5,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
 
-              // Top Bar: Close (Left) & Share (Right)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Close button
-                    IconButton.filledTonal(
-                      tooltip: '关闭',
-                      onPressed: () {
-                        try {
-                          _webCtrl.runJavaScript(
-                            'const v = document.getElementById("kelivo_player"); if (v) { v.pause(); v.src = ""; v.load(); }',
-                          );
-                          _webCtrl.loadRequest(Uri.parse('about:blank'));
-                        } catch (_) {}
-                        _video.stop();
-                        Navigator.of(context).pop();
-                      },
-                      icon: const Icon(Lucide.X, size: 20),
-                      style: IconButton.styleFrom(
-                        backgroundColor:
-                            cs.surfaceContainerHighest.withValues(alpha: 0.8),
-                        foregroundColor: cs.onSurface,
-                        shape: const CircleBorder(),
-                      ),
+              // 2. Floating Header Overlay (Subtle gradient, close, title, PiP, share)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black87,
+                        Colors.black45,
+                        Colors.transparent,
+                      ],
                     ),
-
-                    // Right Actions (Share)
-                    Builder(
-                      builder: (btnContext) => IconButton.filledTonal(
-                        tooltip: '分享',
-                        onPressed: () => _shareCurrentFile(btnContext),
-                        icon: const Icon(Lucide.Share, size: 18),
-                        style: IconButton.styleFrom(
-                          backgroundColor:
-                              cs.surfaceContainerHighest.withValues(alpha: 0.8),
-                          foregroundColor: cs.onSurface,
-                          shape: const CircleBorder(),
-                        ),
+                  ),
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
                       ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              // Scrollable body to prevent overflow on small screens or landscape mode
-              Flexible(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.only(bottom: 28),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Main Video Display Area (Adaptive Aspect Ratio)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxHeight: MediaQuery.sizeOf(context).height * 0.50,
+                      child: Row(
+                        children: [
+                          // Close button
+                          IconButton(
+                            tooltip: '关闭',
+                            onPressed: () {
+                              _stopVideo();
+                              Navigator.of(context).pop();
+                            },
+                            icon: const Icon(
+                              Lucide.X,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black38,
+                              shape: const CircleBorder(),
+                              padding: const EdgeInsets.all(8),
+                            ),
                           ),
-                          child: AspectRatio(
-                            aspectRatio: _video.aspectRatio.clamp(0.56, 2.4),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black,
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: cs.outlineVariant.withValues(alpha: 0.3),
-                                ),
-                              ),
-                              clipBehavior: Clip.antiAlias,
-                              child: Stack(
-                                children: [
-                                  WebViewWidget(controller: _webCtrl),
-                                  if (!_isWebReady)
-                                    Center(
-                                      child: CircularProgressIndicator(
-                                        color: cs.primary,
-                                        strokeWidth: 2.5,
-                                      ),
-                                    ),
-                                ],
+                          const SizedBox(width: 12),
+
+                          // Video Title
+                          Expanded(
+                            child: Text(
+                              _video.displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.2,
                               ),
                             ),
                           ),
-                        ),
-                      ),
+                          const SizedBox(width: 8),
 
-                      const SizedBox(height: 18),
-
-                      // Track Title & Subtitle Info (File name + format label)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 28),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _video.displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: AppFontWeights.emphasis,
-                                  color: cs.onSurface,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                _fileFormatLabel,
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: cs.onSurfaceVariant
-                                      .withValues(alpha: 0.75),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 20),
-
-                      // Bottom Action Bar: Minimize to PiP (Large tonal button)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: FilledButton.tonalIcon(
+                          // Minimize to PiP button
+                          IconButton(
+                            tooltip: '缩小至画中画',
                             onPressed: () {
                               _video.minimizeToPip();
                               Navigator.of(context).pop();
                             },
-                            icon: const Icon(Lucide.Minimize2, size: 18),
-                            label: const Text(
-                              '缩小至画中画',
-                              style: TextStyle(
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            icon: const Icon(
+                              Lucide.Minimize2,
+                              color: Colors.white,
+                              size: 19,
                             ),
-                            style: FilledButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black38,
+                              shape: const CircleBorder(),
+                              padding: const EdgeInsets.all(8),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+
+                          // Share button
+                          Builder(
+                            builder: (btnContext) => IconButton(
+                              tooltip: '分享',
+                              onPressed: () => _shareCurrentFile(btnContext),
+                              icon: const Icon(
+                                Lucide.Share,
+                                color: Colors.white,
+                                size: 19,
+                              ),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.black38,
+                                shape: const CircleBorder(),
+                                padding: const EdgeInsets.all(8),
                               ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
