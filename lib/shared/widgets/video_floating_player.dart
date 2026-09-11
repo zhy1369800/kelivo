@@ -10,7 +10,6 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
 import '../../icons/lucide_adapter.dart';
-import 'video_preview_modal.dart';
 
 /// Floating in-chat video PiP player window.
 ///
@@ -33,8 +32,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
   Offset? _position;
   Offset _dragOffset = Offset.zero;
-  double _dragDistance = 0.0;
-  bool _isCloseButtonHit = false;
+  bool _isControlHit = false;
 
   bool _isEnlarged = false;
   bool _showControls = false;
@@ -92,7 +90,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       final pos = _video.playbackPositionSeconds;
       if (pos > 0) {
         _pipWebCtrl!.runJavaScript(
-          'const v = document.getElementById("pip_player"); if (v && Math.abs(v.currentTime - $pos) > 1.5) { v.currentTime = $pos; } if (v && v.paused) { v.play(); }',
+          'if (window.__kelivoSyncPosition) { window.__kelivoSyncPosition($pos); }',
         );
       }
       return;
@@ -160,7 +158,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     });
     try {
       _pipWebCtrl?.runJavaScript(
-        'const v = document.getElementById("pip_player"); if (v) { v.currentTime = Math.max(0, Math.min(v.duration || 999999, v.currentTime + ($seconds))); }',
+        'if (window.__kelivoSeek) { window.__kelivoSeek($seconds); }',
       );
     } catch (_) {}
   }
@@ -174,7 +172,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     });
     try {
       _pipWebCtrl?.runJavaScript(
-        'const v = document.getElementById("pip_player"); if (v) { if (v.paused) { v.play(); } else { v.pause(); } }',
+        'if (window.__kelivoTogglePlay) { window.__kelivoTogglePlay(); }',
       );
     } catch (_) {}
   }
@@ -182,7 +180,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   void _pausePip() {
     try {
       _pipWebCtrl?.runJavaScript(
-        'const v = document.getElementById("pip_player"); if (v) { v.pause(); }',
+        'if (window.__kelivoPause) { window.__kelivoPause(); }',
       );
     } catch (_) {}
   }
@@ -192,7 +190,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     _showControls = false;
     try {
       _pipWebCtrl?.runJavaScript(
-        'const v = document.getElementById("pip_player"); if (v) { v.pause(); v.src = ""; v.load(); }',
+        'if (window.__kelivoStop) { window.__kelivoStop(); }',
       );
       _pipWebCtrl?.loadRequest(Uri.parse('about:blank'));
     } catch (_) {}
@@ -279,43 +277,93 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 <body>
   <video id="pip_player" src="$srcAttr" autoplay playsinline webkit-playsinline disablePictureInPicture></video>
   <script>
-    const v = document.getElementById('pip_player');
-    const startPos = $startSec;
-    v.addEventListener('loadedmetadata', () => {
-      try {
-        if (startPos > 0) { v.currentTime = startPos; }
-      } catch(e) {}
-      if (window.KelivoVideoChannel && v.videoWidth && v.videoHeight) {
-        window.KelivoVideoChannel.postMessage(JSON.stringify({
-          type: 'metadata',
-          videoWidth: v.videoWidth,
-          videoHeight: v.videoHeight,
-          aspectRatio: v.videoWidth / v.videoHeight
-        }));
-      }
-    });
-    v.addEventListener('timeupdate', () => {
-      if (window.KelivoVideoChannel && !v.paused) {
-        window.KelivoVideoChannel.postMessage(JSON.stringify({
-          type: 'timeupdate',
-          currentTime: v.currentTime
-        }));
-      }
-    });
-    v.addEventListener('play', () => {
-      if (window.KelivoVideoChannel) {
-        window.KelivoVideoChannel.postMessage(JSON.stringify({
-          type: 'play'
-        }));
-      }
-    });
-    v.addEventListener('pause', () => {
-      if (window.KelivoVideoChannel) {
-        window.KelivoVideoChannel.postMessage(JSON.stringify({
-          type: 'pause'
-        }));
-      }
-    });
+    (function() {
+      const v = document.getElementById('pip_player');
+      const startPos = $startSec;
+
+      window.__kelivoSeek = function(delta) {
+        if (!v) return;
+        try {
+          const maxDur = v.duration || 999999;
+          v.currentTime = Math.max(0, Math.min(maxDur, v.currentTime + delta));
+        } catch(e) {}
+      };
+
+      window.__kelivoTogglePlay = function() {
+        if (!v) return;
+        try {
+          if (v.paused) {
+            const p = v.play();
+            if (p && p.catch) { p.catch(function() {}); }
+          } else {
+            v.pause();
+          }
+        } catch(e) {}
+      };
+
+      window.__kelivoPause = function() {
+        if (!v) return;
+        try { v.pause(); } catch(e) {}
+      };
+
+      window.__kelivoStop = function() {
+        if (!v) return;
+        try {
+          v.pause();
+          v.src = '';
+          v.load();
+        } catch(e) {}
+      };
+
+      window.__kelivoSyncPosition = function(pos) {
+        if (!v) return;
+        try {
+          if (Math.abs(v.currentTime - pos) > 1.5) {
+            v.currentTime = pos;
+          }
+          if (v.paused) {
+            const p = v.play();
+            if (p && p.catch) { p.catch(function() {}); }
+          }
+        } catch(e) {}
+      };
+
+      v.addEventListener('loadedmetadata', () => {
+        try {
+          if (startPos > 0) { v.currentTime = startPos; }
+        } catch(e) {}
+        if (window.KelivoVideoChannel && v.videoWidth && v.videoHeight) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({
+            type: 'metadata',
+            videoWidth: v.videoWidth,
+            videoHeight: v.videoHeight,
+            aspectRatio: v.videoWidth / v.videoHeight
+          }));
+        }
+      });
+      v.addEventListener('timeupdate', () => {
+        if (window.KelivoVideoChannel && !v.paused) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({
+            type: 'timeupdate',
+            currentTime: v.currentTime
+          }));
+        }
+      });
+      v.addEventListener('play', () => {
+        if (window.KelivoVideoChannel) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({
+            type: 'play'
+          }));
+        }
+      });
+      v.addEventListener('pause', () => {
+        if (window.KelivoVideoChannel) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({
+            type: 'pause'
+          }));
+        }
+      });
+    })();
   </script>
 </body>
 </html>''';
@@ -397,16 +445,12 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                   });
                                 },
                                 onTap: () {
-                                  if (!_isCloseButtonHit) {
+                                  if (!_isControlHit) {
                                     _toggleControls();
                                   }
-                                  _isCloseButtonHit = false;
-                                },
-                                onPanStart: (_) {
-                                  _dragDistance = 0.0;
+                                  _isControlHit = false;
                                 },
                                 onPanUpdate: (details) {
-                                  _dragDistance += details.delta.distance;
                                   setState(() {
                                     _dragOffset += details.delta;
                                   });
@@ -421,7 +465,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                     );
                                     _dragOffset = Offset.zero;
                                   });
-                                  _isCloseButtonHit = false;
+                                  _isControlHit = false;
                                 },
                                 child: Container(
                                   decoration: BoxDecoration(
@@ -475,7 +519,14 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                                       GestureDetector(
                                                         behavior:
                                                             HitTestBehavior.opaque,
-                                                        onTap: () => _seekBy(-10),
+                                                        onTapDown: (_) =>
+                                                            _isControlHit = true,
+                                                        onTapCancel: () =>
+                                                            _isControlHit = false,
+                                                        onTap: () {
+                                                          _isControlHit = false;
+                                                          _seekBy(-10);
+                                                        },
                                                         child: Container(
                                                           width: 36,
                                                           height: 36,
@@ -502,7 +553,14 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                                       GestureDetector(
                                                         behavior:
                                                             HitTestBehavior.opaque,
-                                                        onTap: _togglePlayPause,
+                                                        onTapDown: (_) =>
+                                                            _isControlHit = true,
+                                                        onTapCancel: () =>
+                                                            _isControlHit = false,
+                                                        onTap: () {
+                                                          _isControlHit = false;
+                                                          _togglePlayPause();
+                                                        },
                                                         child: Container(
                                                           width: 44,
                                                           height: 44,
@@ -532,7 +590,14 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                                       GestureDetector(
                                                         behavior:
                                                             HitTestBehavior.opaque,
-                                                        onTap: () => _seekBy(10),
+                                                        onTapDown: (_) =>
+                                                            _isControlHit = true,
+                                                        onTapCancel: () =>
+                                                            _isControlHit = false,
+                                                        onTap: () {
+                                                          _isControlHit = false;
+                                                          _seekBy(10);
+                                                        },
                                                         child: Container(
                                                           width: 36,
                                                           height: 36,
@@ -568,13 +633,13 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                           child: GestureDetector(
                                             behavior: HitTestBehavior.opaque,
                                             onTapDown: (_) {
-                                              _isCloseButtonHit = true;
+                                              _isControlHit = true;
                                             },
                                             onTapCancel: () {
-                                              _isCloseButtonHit = false;
+                                              _isControlHit = false;
                                             },
                                             onTap: () {
-                                              _isCloseButtonHit = false;
+                                              _isControlHit = false;
                                               _stopPip();
                                               _video.stop();
                                             },
