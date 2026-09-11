@@ -215,6 +215,8 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
     final startSec =
         initialSeconds > 0 ? initialSeconds.toStringAsFixed(2) : '0';
+    final fragment = initialSeconds > 0 ? '#t=${initialSeconds.toStringAsFixed(2)}' : '';
+    final fullSrc = '$srcAttr$fragment';
 
     return '''<!DOCTYPE html>
 <html>
@@ -234,7 +236,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   </style>
 </head>
 <body>
-  <video id="kelivo_player" src="$srcAttr" autoplay playsinline webkit-playsinline disablePictureInPicture></video>
+  <video id="kelivo_player" src="$fullSrc" autoplay playsinline webkit-playsinline disablePictureInPicture preload="auto"></video>
   <script>
     (function() {
       const v = document.getElementById('kelivo_player');
@@ -267,9 +269,17 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
         } catch(e) {}
       };
 
+      v.addEventListener('loadeddata', () => {
+        if (window.KelivoVideoChannel) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'ready' }));
+        }
+      });
+
       v.addEventListener('loadedmetadata', () => {
         try {
-          if (startPos > 0) { v.currentTime = startPos; }
+          if (startPos > 0 && Math.abs(v.currentTime - startPos) > 1.0) {
+            v.currentTime = startPos;
+          }
         } catch(e) {}
         if (window.KelivoVideoChannel && v.videoWidth && v.videoHeight) {
           window.KelivoVideoChannel.postMessage(JSON.stringify({
@@ -325,7 +335,9 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
         onMessageReceived: (JavaScriptMessage msg) {
           try {
             final data = jsonDecode(msg.message) as Map<String, dynamic>;
-            if (data['type'] == 'timeupdate') {
+            if (data['type'] == 'ready') {
+              if (mounted) setState(() => _isWebReady = true);
+            } else if (data['type'] == 'timeupdate') {
               final pos = (data['currentTime'] as num?)?.toDouble() ?? 0.0;
               final dur = (data['duration'] as num?)?.toDouble() ?? 0.0;
               _video.updatePlaybackPosition(pos);
@@ -333,6 +345,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                 setState(() {
                   _currentPosition = pos;
                   if (dur > 0) _duration = dur;
+                  _isWebReady = true;
                 });
               }
             } else if (data['type'] == 'metadata') {
@@ -387,7 +400,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
             isRelative: true,
             initialSeconds: startSeconds,
           );
-          await previewHtml.writeAsString(html);
+          previewHtml.writeAsStringSync(html);
           await _webCtrl.loadFile(previewHtml.path);
           return;
         } catch (_) {
@@ -472,315 +485,332 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
         return Scaffold(
           backgroundColor: Colors.black,
-          body: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _toggleControls,
-            onDoubleTap: _togglePlayPause,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                // 1. Center Video Surface (IgnorePointer so all taps/drags go to Flutter)
-                Center(
-                  child: AspectRatio(
-                    aspectRatio: _video.aspectRatio,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        IgnorePointer(
-                          child: WebViewWidget(controller: _webCtrl),
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              // 1. Center Video Surface (IgnorePointer so all taps/drags go to Flutter)
+              Center(
+                child: AspectRatio(
+                  aspectRatio: _video.aspectRatio,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      IgnorePointer(
+                        child: WebViewWidget(controller: _webCtrl),
+                      ),
+                      if (!_isWebReady)
+                        const Center(
+                          child: CircularProgressIndicator(
+                            color: Colors.white70,
+                            strokeWidth: 2.5,
+                          ),
                         ),
-                        if (!_isWebReady)
-                          const Center(
-                            child: CircularProgressIndicator(
-                              color: Colors.white70,
-                              strokeWidth: 2.5,
+                    ],
+                  ),
+                ),
+              ),
+
+              // 2. Dedicated Full-screen Tap Capture Layer (Guarantees 100% reliable tap response on iOS)
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: _toggleControls,
+                ),
+              ),
+
+              // 3. Middle & Bottom Immersive Controls Overlay (Fades in/out on Tap)
+              Positioned.fill(
+                child: AnimatedOpacity(
+                  opacity: _showControls ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeInOut,
+                  child: IgnorePointer(
+                    ignoring: !_showControls,
+                    child: Stack(
+                      children: [
+                        // Center Playback Buttons (Seek -10s, Play/Pause, Seek +10s)
+                        Center(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // Seek Backward 10s
+                              IconButton(
+                                tooltip: '快退 10 秒',
+                                onPressed: () => _seekBy(-10),
+                                icon: const Icon(
+                                  Lucide.RotateCcw,
+                                  size: 24,
+                                  color: Colors.white,
+                                ),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.black54,
+                                  padding: const EdgeInsets.all(12),
+                                  shape: const CircleBorder(),
+                                  side: const BorderSide(
+                                    color: Colors.white24,
+                                    width: 0.8,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 24),
+
+                              // Play / Pause Toggle
+                              IconButton(
+                                tooltip: _video.isPlaying ? '暂停' : '播放',
+                                onPressed: _togglePlayPause,
+                                icon: Icon(
+                                  _video.isPlaying
+                                      ? Lucide.Pause
+                                      : Lucide.Play,
+                                  size: 32,
+                                  color: Colors.white,
+                                ),
+                                style: IconButton.styleFrom(
+                                  backgroundColor:
+                                      Colors.black.withValues(alpha: 0.65),
+                                  padding: const EdgeInsets.all(18),
+                                  shape: const CircleBorder(),
+                                  side: const BorderSide(
+                                    color: Colors.white38,
+                                    width: 1.2,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 24),
+
+                              // Seek Forward 10s
+                              IconButton(
+                                tooltip: '快进 10 秒',
+                                onPressed: () => _seekBy(10),
+                                icon: const Icon(
+                                  Lucide.RotateCw,
+                                  size: 24,
+                                  color: Colors.white,
+                                ),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.black54,
+                                  padding: const EdgeInsets.all(12),
+                                  shape: const CircleBorder(),
+                                  side: const BorderSide(
+                                    color: Colors.white24,
+                                    width: 0.8,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        // Bottom Timeline / Progress Bar
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.bottomCenter,
+                                end: Alignment.topCenter,
+                                colors: [
+                                  Colors.black87,
+                                  Colors.black38,
+                                  Colors.transparent,
+                                ],
+                              ),
+                            ),
+                            child: SafeArea(
+                              top: false,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  children: [
+                                    // Current Position
+                                    Text(
+                                      _formatTime(_currentPosition),
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w500,
+                                        fontFeatures: [
+                                          FontFeature.tabularFigures(),
+                                        ],
+                                      ),
+                                    ),
+                                    // Progress Slider
+                                    Expanded(
+                                      child: SliderTheme(
+                                        data: SliderTheme.of(context).copyWith(
+                                          trackHeight: 3.0,
+                                          thumbShape:
+                                              const RoundSliderThumbShape(
+                                            enabledThumbRadius: 6.0,
+                                          ),
+                                          overlayShape:
+                                              const RoundSliderOverlayShape(
+                                            overlayRadius: 14.0,
+                                          ),
+                                          activeTrackColor: cs.primary,
+                                          inactiveTrackColor: Colors.white24,
+                                          thumbColor: cs.primary,
+                                          overlayColor:
+                                              cs.primary.withValues(alpha: 0.2),
+                                        ),
+                                        child: Slider(
+                                          value: sliderValue,
+                                          min: 0.0,
+                                          max: safeMax,
+                                          onChangeStart: (_) {
+                                            _isDraggingSlider = true;
+                                            _hideControlsTimer?.cancel();
+                                          },
+                                          onChanged: (val) {
+                                            setState(() {
+                                              _currentPosition = val;
+                                            });
+                                          },
+                                          onChangeEnd: (val) {
+                                            _isDraggingSlider = false;
+                                            _seekTo(val);
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                    // Duration / Remaining
+                                    Text(
+                                      _formatTime(_duration),
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w500,
+                                        fontFeatures: [
+                                          FontFeature.tabularFigures(),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
+                        ),
                       ],
                     ),
                   ),
                 ),
+              ),
 
-                // 2. Immersive Controls Overlay (Fade in/out, ignore pointer when hidden)
-                Positioned.fill(
-                  child: AnimatedOpacity(
-                    opacity: _showControls ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeInOut,
-                    child: IgnorePointer(
-                      ignoring: !_showControls,
-                      child: Stack(
+              // 4. Top Header Bar (Close & Minimize buttons ALWAYS accessible, never trapped)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: _showControls
+                        ? const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black87,
+                              Colors.black38,
+                              Colors.transparent,
+                            ],
+                          )
+                        : null,
+                  ),
+                  child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      child: Row(
                         children: [
-                          // Top Header Bar
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Colors.black87,
-                                    Colors.black38,
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
-                              child: SafeArea(
-                                bottom: false,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 8,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      // Close button
-                                      IconButton(
-                                        tooltip: '关闭',
-                                        onPressed: () {
-                                          _stopVideo();
-                                          Navigator.of(context).pop();
-                                        },
-                                        icon: const Icon(
-                                          Lucide.X,
-                                          color: Colors.white,
-                                          size: 22,
-                                        ),
-                                        style: IconButton.styleFrom(
-                                          backgroundColor: Colors.black45,
-                                          shape: const CircleBorder(),
-                                          padding: const EdgeInsets.all(8),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
+                          // Close button (Always available)
+                          IconButton(
+                            tooltip: '关闭',
+                            onPressed: () {
+                              _stopVideo();
+                              Navigator.of(context).pop();
+                            },
+                            icon: const Icon(
+                              Lucide.X,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black45,
+                              shape: const CircleBorder(),
+                              padding: const EdgeInsets.all(8),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
 
-                                      // Video Title
-                                      Expanded(
-                                        child: Text(
-                                          _video.displayName,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w600,
-                                            letterSpacing: 0.2,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-
-                                      // Minimize to PiP button
-                                      IconButton(
-                                        tooltip: '缩小至画中画',
-                                        onPressed: () {
-                                          _video.minimizeToPip();
-                                          Navigator.of(context).pop();
-                                        },
-                                        icon: const Icon(
-                                          Lucide.Minimize2,
-                                          color: Colors.white,
-                                          size: 19,
-                                        ),
-                                        style: IconButton.styleFrom(
-                                          backgroundColor: Colors.black45,
-                                          shape: const CircleBorder(),
-                                          padding: const EdgeInsets.all(8),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-
-                                      // Share button
-                                      Builder(
-                                        builder: (btnContext) => IconButton(
-                                          tooltip: '分享',
-                                          onPressed: () =>
-                                              _shareCurrentFile(btnContext),
-                                          icon: const Icon(
-                                            Lucide.Share,
-                                            color: Colors.white,
-                                            size: 19,
-                                          ),
-                                          style: IconButton.styleFrom(
-                                            backgroundColor: Colors.black45,
-                                            shape: const CircleBorder(),
-                                            padding: const EdgeInsets.all(8),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                          // Video Title (Fades in when controls shown)
+                          Expanded(
+                            child: AnimatedOpacity(
+                              opacity: _showControls ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 200),
+                              child: Text(
+                                _video.displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.2,
                                 ),
                               ),
                             ),
                           ),
+                          const SizedBox(width: 8),
 
-                          // Center Playback Buttons (Seek -10s, Play/Pause, Seek +10s)
-                          Center(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                // Seek Backward 10s
-                                IconButton(
-                                  tooltip: '快退 10 秒',
-                                  onPressed: () => _seekBy(-10),
-                                  icon: const Icon(
-                                    Lucide.RotateCcw,
-                                    size: 24,
-                                    color: Colors.white,
-                                  ),
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.black54,
-                                    padding: const EdgeInsets.all(12),
-                                    shape: const CircleBorder(),
-                                    side: const BorderSide(
-                                      color: Colors.white24,
-                                      width: 0.8,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 24),
-
-                                // Play / Pause Toggle
-                                IconButton(
-                                  tooltip: _video.isPlaying ? '暂停' : '播放',
-                                  onPressed: _togglePlayPause,
-                                  icon: Icon(
-                                    _video.isPlaying
-                                        ? Lucide.Pause
-                                        : Lucide.Play,
-                                    size: 32,
-                                    color: Colors.white,
-                                  ),
-                                  style: IconButton.styleFrom(
-                                    backgroundColor:
-                                        Colors.black.withValues(alpha: 0.65),
-                                    padding: const EdgeInsets.all(18),
-                                    shape: const CircleBorder(),
-                                    side: const BorderSide(
-                                      color: Colors.white38,
-                                      width: 1.2,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 24),
-
-                                // Seek Forward 10s
-                                IconButton(
-                                  tooltip: '快进 10 秒',
-                                  onPressed: () => _seekBy(10),
-                                  icon: const Icon(
-                                    Lucide.RotateCw,
-                                    size: 24,
-                                    color: Colors.white,
-                                  ),
-                                  style: IconButton.styleFrom(
-                                    backgroundColor: Colors.black54,
-                                    padding: const EdgeInsets.all(12),
-                                    shape: const CircleBorder(),
-                                    side: const BorderSide(
-                                      color: Colors.white24,
-                                      width: 0.8,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                          // Minimize to PiP button (Always available, accurately syncs progress)
+                          IconButton(
+                            tooltip: '缩小至画中画',
+                            onPressed: () {
+                              _video.updatePlaybackPosition(_currentPosition);
+                              _video.minimizeToPip();
+                              Navigator.of(context).pop();
+                            },
+                            icon: const Icon(
+                              Lucide.Minimize2,
+                              color: Colors.white,
+                              size: 19,
+                            ),
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black45,
+                              shape: const CircleBorder(),
+                              padding: const EdgeInsets.all(8),
                             ),
                           ),
+                          const SizedBox(width: 6),
 
-                          // Bottom Timeline / Progress Bar
-                          Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [
-                                    Colors.black87,
-                                    Colors.black38,
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
-                              child: SafeArea(
-                                top: false,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 8,
+                          // Share button (Fades with controls)
+                          AnimatedOpacity(
+                            opacity: _showControls ? 1.0 : 0.0,
+                            duration: const Duration(milliseconds: 200),
+                            child: IgnorePointer(
+                              ignoring: !_showControls,
+                              child: Builder(
+                                builder: (btnContext) => IconButton(
+                                  tooltip: '分享',
+                                  onPressed: () =>
+                                      _shareCurrentFile(btnContext),
+                                  icon: const Icon(
+                                    Lucide.Share,
+                                    color: Colors.white,
+                                    size: 19,
                                   ),
-                                  child: Row(
-                                    children: [
-                                      // Current Position
-                                      Text(
-                                        _formatTime(_currentPosition),
-                                        style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w500,
-                                          fontFeatures: [
-                                            FontFeature.tabularFigures(),
-                                          ],
-                                        ),
-                                      ),
-                                      // Progress Slider
-                                      Expanded(
-                                        child: SliderTheme(
-                                          data: SliderTheme.of(context).copyWith(
-                                            trackHeight: 3.0,
-                                            thumbShape:
-                                                const RoundSliderThumbShape(
-                                              enabledThumbRadius: 6.0,
-                                            ),
-                                            overlayShape:
-                                                const RoundSliderOverlayShape(
-                                              overlayRadius: 14.0,
-                                            ),
-                                            activeTrackColor: cs.primary,
-                                            inactiveTrackColor: Colors.white24,
-                                            thumbColor: cs.primary,
-                                            overlayColor:
-                                                cs.primary.withValues(alpha: 0.2),
-                                          ),
-                                          child: Slider(
-                                            value: sliderValue,
-                                            min: 0.0,
-                                            max: safeMax,
-                                            onChangeStart: (_) {
-                                              _isDraggingSlider = true;
-                                              _hideControlsTimer?.cancel();
-                                            },
-                                            onChanged: (val) {
-                                              setState(() {
-                                                _currentPosition = val;
-                                              });
-                                            },
-                                            onChangeEnd: (val) {
-                                              _isDraggingSlider = false;
-                                              _seekTo(val);
-                                            },
-                                          ),
-                                        ),
-                                      ),
-                                      // Duration / Remaining
-                                      Text(
-                                        _formatTime(_duration),
-                                        style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w500,
-                                          fontFeatures: [
-                                            FontFeature.tabularFigures(),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.black45,
+                                    shape: const CircleBorder(),
+                                    padding: const EdgeInsets.all(8),
                                   ),
                                 ),
                               ),
@@ -791,8 +821,8 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },

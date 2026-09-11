@@ -99,6 +99,13 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
   void _syncPipWebView(String source) {
     if (_lastLoadedSource == source && _pipWebCtrl != null) {
+      final pos = _video.playbackPositionSeconds;
+      final isPlaying = _video.isPlaying;
+      try {
+        _pipWebCtrl!.runJavaScript(
+          'if (window.__kelivoSyncState) { window.__kelivoSyncState($pos, $isPlaying); }',
+        );
+      } catch (_) {}
       return;
     }
     _lastLoadedSource = source;
@@ -208,8 +215,13 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     final isNetwork =
         source.startsWith('http://') || source.startsWith('https://');
 
+    final autoPlay = _video.isPlaying;
     if (isNetwork) {
-      final html = _buildPipHtml(source, initialSeconds: startSeconds);
+      final html = _buildPipHtml(
+        source,
+        initialSeconds: startSeconds,
+        autoPlay: autoPlay,
+      );
       await _pipWebCtrl?.loadHtmlString(html);
     } else {
       final resolved = await ResourcePreviewService.resolvePath(source);
@@ -226,6 +238,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
             file.path,
             isRelative: true,
             initialSeconds: startSeconds,
+            autoPlay: autoPlay,
           );
           await previewHtml.writeAsString(html);
           await _pipWebCtrl?.loadFile(previewHtml.path);
@@ -238,7 +251,11 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         }
       }
       await _pipWebCtrl?.loadHtmlString(
-        _buildPipHtml(source, initialSeconds: startSeconds),
+        _buildPipHtml(
+          source,
+          initialSeconds: startSeconds,
+          autoPlay: autoPlay,
+        ),
       );
     }
   }
@@ -247,6 +264,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     String videoSrc, {
     bool isRelative = false,
     double initialSeconds = 0.0,
+    bool autoPlay = true,
   }) {
     final isNetwork =
         videoSrc.startsWith('http://') || videoSrc.startsWith('https://');
@@ -261,6 +279,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
     final startSec =
         initialSeconds > 0 ? initialSeconds.toStringAsFixed(2) : '0';
+    final autoPlayAttr = autoPlay ? 'autoplay' : '';
 
     // In PiP mode, omit native controls, disable system PiP, auto-play with playsinline
     return '''<!DOCTYPE html>
@@ -281,7 +300,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   </style>
 </head>
 <body>
-  <video id="pip_player" src="$srcAttr" autoplay playsinline webkit-playsinline disablePictureInPicture></video>
+  <video id="pip_player" src="$srcAttr" $autoPlayAttr playsinline webkit-playsinline disablePictureInPicture></video>
   <script>
     (function() {
       const v = document.getElementById('pip_player');
@@ -318,6 +337,21 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
           v.pause();
           v.src = '';
           v.load();
+        } catch(e) {}
+      };
+
+      window.__kelivoSyncState = function(pos, isPlaying) {
+        if (!v) return;
+        try {
+          if (Math.abs(v.currentTime - pos) > 0.5) {
+            v.currentTime = pos;
+          }
+          if (isPlaying && v.paused) {
+            const p = v.play();
+            if (p && p.catch) { p.catch(function() {}); }
+          } else if (!isPlaying && !v.paused) {
+            v.pause();
+          }
         } catch(e) {}
       };
 
