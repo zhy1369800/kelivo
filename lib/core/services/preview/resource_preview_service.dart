@@ -406,17 +406,45 @@ class ResourcePreviewService extends ChangeNotifier {
       }
     }
 
-    // In-app Video Player for video web URLs -> launch floating PiP player directly
+    // In-app Video Player for video web URLs
     if (_videoExtensions.contains(urlExt)) {
+      if (action == 'pip') {
+        GlobalVideoPlayerService.instance.openVideo(
+          source: urlString,
+          title: title ?? p.basename(urlPath),
+          asPip: true,
+          canExpand: false,
+        );
+        return ResourceOpenResult(
+          success: true,
+          message: 'Opened video URL in in-app Video PiP Player: $urlString',
+          target: urlString,
+          openedAs: 'video_player',
+        );
+      }
+      if (effectiveContext != null && effectiveContext.mounted) {
+        unawaited(
+          VideoPreviewModal.show(
+            effectiveContext,
+            source: urlString,
+            title: title ?? p.basename(urlPath),
+          ),
+        );
+        return ResourceOpenResult(
+          success: true,
+          message: 'Opened video URL in in-app Video Player: $urlString',
+          target: urlString,
+          openedAs: 'video_player',
+        );
+      }
       GlobalVideoPlayerService.instance.openVideo(
         source: urlString,
         title: title ?? p.basename(urlPath),
-        asPip: true,
-        canExpand: false,
+        asPip: false,
       );
       return ResourceOpenResult(
         success: true,
-        message: 'Opened video URL in in-app Video PiP Player: $urlString',
+        message: 'Opened video URL in in-app Video Player: $urlString',
         target: urlString,
         openedAs: 'video_player',
       );
@@ -553,20 +581,38 @@ class ResourcePreviewService extends ChangeNotifier {
       return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
     }
 
-    // 1.5. Video formats -> launch floating PiP player directly
+    // 1.5. Video formats
     if (_videoExtensions.contains(ext)) {
-      GlobalVideoPlayerService.instance.openVideo(
-        source: file.path,
-        title: effectiveTitle,
-        asPip: true,
-        canExpand: false,
-      );
-      return ResourceOpenResult(
-        success: true,
-        message: 'Opened in in-app Video PiP Player: $effectiveTitle',
-        target: effectivePath,
-        openedAs: 'video_player',
-      );
+      if (action == 'pip') {
+        GlobalVideoPlayerService.instance.openVideo(
+          source: file.path,
+          title: effectiveTitle,
+          asPip: true,
+          canExpand: false,
+        );
+        return ResourceOpenResult(
+          success: true,
+          message: 'Opened in in-app Video PiP Player: $effectiveTitle',
+          target: effectivePath,
+          openedAs: 'video_player',
+        );
+      }
+      if (effectiveContext != null && effectiveContext.mounted) {
+        unawaited(
+          VideoPreviewModal.show(
+            effectiveContext,
+            source: file.path,
+            title: effectiveTitle,
+          ),
+        );
+        return ResourceOpenResult(
+          success: true,
+          message: 'Opened in in-app Video Player: $effectiveTitle',
+          target: effectivePath,
+          openedAs: 'video_player',
+        );
+      }
+      return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
     }
 
     // 2. Image formats

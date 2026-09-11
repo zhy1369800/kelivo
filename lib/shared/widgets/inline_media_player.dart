@@ -323,6 +323,7 @@ class InlineVideoCard extends StatelessWidget {
             unawaited(
               ResourcePreviewService.instance.openResource(
                 target: source,
+                action: 'pip',
                 title: displayName,
                 context: context,
               ),

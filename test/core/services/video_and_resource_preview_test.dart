@@ -161,5 +161,30 @@ void main() {
       expect(res1.target, 'https://example.com/movie.mp4');
       expect(res2.openedAs, 'debounced');
     });
+
+    test('openResource with action: pip launches into PiP player', () async {
+      final res = await preview.openResource(
+        target: 'https://example.com/stream.mp4',
+        action: 'pip',
+      );
+      expect(res.success, isTrue);
+      expect(res.openedAs, 'video_player');
+      expect(res.message, contains('PiP Player'));
+      expect(GlobalVideoPlayerService.instance.isPipActive, isTrue);
+      expect(GlobalVideoPlayerService.instance.canExpand, isFalse);
+      GlobalVideoPlayerService.instance.stop();
+    });
+
+    test('openResource with action: auto launches into full video player without PiP', () async {
+      final res = await preview.openResource(
+        target: 'https://example.com/full_stream.mp4',
+        action: 'auto',
+      );
+      expect(res.success, isTrue);
+      expect(res.openedAs, 'video_player');
+      expect(res.message, contains('in-app Video Player'));
+      expect(GlobalVideoPlayerService.instance.isPipActive, isFalse);
+      GlobalVideoPlayerService.instance.stop();
+    });
   });
 }
