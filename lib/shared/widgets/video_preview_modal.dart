@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
@@ -96,13 +98,78 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   String _currentSource = '';
   bool _isWebReady = false;
 
+  bool _showControls = true;
+  Timer? _hideControlsTimer;
+  double _currentPosition = 0.0;
+  double _duration = 0.0;
+  bool _isDraggingSlider = false;
+
   @override
   void initState() {
     super.initState();
     _currentSource = widget.source;
+    _currentPosition = _video.playbackPositionSeconds;
 
     _initWebViewController();
     _video.registerModalUpdater(_updateSourceInPlace);
+    _resetHideControlsTimer();
+  }
+
+  void _resetHideControlsTimer() {
+    _hideControlsTimer?.cancel();
+    if (_showControls) {
+      _hideControlsTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted && _showControls && !_isDraggingSlider) {
+          setState(() => _showControls = false);
+        }
+      });
+    }
+  }
+
+  void _toggleControls() {
+    setState(() {
+      _showControls = !_showControls;
+    });
+    if (_showControls) {
+      _resetHideControlsTimer();
+    } else {
+      _hideControlsTimer?.cancel();
+    }
+  }
+
+  void _seekBy(int seconds) {
+    _resetHideControlsTimer();
+    try {
+      _webCtrl.runJavaScript(
+        'if (window.__kelivoSeek) { window.__kelivoSeek($seconds); }',
+      );
+    } catch (_) {}
+  }
+
+  void _seekTo(double pos) {
+    _resetHideControlsTimer();
+    try {
+      _webCtrl.runJavaScript(
+        'if (window.__kelivoSeekTo) { window.__kelivoSeekTo($pos); }',
+      );
+    } catch (_) {}
+  }
+
+  void _togglePlayPause() {
+    _resetHideControlsTimer();
+    try {
+      _webCtrl.runJavaScript(
+        'if (window.__kelivoTogglePlay) { window.__kelivoTogglePlay(); }',
+      );
+    } catch (_) {}
+  }
+
+  String _formatTime(double seconds) {
+    if (seconds.isNaN || seconds.isInfinite || seconds <= 0) return '00:00';
+    final s = seconds.toInt();
+    final m = s ~/ 60;
+    final sec = s % 60;
+    return '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 
   void _cleanupWebPlayer() {
@@ -116,6 +183,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
   @override
   void dispose() {
+    _hideControlsTimer?.cancel();
     _video.registerModalUpdater(null);
     _cleanupWebPlayer();
     super.dispose();
@@ -163,38 +231,76 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     video {
       width: 100%; height: 100%; object-fit: contain; background: #000;
     }
-    video::-webkit-media-controls-picture-in-picture-button {
-      display: none !important;
-    }
   </style>
 </head>
 <body>
-  <video id="kelivo_player" src="$srcAttr" controls autoplay playsinline webkit-playsinline
-         disablePictureInPicture controlsList="nofullscreen nodownload noremoteplayback"></video>
+  <video id="kelivo_player" src="$srcAttr" autoplay playsinline webkit-playsinline disablePictureInPicture></video>
   <script>
-    const v = document.getElementById('kelivo_player');
-    const startPos = $startSec;
-    v.addEventListener('loadedmetadata', () => {
-      try {
-        if (startPos > 0) { v.currentTime = startPos; }
-      } catch(e) {}
-      if (window.KelivoVideoChannel && v.videoWidth && v.videoHeight) {
-        window.KelivoVideoChannel.postMessage(JSON.stringify({
-          type: 'metadata',
-          videoWidth: v.videoWidth,
-          videoHeight: v.videoHeight,
-          aspectRatio: v.videoWidth / v.videoHeight
-        }));
-      }
-    });
-    v.addEventListener('timeupdate', () => {
-      if (window.KelivoVideoChannel && !v.paused) {
-        window.KelivoVideoChannel.postMessage(JSON.stringify({
-          type: 'timeupdate',
-          currentTime: v.currentTime
-        }));
-      }
-    });
+    (function() {
+      const v = document.getElementById('kelivo_player');
+      const startPos = $startSec;
+
+      window.__kelivoSeek = function(delta) {
+        if (!v) return;
+        try {
+          const maxDur = v.duration || 999999;
+          v.currentTime = Math.max(0, Math.min(maxDur, v.currentTime + delta));
+        } catch(e) {}
+      };
+
+      window.__kelivoSeekTo = function(pos) {
+        if (!v) return;
+        try {
+          v.currentTime = pos;
+        } catch(e) {}
+      };
+
+      window.__kelivoTogglePlay = function() {
+        if (!v) return;
+        try {
+          if (v.paused) {
+            const p = v.play();
+            if (p && p.catch) { p.catch(function() {}); }
+          } else {
+            v.pause();
+          }
+        } catch(e) {}
+      };
+
+      v.addEventListener('loadedmetadata', () => {
+        try {
+          if (startPos > 0) { v.currentTime = startPos; }
+        } catch(e) {}
+        if (window.KelivoVideoChannel && v.videoWidth && v.videoHeight) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({
+            type: 'metadata',
+            videoWidth: v.videoWidth,
+            videoHeight: v.videoHeight,
+            duration: v.duration || 0,
+            aspectRatio: v.videoWidth / v.videoHeight
+          }));
+        }
+      });
+      v.addEventListener('timeupdate', () => {
+        if (window.KelivoVideoChannel) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({
+            type: 'timeupdate',
+            currentTime: v.currentTime,
+            duration: v.duration || 0
+          }));
+        }
+      });
+      v.addEventListener('play', () => {
+        if (window.KelivoVideoChannel) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'play' }));
+        }
+      });
+      v.addEventListener('pause', () => {
+        if (window.KelivoVideoChannel) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'pause' }));
+        }
+      });
+    })();
   </script>
 </body>
 </html>''';
@@ -221,12 +327,27 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
             final data = jsonDecode(msg.message) as Map<String, dynamic>;
             if (data['type'] == 'timeupdate') {
               final pos = (data['currentTime'] as num?)?.toDouble() ?? 0.0;
+              final dur = (data['duration'] as num?)?.toDouble() ?? 0.0;
               _video.updatePlaybackPosition(pos);
+              if (mounted && !_isDraggingSlider) {
+                setState(() {
+                  _currentPosition = pos;
+                  if (dur > 0) _duration = dur;
+                });
+              }
             } else if (data['type'] == 'metadata') {
               final ratio = (data['aspectRatio'] as num?)?.toDouble();
+              final dur = (data['duration'] as num?)?.toDouble() ?? 0.0;
               if (ratio != null) {
                 _video.updateAspectRatio(ratio);
               }
+              if (mounted && dur > 0) {
+                setState(() => _duration = dur);
+              }
+            } else if (data['type'] == 'play') {
+              _video.setPlaying(true);
+            } else if (data['type'] == 'pause') {
+              _video.setPlaying(false);
             }
           } catch (_) {}
         },
@@ -340,130 +461,328 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return ListenableBuilder(
       listenable: _video,
       builder: (context, _) {
+        final maxDur = math.max(_duration, _currentPosition);
+        final safeMax = maxDur > 0 ? maxDur : 1.0;
+        final sliderValue = _currentPosition.clamp(0.0, safeMax);
+
         return Scaffold(
           backgroundColor: Colors.black,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              // 1. Center Video Surface (Adapts dynamically to video aspect ratio)
-              Center(
-                child: AspectRatio(
-                  aspectRatio: _video.aspectRatio,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      WebViewWidget(controller: _webCtrl),
-                      if (!_isWebReady)
-                        const Center(
-                          child: CircularProgressIndicator(
-                            color: Colors.white70,
-                            strokeWidth: 2.5,
-                          ),
+          body: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _toggleControls,
+            onDoubleTap: _togglePlayPause,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // 1. Center Video Surface (IgnorePointer so all taps/drags go to Flutter)
+                Center(
+                  child: AspectRatio(
+                    aspectRatio: _video.aspectRatio,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        IgnorePointer(
+                          child: WebViewWidget(controller: _webCtrl),
                         ),
-                    ],
-                  ),
-                ),
-              ),
-
-              // 2. Floating Header Overlay (Subtle gradient, close, title, PiP, share)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black87,
-                        Colors.black45,
-                        Colors.transparent,
+                        if (!_isWebReady)
+                          const Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white70,
+                              strokeWidth: 2.5,
+                            ),
+                          ),
                       ],
                     ),
                   ),
-                  child: SafeArea(
-                    bottom: false,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      child: Row(
+                ),
+
+                // 2. Immersive Controls Overlay (Fade in/out, ignore pointer when hidden)
+                Positioned.fill(
+                  child: AnimatedOpacity(
+                    opacity: _showControls ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeInOut,
+                    child: IgnorePointer(
+                      ignoring: !_showControls,
+                      child: Stack(
                         children: [
-                          // Close button
-                          IconButton(
-                            tooltip: '关闭',
-                            onPressed: () {
-                              _stopVideo();
-                              Navigator.of(context).pop();
-                            },
-                            icon: const Icon(
-                              Lucide.X,
-                              color: Colors.white,
-                              size: 22,
-                            ),
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.black38,
-                              shape: const CircleBorder(),
-                              padding: const EdgeInsets.all(8),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
+                          // Top Header Bar
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.black87,
+                                    Colors.black38,
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                              child: SafeArea(
+                                bottom: false,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 8,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      // Close button
+                                      IconButton(
+                                        tooltip: '关闭',
+                                        onPressed: () {
+                                          _stopVideo();
+                                          Navigator.of(context).pop();
+                                        },
+                                        icon: const Icon(
+                                          Lucide.X,
+                                          color: Colors.white,
+                                          size: 22,
+                                        ),
+                                        style: IconButton.styleFrom(
+                                          backgroundColor: Colors.black45,
+                                          shape: const CircleBorder(),
+                                          padding: const EdgeInsets.all(8),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
 
-                          // Video Title
-                          Expanded(
-                            child: Text(
-                              _video.displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 0.2,
+                                      // Video Title
+                                      Expanded(
+                                        child: Text(
+                                          _video.displayName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w600,
+                                            letterSpacing: 0.2,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+
+                                      // Minimize to PiP button
+                                      IconButton(
+                                        tooltip: '缩小至画中画',
+                                        onPressed: () {
+                                          _video.minimizeToPip();
+                                          Navigator.of(context).pop();
+                                        },
+                                        icon: const Icon(
+                                          Lucide.Minimize2,
+                                          color: Colors.white,
+                                          size: 19,
+                                        ),
+                                        style: IconButton.styleFrom(
+                                          backgroundColor: Colors.black45,
+                                          shape: const CircleBorder(),
+                                          padding: const EdgeInsets.all(8),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+
+                                      // Share button
+                                      Builder(
+                                        builder: (btnContext) => IconButton(
+                                          tooltip: '分享',
+                                          onPressed: () =>
+                                              _shareCurrentFile(btnContext),
+                                          icon: const Icon(
+                                            Lucide.Share,
+                                            color: Colors.white,
+                                            size: 19,
+                                          ),
+                                          style: IconButton.styleFrom(
+                                            backgroundColor: Colors.black45,
+                                            shape: const CircleBorder(),
+                                            padding: const EdgeInsets.all(8),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
 
-                          // Minimize to PiP button
-                          IconButton(
-                            tooltip: '缩小至画中画',
-                            onPressed: () {
-                              _video.minimizeToPip();
-                              Navigator.of(context).pop();
-                            },
-                            icon: const Icon(
-                              Lucide.Minimize2,
-                              color: Colors.white,
-                              size: 19,
-                            ),
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.black38,
-                              shape: const CircleBorder(),
-                              padding: const EdgeInsets.all(8),
+                          // Center Playback Buttons (Seek -10s, Play/Pause, Seek +10s)
+                          Center(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                // Seek Backward 10s
+                                IconButton(
+                                  tooltip: '快退 10 秒',
+                                  onPressed: () => _seekBy(-10),
+                                  icon: const Icon(
+                                    Lucide.RotateCcw,
+                                    size: 24,
+                                    color: Colors.white,
+                                  ),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.black54,
+                                    padding: const EdgeInsets.all(12),
+                                    shape: const CircleBorder(),
+                                    side: const BorderSide(
+                                      color: Colors.white24,
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 24),
+
+                                // Play / Pause Toggle
+                                IconButton(
+                                  tooltip: _video.isPlaying ? '暂停' : '播放',
+                                  onPressed: _togglePlayPause,
+                                  icon: Icon(
+                                    _video.isPlaying
+                                        ? Lucide.Pause
+                                        : Lucide.Play,
+                                    size: 32,
+                                    color: Colors.white,
+                                  ),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor:
+                                        Colors.black.withValues(alpha: 0.65),
+                                    padding: const EdgeInsets.all(18),
+                                    shape: const CircleBorder(),
+                                    side: const BorderSide(
+                                      color: Colors.white38,
+                                      width: 1.2,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 24),
+
+                                // Seek Forward 10s
+                                IconButton(
+                                  tooltip: '快进 10 秒',
+                                  onPressed: () => _seekBy(10),
+                                  icon: const Icon(
+                                    Lucide.RotateCw,
+                                    size: 24,
+                                    color: Colors.white,
+                                  ),
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: Colors.black54,
+                                    padding: const EdgeInsets.all(12),
+                                    shape: const CircleBorder(),
+                                    side: const BorderSide(
+                                      color: Colors.white24,
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 6),
 
-                          // Share button
-                          Builder(
-                            builder: (btnContext) => IconButton(
-                              tooltip: '分享',
-                              onPressed: () => _shareCurrentFile(btnContext),
-                              icon: const Icon(
-                                Lucide.Share,
-                                color: Colors.white,
-                                size: 19,
+                          // Bottom Timeline / Progress Bar
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.bottomCenter,
+                                  end: Alignment.topCenter,
+                                  colors: [
+                                    Colors.black87,
+                                    Colors.black38,
+                                    Colors.transparent,
+                                  ],
+                                ),
                               ),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.black38,
-                                shape: const CircleBorder(),
-                                padding: const EdgeInsets.all(8),
+                              child: SafeArea(
+                                top: false,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 8,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      // Current Position
+                                      Text(
+                                        _formatTime(_currentPosition),
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w500,
+                                          fontFeatures: [
+                                            FontFeature.tabularFigures(),
+                                          ],
+                                        ),
+                                      ),
+                                      // Progress Slider
+                                      Expanded(
+                                        child: SliderTheme(
+                                          data: SliderTheme.of(context).copyWith(
+                                            trackHeight: 3.0,
+                                            thumbShape:
+                                                const RoundSliderThumbShape(
+                                              enabledThumbRadius: 6.0,
+                                            ),
+                                            overlayShape:
+                                                const RoundSliderOverlayShape(
+                                              overlayRadius: 14.0,
+                                            ),
+                                            activeTrackColor: cs.primary,
+                                            inactiveTrackColor: Colors.white24,
+                                            thumbColor: cs.primary,
+                                            overlayColor:
+                                                cs.primary.withValues(alpha: 0.2),
+                                          ),
+                                          child: Slider(
+                                            value: sliderValue,
+                                            min: 0.0,
+                                            max: safeMax,
+                                            onChangeStart: (_) {
+                                              _isDraggingSlider = true;
+                                              _hideControlsTimer?.cancel();
+                                            },
+                                            onChanged: (val) {
+                                              setState(() {
+                                                _currentPosition = val;
+                                              });
+                                            },
+                                            onChangeEnd: (val) {
+                                              _isDraggingSlider = false;
+                                              _seekTo(val);
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                      // Duration / Remaining
+                                      Text(
+                                        _formatTime(_duration),
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w500,
+                                          fontFeatures: [
+                                            FontFeature.tabularFigures(),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -472,8 +791,8 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },

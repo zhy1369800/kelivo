@@ -413,7 +413,7 @@ class ResourcePreviewService extends ChangeNotifier {
           source: urlString,
           title: title ?? p.basename(urlPath),
           asPip: true,
-          canExpand: false,
+          canExpand: true,
         );
         return ResourceOpenResult(
           success: true,
@@ -588,7 +588,7 @@ class ResourcePreviewService extends ChangeNotifier {
           source: file.path,
           title: effectiveTitle,
           asPip: true,
-          canExpand: false,
+          canExpand: true,
         );
         return ResourceOpenResult(
           success: true,

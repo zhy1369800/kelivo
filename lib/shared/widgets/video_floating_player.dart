@@ -10,6 +10,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
 import '../../icons/lucide_adapter.dart';
+import 'video_preview_modal.dart';
 
 /// Floating in-chat video PiP player window.
 ///
@@ -85,14 +86,19 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     );
   }
 
+  void _expand() {
+    final src = _video.activeSource;
+    if (src == null) return;
+    _pausePip();
+    VideoPreviewModal.show(
+      context,
+      source: src,
+      title: _video.activeTitle,
+    );
+  }
+
   void _syncPipWebView(String source) {
     if (_lastLoadedSource == source && _pipWebCtrl != null) {
-      final pos = _video.playbackPositionSeconds;
-      if (pos > 0) {
-        _pipWebCtrl!.runJavaScript(
-          'if (window.__kelivoSyncPosition) { window.__kelivoSyncPosition($pos); }',
-        );
-      }
       return;
     }
     _lastLoadedSource = source;
@@ -320,10 +326,6 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         try {
           if (Math.abs(v.currentTime - pos) > 1.5) {
             v.currentTime = pos;
-          }
-          if (v.paused) {
-            const p = v.play();
-            if (p && p.catch) { p.catch(function() {}); }
           }
         } catch(e) {}
       };
@@ -625,6 +627,43 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                             ),
                                           ),
                                         ),
+
+                                        // Expand button (Top-Left)
+                                        if (_video.canExpand)
+                                          Positioned(
+                                            top: 6,
+                                            left: 6,
+                                            child: GestureDetector(
+                                              behavior: HitTestBehavior.opaque,
+                                              onTapDown: (_) =>
+                                                  _isControlHit = true,
+                                              onTapCancel: () =>
+                                                  _isControlHit = false,
+                                              onTap: () {
+                                                _isControlHit = false;
+                                                _expand();
+                                              },
+                                              child: Container(
+                                                width: 26,
+                                                height: 26,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.black54,
+                                                  shape: BoxShape.circle,
+                                                  border: Border.all(
+                                                    color: Colors.white24,
+                                                    width: 0.8,
+                                                  ),
+                                                ),
+                                                child: const Center(
+                                                  child: Icon(
+                                                    Lucide.Maximize2,
+                                                    size: 13,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
 
                                         // Close button (Top-Right)
                                         Positioned(

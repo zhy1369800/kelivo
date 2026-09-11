@@ -171,7 +171,7 @@ void main() {
       expect(res.openedAs, 'video_player');
       expect(res.message, contains('PiP Player'));
       expect(GlobalVideoPlayerService.instance.isPipActive, isTrue);
-      expect(GlobalVideoPlayerService.instance.canExpand, isFalse);
+      expect(GlobalVideoPlayerService.instance.canExpand, isTrue);
       GlobalVideoPlayerService.instance.stop();
     });
 
