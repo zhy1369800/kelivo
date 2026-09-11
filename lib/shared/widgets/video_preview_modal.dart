@@ -11,6 +11,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
 import '../../icons/lucide_adapter.dart';
+import '../../utils/app_directories.dart';
 import 'snackbar.dart';
 
 /// In-app video preview card sheet with full playback controls,
@@ -207,8 +208,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     final String srcAttr;
     if (isNetwork) {
       srcAttr = htmlEscape.convert(videoSrc);
-    } else if (isRelative) {
-      srcAttr = Uri.encodeComponent(p.basename(videoSrc));
     } else {
       srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
     }
@@ -389,15 +388,15 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
       final file = File(resolved);
       if (file.existsSync()) {
         try {
-          final parentDir = file.parent;
+          final tempDir = await AppDirectories.getSystemCacheDirectory();
           final cleanName = p
               .basenameWithoutExtension(file.path)
               .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
           final previewHtml =
-              File(p.join(parentDir.path, '.kelivo_${cleanName}_preview.html'));
+              File(p.join(tempDir.path, '.kelivo_${cleanName}_preview.html'));
           final html = _buildVideoHtml(
             file.path,
-            isRelative: true,
+            isRelative: false,
             initialSeconds: startSeconds,
           );
           previewHtml.writeAsStringSync(html);

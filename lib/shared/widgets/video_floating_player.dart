@@ -10,6 +10,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
 import '../../icons/lucide_adapter.dart';
+import '../../utils/app_directories.dart';
 import 'video_preview_modal.dart';
 
 /// Floating in-chat video PiP player window.
@@ -228,15 +229,15 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       final file = File(resolved);
       if (file.existsSync()) {
         try {
-          final parentDir = file.parent;
+          final tempDir = await AppDirectories.getSystemCacheDirectory();
           final cleanName = p
               .basenameWithoutExtension(file.path)
               .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
           final previewHtml =
-              File(p.join(parentDir.path, '.kelivo_${cleanName}_pip.html'));
+              File(p.join(tempDir.path, '.kelivo_${cleanName}_pip.html'));
           final html = _buildPipHtml(
             file.path,
-            isRelative: true,
+            isRelative: false,
             initialSeconds: startSeconds,
             autoPlay: autoPlay,
           );
@@ -271,8 +272,6 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     final String srcAttr;
     if (isNetwork) {
       srcAttr = htmlEscape.convert(videoSrc);
-    } else if (isRelative) {
-      srcAttr = Uri.encodeComponent(p.basename(videoSrc));
     } else {
       srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
     }
