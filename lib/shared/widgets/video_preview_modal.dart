@@ -729,17 +729,18 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                       ),
                       child: Row(
                         children: [
-                          // Close button (Always available)
+                          // Minimize to PiP button (Always available, accurately syncs progress)
                           IconButton(
-                            tooltip: '关闭',
+                            tooltip: '缩小至画中画',
                             onPressed: () {
-                              _stopVideo();
+                              _video.updatePlaybackPosition(_currentPosition);
+                              _video.minimizeToPip();
                               Navigator.of(context).pop();
                             },
                             icon: const Icon(
-                              Lucide.X,
+                              Lucide.Minimize2,
                               color: Colors.white,
-                              size: 22,
+                              size: 19,
                             ),
                             style: IconButton.styleFrom(
                               backgroundColor: Colors.black45,
@@ -769,27 +770,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                           ),
                           const SizedBox(width: 8),
 
-                          // Minimize to PiP button (Always available, accurately syncs progress)
-                          IconButton(
-                            tooltip: '缩小至画中画',
-                            onPressed: () {
-                              _video.updatePlaybackPosition(_currentPosition);
-                              _video.minimizeToPip();
-                              Navigator.of(context).pop();
-                            },
-                            icon: const Icon(
-                              Lucide.Minimize2,
-                              color: Colors.white,
-                              size: 19,
-                            ),
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.black45,
-                              shape: const CircleBorder(),
-                              padding: const EdgeInsets.all(8),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-
                           // Share button (Fades with controls)
                           AnimatedOpacity(
                             opacity: _showControls ? 1.0 : 0.0,
@@ -813,6 +793,26 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                                   ),
                                 ),
                               ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+
+                          // Close button (Always available)
+                          IconButton(
+                            tooltip: '关闭',
+                            onPressed: () {
+                              _stopVideo();
+                              Navigator.of(context).pop();
+                            },
+                            icon: const Icon(
+                              Lucide.X,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            style: IconButton.styleFrom(
+                              backgroundColor: Colors.black45,
+                              shape: const CircleBorder(),
+                              padding: const EdgeInsets.all(8),
                             ),
                           ),
                         ],
