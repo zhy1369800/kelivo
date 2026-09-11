@@ -87,15 +87,37 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     );
   }
 
-  void _expand() {
+  void _expand() async {
     final src = _video.activeSource;
     if (src == null) return;
-    _pausePip();
+
+    // Don't pause immediately - let the video keep playing during transition
+    // Try to get precise playback position from the WebView before expanding
+    try {
+      final result = await _pipWebCtrl?.runJavaScriptReturningResult(
+        '(function() { const v = document.getElementById("kelivo_player"); return v ? v.currentTime : 0; })()',
+      );
+      if (result != null) {
+        final pos = double.tryParse(result.toString()) ?? _video.playbackPositionSeconds;
+        if (pos > 0) {
+          _video.updatePlaybackPosition(pos);
+        }
+      }
+    } catch (_) {}
+
+    // Show full preview modal (will initialize at current position)
     VideoPreviewModal.show(
       context,
       source: src,
       title: _video.activeTitle,
     );
+
+    // Delay pausing PiP to allow overlap during transition
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        _pausePip();
+      }
+    });
   }
 
   void _syncPipWebView(String source) {

@@ -269,6 +269,11 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
       };
 
       v.addEventListener('loadeddata', () => {
+        // Ensure video starts playing as soon as data is loaded
+        if (v.paused) {
+          const p = v.play();
+          if (p && p.catch) { p.catch(function() {}); }
+        }
         if (window.KelivoVideoChannel) {
           window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'ready' }));
         }
@@ -276,8 +281,12 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
       v.addEventListener('loadedmetadata', () => {
         try {
-          if (startPos > 0 && Math.abs(v.currentTime - startPos) > 1.0) {
+          // Set start position immediately when metadata is loaded
+          if (startPos > 0 && Math.abs(v.currentTime - startPos) > 0.5) {
             v.currentTime = startPos;
+            // Ensure playback starts immediately after seeking
+            const p = v.play();
+            if (p && p.catch) { p.catch(function() {}); }
           }
         } catch(e) {}
         if (window.KelivoVideoChannel && v.videoWidth && v.videoHeight) {
