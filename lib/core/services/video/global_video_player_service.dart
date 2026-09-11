@@ -157,6 +157,8 @@ class GlobalVideoPlayerService extends ChangeNotifier {
   void minimizeToPip() {
     _isPipActive = true;
     _isFullPreviewOpen = false;
+    // Force playing state when minimizing to PiP (user expects video to continue)
+    _isPlaying = true;
     notifyListeners();
   }
 

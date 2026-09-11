@@ -101,10 +101,11 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   void _syncPipWebView(String source) {
     if (_lastLoadedSource == source && _pipWebCtrl != null) {
       final pos = _video.playbackPositionSeconds;
-      final isPlaying = _video.isPlaying;
       try {
+        // When reusing WebView (e.g., switching from full preview to PiP),
+        // force playing state to true to prevent pause race condition
         _pipWebCtrl!.runJavaScript(
-          'if (window.__kelivoSyncState) { window.__kelivoSyncState($pos, $isPlaying); }',
+          'if (window.__kelivoSyncState) { window.__kelivoSyncState($pos, true); }',
         );
       } catch (_) {}
       return;

@@ -732,10 +732,12 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                           // Minimize to PiP button (Always available, accurately syncs progress)
                           IconButton(
                             tooltip: '缩小至画中画',
-                            onPressed: () {
+                            onPressed: () async {
                               _video.updatePlaybackPosition(_currentPosition);
                               _video.minimizeToPip();
-                              Navigator.of(context).pop();
+                              // Wait one frame to ensure state propagates before closing modal
+                              await Future.delayed(const Duration(milliseconds: 16));
+                              if (mounted) Navigator.of(context).pop();
                             },
                             icon: const Icon(
                               Lucide.Minimize2,
