@@ -941,27 +941,30 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          // Expand to Fullscreen
-                          Listener(
-                            onPointerDown: (_) => _isControlHit = true,
-                            onPointerUp: (_) => _isControlHit = false,
-                            child: IconButton(
-                              iconSize: 18,
-                              padding: const EdgeInsets.all(6),
-                              constraints: const BoxConstraints(),
-                              style: IconButton.styleFrom(
-                                backgroundColor: Colors.black54,
-                                shape: const CircleBorder(),
+                          // Expand to Fullscreen (if permitted)
+                          if (_video.canExpand)
+                            Listener(
+                              onPointerDown: (_) => _isControlHit = true,
+                              onPointerUp: (_) => _isControlHit = false,
+                              child: IconButton(
+                                iconSize: 18,
+                                padding: const EdgeInsets.all(6),
+                                constraints: const BoxConstraints(),
+                                style: IconButton.styleFrom(
+                                  backgroundColor: Colors.black54,
+                                  shape: const CircleBorder(),
+                                ),
+                                icon: const Icon(
+                                  Lucide.Maximize2,
+                                  color: Colors.white,
+                                ),
+                                onPressed: () {
+                                  _video.expandToFullscreen();
+                                },
                               ),
-                              icon: const Icon(
-                                Lucide.Maximize2,
-                                color: Colors.white,
-                              ),
-                              onPressed: () {
-                                _video.expandToFullscreen();
-                              },
-                            ),
-                          ),
+                            )
+                          else
+                            const SizedBox.shrink(),
 
                           // Close Player
                           Listener(

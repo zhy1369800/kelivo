@@ -13,7 +13,6 @@ import '../../../shared/pages/webview_page.dart';
 import '../../../shared/widgets/audio_preview_modal.dart';
 import '../../../shared/widgets/resource_preview_modal.dart';
 import '../../../shared/widgets/snackbar.dart';
-import '../../../shared/widgets/video_preview_modal.dart';
 import '../video/global_video_player_service.dart';
 
 import '../../../utils/app_directories.dart';
@@ -422,21 +421,6 @@ class ResourcePreviewService extends ChangeNotifier {
           openedAs: 'video_player',
         );
       }
-      if (effectiveContext != null && effectiveContext.mounted) {
-        unawaited(
-          VideoPreviewModal.show(
-            effectiveContext,
-            source: urlString,
-            title: title ?? p.basename(urlPath),
-          ),
-        );
-        return ResourceOpenResult(
-          success: true,
-          message: 'Opened video URL in in-app Video Player: $urlString',
-          target: urlString,
-          openedAs: 'video_player',
-        );
-      }
       GlobalVideoPlayerService.instance.openVideo(
         source: urlString,
         title: title ?? p.basename(urlPath),
@@ -597,22 +581,17 @@ class ResourcePreviewService extends ChangeNotifier {
           openedAs: 'video_player',
         );
       }
-      if (effectiveContext != null && effectiveContext.mounted) {
-        unawaited(
-          VideoPreviewModal.show(
-            effectiveContext,
-            source: file.path,
-            title: effectiveTitle,
-          ),
-        );
-        return ResourceOpenResult(
-          success: true,
-          message: 'Opened in in-app Video Player: $effectiveTitle',
-          target: effectivePath,
-          openedAs: 'video_player',
-        );
-      }
-      return _openWithSystemDefault(file.path, effectivePath, title: effectiveTitle);
+      GlobalVideoPlayerService.instance.openVideo(
+        source: file.path,
+        title: effectiveTitle,
+        asPip: false,
+      );
+      return ResourceOpenResult(
+        success: true,
+        message: 'Opened in in-app Video Player: $effectiveTitle',
+        target: effectivePath,
+        openedAs: 'video_player',
+      );
     }
 
     // 2. Image formats

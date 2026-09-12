@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 /// Controls the active in-app video playback session, supporting:
 /// - Single persistent player core with seamless viewport tweening (PiP <-> Fullscreen)
 /// - Asynchronous, non-blocking opening with in-flight lock protection
-/// - Smooth transition between full preview modal and floating PiP player
+/// - Smooth transition between fullscreen preview and floating PiP player
 class GlobalVideoPlayerService extends ChangeNotifier {
   GlobalVideoPlayerService._();
   static final GlobalVideoPlayerService instance = GlobalVideoPlayerService._();
@@ -29,7 +29,7 @@ class GlobalVideoPlayerService extends ChangeNotifier {
   bool get isFullPreviewOpen => _isFullPreviewOpen;
   double _playbackPositionSeconds = 0.0;
 
-  /// Current playback position in seconds, preserved across modal and PiP transitions.
+  /// Current playback position in seconds, preserved across fullscreen and PiP transitions.
   double get playbackPositionSeconds => _playbackPositionSeconds;
 
   /// Updates current playback position in seconds.
@@ -66,13 +66,13 @@ class GlobalVideoPlayerService extends ChangeNotifier {
 
   bool _canExpand = true;
 
-  /// Whether the floating player is allowed to be expanded into a full modal preview.
+  /// Whether the floating player is allowed to be expanded into fullscreen preview.
   bool get canExpand => _canExpand;
 
   /// Set the active video source.
   ///
-  /// If the full modal is currently open, updates it in-place (new replaces old).
-  /// If [asPip] is true, launches directly into floating PiP mode without opening a modal.
+  /// If [asPip] is true, launches directly into floating PiP mode.
+  /// Otherwise, launches into immersive fullscreen preview mode.
   bool openVideo({
     required String source,
     String? title,
@@ -132,7 +132,7 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Minimize full preview modal to floating PiP capsule.
+  /// Minimize fullscreen preview to floating PiP capsule.
   void minimizeToPip() {
     _isPipActive = true;
     _isFullPreviewOpen = false;

@@ -122,7 +122,7 @@ class AppDirectories {
     }
   }
 
-  /// Cleans up any leftover temporary preview HTML files (.kelivo_*_preview.html, .kelivo_*_pip.html)
+  /// Cleans up any leftover temporary preview HTML files (.kelivo_*_player.html)
   /// from previous abnormal terminations.
   static Future<void> cleanDanglingPreviewHtmlFiles() async {
     try {
