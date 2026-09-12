@@ -96,7 +96,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
   late WebViewController _webCtrl;
   String _currentSource = '';
-  bool _isWebReady = false;
 
   bool _showControls = true;
   Timer? _hideControlsTimer;
@@ -104,12 +103,41 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   double _duration = 0.0;
   bool _isDraggingSlider = false;
 
+  Timer? _bufferingTimer;
+  bool _showBuffering = false;
+  bool _hasRenderedFirstFrame = false;
+
+  void _startBufferingTimer() {
+    _bufferingTimer?.cancel();
+    _hasRenderedFirstFrame = false;
+    if (_showBuffering) {
+      setState(() => _showBuffering = false);
+    }
+    // 800ms debounce: local or fast-loading videos render in <300ms, completely avoiding spinner flicker.
+    // Weak network or large remote files smoothly show a loading indicator after 800ms.
+    _bufferingTimer = Timer(const Duration(milliseconds: 800), () {
+      if (mounted && !_hasRenderedFirstFrame) {
+        setState(() => _showBuffering = true);
+      }
+    });
+  }
+
+  void _markFirstFrameRendered() {
+    if (_hasRenderedFirstFrame) return;
+    _hasRenderedFirstFrame = true;
+    _bufferingTimer?.cancel();
+    if (_showBuffering && mounted) {
+      setState(() => _showBuffering = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _currentSource = widget.source;
     _currentPosition = _video.playbackPositionSeconds;
 
+    _startBufferingTimer();
     _initWebViewController();
     _video.registerModalUpdater(_updateSourceInPlace);
     _resetHideControlsTimer();
@@ -186,6 +214,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   @override
   void dispose() {
     _hideControlsTimer?.cancel();
+    _bufferingTimer?.cancel();
     _video.registerModalUpdater(null);
     _cleanupWebPlayer();
     super.dispose();
@@ -193,6 +222,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
   void _updateSourceInPlace(String newSource, String? newTitle) {
     if (!mounted) return;
+    _startBufferingTimer();
     setState(() {
       _currentSource = newSource;
     });
@@ -217,8 +247,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
     final startSec =
         initialSeconds > 0 ? initialSeconds.toStringAsFixed(2) : '0';
-    final fragment = initialSeconds > 0 ? '#t=${initialSeconds.toStringAsFixed(2)}' : '';
-    final fullSrc = '$srcAttr$fragment';
 
     return '''<!DOCTYPE html>
 <html>
@@ -238,7 +266,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
   </style>
 </head>
 <body>
-  <video id="kelivo_player" src="$fullSrc" autoplay playsinline webkit-playsinline disablePictureInPicture preload="auto"></video>
+  <video id="kelivo_player" src="$srcAttr" autoplay playsinline webkit-playsinline disablePictureInPicture preload="auto"></video>
   <script>
     (function() {
       const v = document.getElementById('kelivo_player');
@@ -278,7 +306,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
           if (p && p.catch) { p.catch(function() {}); }
         }
         if (window.KelivoVideoChannel) {
-          window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'ready' }));
+          window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'loadeddata' }));
         }
       });
 
@@ -346,9 +374,10 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
         onMessageReceived: (JavaScriptMessage msg) {
           try {
             final data = jsonDecode(msg.message) as Map<String, dynamic>;
-            if (data['type'] == 'ready') {
-              if (mounted) setState(() => _isWebReady = true);
+            if (data['type'] == 'loadeddata') {
+              _markFirstFrameRendered();
             } else if (data['type'] == 'timeupdate') {
+              _markFirstFrameRendered();
               final pos = (data['currentTime'] as num?)?.toDouble() ?? 0.0;
               final dur = (data['duration'] as num?)?.toDouble() ?? 0.0;
               _video.updatePlaybackPosition(pos);
@@ -356,7 +385,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                 setState(() {
                   _currentPosition = pos;
                   if (dur > 0) _duration = dur;
-                  _isWebReady = true;
                 });
               }
             } else if (data['type'] == 'metadata') {
@@ -375,15 +403,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
             }
           } catch (_) {}
         },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) {
-            if (mounted) {
-              setState(() => _isWebReady = true);
-            }
-          },
-        ),
       );
 
     _loadVideoInWeb(_currentSource);
@@ -503,20 +522,24 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
               Center(
                 child: AspectRatio(
                   aspectRatio: _video.aspectRatio,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      IgnorePointer(
-                        child: WebViewWidget(controller: _webCtrl),
-                      ),
-                      if (!_isWebReady)
-                        const Center(
-                          child: CircularProgressIndicator(
-                            color: Colors.white70,
-                            strokeWidth: 2.5,
-                          ),
-                        ),
-                    ],
+                  child: IgnorePointer(
+                    child: WebViewWidget(controller: _webCtrl),
+                  ),
+                ),
+              ),
+
+              // 1.5. Delayed Buffering Indicator (Fades in only if loading takes > 800ms)
+              IgnorePointer(
+                ignoring: !_showBuffering,
+                child: Center(
+                  child: AnimatedOpacity(
+                    opacity: _showBuffering ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 240),
+                    curve: Curves.easeInOut,
+                    child: const CircularProgressIndicator(
+                      color: Colors.white70,
+                      strokeWidth: 2.5,
+                    ),
                   ),
                 ),
               ),

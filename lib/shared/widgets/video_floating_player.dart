@@ -86,28 +86,12 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     );
   }
 
-  void _expand() async {
+  void _expand() {
     final src = _video.activeSource;
     if (src == null) return;
 
-    // Try to get precise playback position from the WebView before expanding
-    try {
-      final result = await _pipWebCtrl?.runJavaScriptReturningResult(
-        '(function() { const v = document.getElementById("pip_player"); return v ? v.currentTime : 0; })()',
-      );
-      if (result != null) {
-        final pos = double.tryParse(result.toString()) ?? _video.playbackPositionSeconds;
-        if (pos > 0) {
-          _video.updatePlaybackPosition(pos);
-        }
-      }
-    } catch (_) {}
-
     // Immediately mute PiP to avoid audio overlap during transition
     _mutePip();
-
-    // Check if widget is still mounted after async operation
-    if (!mounted) return;
 
     // Show full preview modal (will initialize at current position)
     VideoPreviewModal.show(
