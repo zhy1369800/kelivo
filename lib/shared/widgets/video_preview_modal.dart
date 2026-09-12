@@ -96,6 +96,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
   late WebViewController _webCtrl;
   String _currentSource = '';
+  bool _isDeactivated = false;
 
   bool _showControls = true;
   Timer? _hideControlsTimer;
@@ -213,6 +214,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
   @override
   void dispose() {
+    _isDeactivated = true;
     _hideControlsTimer?.cancel();
     _bufferingTimer?.cancel();
     _video.registerModalUpdater(null);
@@ -372,6 +374,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
       ..addJavaScriptChannel(
         'KelivoVideoChannel',
         onMessageReceived: (JavaScriptMessage msg) {
+          if (_isDeactivated || !mounted) return;
           try {
             final data = jsonDecode(msg.message) as Map<String, dynamic>;
             if (data['type'] == 'loadeddata') {
@@ -768,6 +771,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                           IconButton(
                             tooltip: '缩小至画中画',
                             onPressed: () async {
+                              _isDeactivated = true;
                               final navigator = Navigator.of(context);
                               _video.updatePlaybackPosition(_currentPosition);
                               _video.minimizeToPip();
