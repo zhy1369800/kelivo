@@ -91,7 +91,6 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     final src = _video.activeSource;
     if (src == null) return;
 
-    // Don't pause immediately - let the video keep playing during transition
     // Try to get precise playback position from the WebView before expanding
     try {
       final result = await _pipWebCtrl?.runJavaScriptReturningResult(
@@ -105,6 +104,12 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       }
     } catch (_) {}
 
+    // Immediately mute PiP to avoid audio overlap during transition
+    _mutePip();
+
+    // Check if widget is still mounted after async operation
+    if (!mounted) return;
+
     // Show full preview modal (will initialize at current position)
     VideoPreviewModal.show(
       context,
@@ -112,7 +117,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       title: _video.activeTitle,
     );
 
-    // Delay pausing PiP to allow overlap during transition
+    // Delay pausing PiP to allow smooth visual transition
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) {
         _pausePip();
@@ -123,11 +128,11 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   void _syncPipWebView(String source) {
     if (_lastLoadedSource == source && _pipWebCtrl != null) {
       final pos = _video.playbackPositionSeconds;
+      final isPlaying = _video.isPlaying;
       try {
-        // When reusing WebView (e.g., switching from full preview to PiP),
-        // force playing state to true to prevent pause race condition
+        // Sync position and actual playing state
         _pipWebCtrl!.runJavaScript(
-          'if (window.__kelivoSyncState) { window.__kelivoSyncState($pos, true); }',
+          'if (window.__kelivoSyncState) { window.__kelivoSyncState($pos, $isPlaying); }',
         );
       } catch (_) {}
       return;
@@ -222,6 +227,14 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     } catch (_) {}
   }
 
+  void _mutePip() {
+    try {
+      _pipWebCtrl?.runJavaScript(
+        '(function() { const v = document.getElementById("kelivo_player"); if (v) v.muted = true; })()',
+      );
+    } catch (_) {}
+  }
+
   void _stopPip() {
     _hideControlsTimer?.cancel();
     _showControls = false;
@@ -260,7 +273,6 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
               File(p.join(tempDir.path, '.kelivo_${cleanName}_pip.html'));
           final html = _buildPipHtml(
             file.path,
-            isRelative: false,
             initialSeconds: startSeconds,
             autoPlay: autoPlay,
           );
@@ -286,7 +298,6 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
   String _buildPipHtml(
     String videoSrc, {
-    bool isRelative = false,
     double initialSeconds = 0.0,
     bool autoPlay = true,
   }) {

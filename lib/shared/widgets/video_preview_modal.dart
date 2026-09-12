@@ -200,7 +200,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
   String _buildVideoHtml(
     String videoSrc, {
-    bool isRelative = false,
     double initialSeconds = 0.0,
   }) {
     final isNetwork =
@@ -405,7 +404,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
               File(p.join(tempDir.path, '.kelivo_${cleanName}_preview.html'));
           final html = _buildVideoHtml(
             file.path,
-            isRelative: false,
             initialSeconds: startSeconds,
           );
           previewHtml.writeAsStringSync(html);
@@ -746,7 +744,8 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                               _video.minimizeToPip();
                               // Wait one frame to ensure state propagates before closing modal
                               await Future.delayed(const Duration(milliseconds: 16));
-                              if (mounted) Navigator.of(context).pop();
+                              if (!mounted) return;
+                              Navigator.of(context).pop();
                             },
                             icon: const Icon(
                               Lucide.Minimize2,
