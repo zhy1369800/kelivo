@@ -234,21 +234,9 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     } catch (_) {}
   }
 
-  File? _activeTempHtml;
-
-  void _cleanupTempHtml() {
-    try {
-      if (_activeTempHtml != null && _activeTempHtml!.existsSync()) {
-        _activeTempHtml!.deleteSync();
-      }
-    } catch (_) {}
-    _activeTempHtml = null;
-  }
-
   void _stopPip() {
     _hideControlsTimer?.cancel();
     _showControls = false;
-    _cleanupTempHtml();
     try {
       _pipWebCtrl?.runJavaScript(
         'if (window.__kelivoStop) { window.__kelivoStop(); }',
@@ -276,7 +264,6 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       final file = File(resolved);
       if (file.existsSync()) {
         try {
-          _cleanupTempHtml();
           final parentDir = file.parent;
           final cleanName = p
               .basenameWithoutExtension(file.path)
@@ -290,15 +277,9 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
             autoPlay: autoPlay,
           );
           await previewHtml.writeAsString(html);
-          _activeTempHtml = previewHtml;
           await _pipWebCtrl?.loadFile(previewHtml.path);
           return;
-        } catch (_) {
-          try {
-            await _pipWebCtrl?.loadFile(file.path);
-            return;
-          } catch (_) {}
-        }
+        } catch (_) {}
       }
       await _pipWebCtrl?.loadHtmlString(
         _buildPipHtml(
@@ -368,6 +349,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         if (!v) return;
         try {
           if (v.paused) {
+            v.muted = false;
             const p = v.play();
             if (p && p.catch) { p.catch(function() {}); }
           } else {
@@ -393,6 +375,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       window.__kelivoSyncState = function(pos, isPlaying) {
         if (!v) return;
         try {
+          v.muted = false;
           if (Math.abs(v.currentTime - pos) > 0.5) {
             v.currentTime = pos;
           }
@@ -458,7 +441,6 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   @override
   void dispose() {
     _hideControlsTimer?.cancel();
-    _cleanupTempHtml();
     super.dispose();
   }
 

@@ -172,17 +172,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     return '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 
-  File? _activeTempHtml;
-
-  void _cleanupTempHtml() {
-    try {
-      if (_activeTempHtml != null && _activeTempHtml!.existsSync()) {
-        _activeTempHtml!.deleteSync();
-      }
-    } catch (_) {}
-    _activeTempHtml = null;
-  }
-
   void _cleanupWebPlayer() {
     try {
       // Disconnect JS channel first to prevent ghost 'pause' events from polluting PiP / global state
@@ -199,13 +188,11 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     _hideControlsTimer?.cancel();
     _video.registerModalUpdater(null);
     _cleanupWebPlayer();
-    _cleanupTempHtml();
     super.dispose();
   }
 
   void _updateSourceInPlace(String newSource, String? newTitle) {
     if (!mounted) return;
-    _cleanupTempHtml();
     setState(() {
       _currentSource = newSource;
     });
@@ -413,7 +400,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
       final file = File(resolved);
       if (file.existsSync()) {
         try {
-          _cleanupTempHtml();
           final parentDir = file.parent;
           final cleanName = p
               .basenameWithoutExtension(file.path)
@@ -426,7 +412,6 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
             initialSeconds: startSeconds,
           );
           previewHtml.writeAsStringSync(html);
-          _activeTempHtml = previewHtml;
           await _webCtrl.loadFile(previewHtml.path);
           return;
         } catch (_) {
