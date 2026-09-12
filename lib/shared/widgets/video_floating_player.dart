@@ -53,6 +53,8 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   String? _lastLoadedSource;
   File? _activeTempHtml;
 
+  bool _showSpeedMenu = false;
+
   bool _lastWasFull = false;
   bool _lastWasPip = false;
 
@@ -178,6 +180,10 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   }
 
   void _toggleFullControls() {
+    if (_showSpeedMenu) {
+      _closeSpeedMenu();
+      return;
+    }
     setState(() {
       _showFullControls = !_showFullControls;
     });
@@ -185,6 +191,26 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       _resetHideFullControlsTimer();
     } else {
       _hideFullControlsTimer?.cancel();
+    }
+  }
+
+  void _toggleSpeedMenu() {
+    setState(() {
+      _showSpeedMenu = !_showSpeedMenu;
+    });
+    if (_showSpeedMenu) {
+      _hideFullControlsTimer?.cancel();
+    } else {
+      _resetHideFullControlsTimer();
+    }
+  }
+
+  void _closeSpeedMenu() {
+    if (_showSpeedMenu) {
+      setState(() {
+        _showSpeedMenu = false;
+      });
+      _resetHideFullControlsTimer();
     }
   }
 
@@ -370,6 +396,9 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   }
 
   void _setPlaybackRate(double rate) {
+    setState(() {
+      _showSpeedMenu = false;
+    });
     _resetHideFullControlsTimer();
     _video.setPlaybackRate(rate);
     try {
@@ -380,6 +409,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   }
 
   void _teardownWebPlayer() {
+    _showSpeedMenu = false;
     _hidePipControlsTimer?.cancel();
     _hideFullControlsTimer?.cancel();
     _bufferingTimer?.cancel();
@@ -401,17 +431,31 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   }
 
   Future<void> _shareCurrentFile(BuildContext btnContext) async {
+    _hideFullControlsTimer?.cancel();
     final src = _video.activeSource;
-    if (src == null) return;
+    if (src == null) {
+      _resetHideFullControlsTimer();
+      return;
+    }
     try {
+      final mediaSize = MediaQuery.sizeOf(context);
       final box = btnContext.findRenderObject() as RenderBox?;
-      final anchor = box != null && box.hasSize
-          ? box.localToGlobal(Offset.zero) & box.size
-          : Rect.fromCenter(
-              center: MediaQuery.sizeOf(context).center(Offset.zero),
-              width: 10,
-              height: 10,
-            );
+      Rect anchor;
+      if (box != null && box.hasSize && box.attached) {
+        final origin = box.localToGlobal(Offset.zero);
+        anchor = Rect.fromLTWH(
+          origin.dx.clamp(0.0, math.max(0.0, mediaSize.width - 40.0)),
+          origin.dy.clamp(0.0, math.max(0.0, mediaSize.height - 40.0)),
+          box.size.width,
+          box.size.height,
+        );
+      } else {
+        anchor = Rect.fromCenter(
+          center: mediaSize.center(Offset.zero),
+          width: 40,
+          height: 40,
+        );
+      }
 
       final isNetwork = src.startsWith('http://') || src.startsWith('https://');
       if (isNetwork) {
@@ -446,6 +490,10 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
           message: '分享失败: $e',
           type: NotificationType.error,
         );
+      }
+    } finally {
+      if (mounted && _video.isFullPreviewOpen) {
+        _resetHideFullControlsTimer();
       }
     }
   }
@@ -803,83 +851,35 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 10),
-                              PopupMenuButton<double>(
-                                tooltip: '播放速度',
-                                initialValue: _video.playbackRate,
-                                onOpened: () {
-                                  _hideFullControlsTimer?.cancel();
-                                },
-                                onCanceled: () {
-                                  _resetHideFullControlsTimer();
-                                },
-                                onSelected: (rate) {
-                                  _setPlaybackRate(rate);
-                                },
-                                offset: const Offset(0, -230),
-                                color: const Color(0xFF222222),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                  side: const BorderSide(
-                                    color: Colors.white24,
-                                    width: 0.8,
-                                  ),
-                                ),
+                              const SizedBox(width: 8),
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: _toggleSpeedMenu,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 7,
-                                    vertical: 3.5,
-                                  ),
+                                  width: 28,
+                                  height: 28,
                                   decoration: BoxDecoration(
-                                    color: Colors.black45,
-                                    borderRadius: BorderRadius.circular(6),
+                                    color: _showSpeedMenu
+                                        ? cs.primary.withValues(alpha: 0.35)
+                                        : Colors.black45,
+                                    shape: BoxShape.circle,
                                     border: Border.all(
-                                      color: Colors.white24,
+                                      color: _showSpeedMenu
+                                          ? cs.primary
+                                          : Colors.white30,
                                       width: 0.8,
                                     ),
                                   ),
-                                  child: Text(
-                                    '${_video.playbackRate == 1.0 ? '1.0' : _video.playbackRate}x',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 0.2,
+                                  child: Center(
+                                    child: Icon(
+                                      Lucide.Ellipsis,
+                                      size: 16,
+                                      color: _showSpeedMenu
+                                          ? cs.primary
+                                          : Colors.white,
                                     ),
                                   ),
                                 ),
-                                itemBuilder: (context) => [
-                                  for (final r in GlobalVideoPlayerService.supportedRates)
-                                    PopupMenuItem<double>(
-                                      value: r,
-                                      height: 38,
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            '${r == 1.0 ? '1.0' : r}x',
-                                            style: TextStyle(
-                                              color: _video.playbackRate == r
-                                                  ? cs.primary
-                                                  : Colors.white,
-                                              fontWeight:
-                                                  _video.playbackRate == r
-                                                      ? FontWeight.w600
-                                                      : FontWeight.normal,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                          if (_video.playbackRate == r)
-                                            Icon(
-                                              Lucide.Check,
-                                              size: 16,
-                                              color: cs.primary,
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                ],
                               ),
                             ],
                           ),
@@ -887,6 +887,73 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                       ),
                     ),
                   ),
+
+                  // In-overlay Speed Selection Menu Card
+                  if (_showSpeedMenu)
+                    Positioned(
+                      right: 16,
+                      bottom: 56 + MediaQuery.paddingOf(context).bottom,
+                      child: Container(
+                        width: 140,
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E1E1E),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.white24,
+                            width: 0.8,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.6),
+                              blurRadius: 16,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (final r in GlobalVideoPlayerService.supportedRates)
+                              InkWell(
+                                onTap: () => _setPlaybackRate(r),
+                                borderRadius: BorderRadius.circular(6),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 9,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        '${r == 1.0 ? '1.0' : r}x',
+                                        style: TextStyle(
+                                          color: _video.playbackRate == r
+                                              ? cs.primary
+                                              : Colors.white,
+                                          fontWeight:
+                                              _video.playbackRate == r
+                                                  ? FontWeight.w600
+                                                  : FontWeight.normal,
+                                          fontSize: 13.5,
+                                        ),
+                                      ),
+                                      if (_video.playbackRate == r)
+                                        Icon(
+                                          Lucide.Check,
+                                          size: 16,
+                                          color: cs.primary,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),

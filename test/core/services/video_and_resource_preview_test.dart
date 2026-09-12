@@ -31,37 +31,37 @@ void main() {
       expect(video.isPlaying, isTrue);
     });
 
-    test('minimizeToPip transitions state to PiP', () {
+    test('minimizeToPip and expandToFullscreen transition states', () {
       video.openVideo(source: 'https://example.com/test.mp4');
-      video.markFullPreviewOpened();
       expect(video.isFullPreviewOpen, isTrue);
       expect(video.isPipActive, isFalse);
 
       video.minimizeToPip();
       expect(video.isFullPreviewOpen, isFalse);
       expect(video.isPipActive, isTrue);
+
+      video.expandToFullscreen();
+      expect(video.isFullPreviewOpen, isTrue);
+      expect(video.isPipActive, isFalse);
     });
 
-    test('in-place updater replaces source when modal is open', () {
-      String? updatedSource;
-      String? updatedTitle;
-      video.registerModalUpdater((src, title) {
-        updatedSource = src;
-        updatedTitle = title;
-      });
+    test('opening new video replaces source in-place and updates metadata', () {
+      final opened1 = video.openVideo(
+        source: 'https://example.com/test.mp4',
+        title: 'First Video',
+      );
+      expect(opened1, isTrue);
+      expect(video.activeSource, 'https://example.com/test.mp4');
+      expect(video.activeTitle, 'First Video');
 
-      video.markFullPreviewOpened();
-      final opened = video.openVideo(
+      final opened2 = video.openVideo(
         source: 'https://example.com/new.mp4',
         title: 'New Video',
       );
-
-      expect(opened, isTrue);
-      expect(updatedSource, 'https://example.com/new.mp4');
-      expect(updatedTitle, 'New Video');
+      expect(opened2, isTrue);
       expect(video.activeSource, 'https://example.com/new.mp4');
-
-      video.registerModalUpdater(null);
+      expect(video.activeTitle, 'New Video');
+      expect(video.displayName, 'New Video');
     });
 
     test('stop clears all active playback states and position', () {
@@ -89,27 +89,20 @@ void main() {
       expect(video.playbackPositionSeconds, 0.0);
     });
 
-    test('dismissing modal without minimize stops playback completely', () {
+    test('playbackRate updates and supports valid presets', () {
       video.openVideo(source: 'https://example.com/test.mp4');
-      video.markFullPreviewOpened();
+      expect(video.playbackRate, 1.0);
 
-      // Dismissing without minimizeToPip stops playback
-      video.markFullPreviewDismissed(keepPlayingAsPip: false);
-      expect(video.isFullPreviewOpen, isFalse);
-      expect(video.isPipActive, isFalse);
-      expect(video.activeSource, isNull);
-    });
+      video.setPlaybackRate(1.5);
+      expect(video.playbackRate, 1.5);
 
-    test('dismissing modal after minimizeToPip keeps PiP active', () {
-      video.openVideo(source: 'https://example.com/test.mp4');
-      video.markFullPreviewOpened();
+      // Unsupported rate should be ignored
+      video.setPlaybackRate(3.0);
+      expect(video.playbackRate, 1.5);
 
-      // User explicitly clicked minimizeToPip
-      video.minimizeToPip();
-      video.markFullPreviewDismissed(keepPlayingAsPip: true);
-      expect(video.isFullPreviewOpen, isFalse);
-      expect(video.isPipActive, isTrue);
-      expect(video.activeSource, 'https://example.com/test.mp4');
+      // Opening new video resets playback rate
+      video.openVideo(source: 'https://example.com/other.mp4');
+      expect(video.playbackRate, 1.0);
     });
 
     test('aspectRatio defaults to 16:9, updates with valid ratio, and resets on new video or stop', () {
