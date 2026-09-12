@@ -293,6 +293,9 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
         if (!v) return;
         try {
           if (v.paused) {
+            if (v.ended || (v.duration > 0 && Math.abs(v.currentTime - v.duration) < 0.5)) {
+              v.currentTime = 0;
+            }
             const p = v.play();
             if (p && p.catch) { p.catch(function() {}); }
           } else {
@@ -351,6 +354,14 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
           window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'pause' }));
         }
       });
+      v.addEventListener('ended', () => {
+        try {
+          v.currentTime = 0;
+        } catch(e) {}
+        if (window.KelivoVideoChannel) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'ended' }));
+        }
+      });
     })();
   </script>
 </body>
@@ -403,6 +414,12 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
               _video.setPlaying(true);
             } else if (data['type'] == 'pause') {
               _video.setPlaying(false);
+            } else if (data['type'] == 'ended') {
+              _video.updatePlaybackPosition(0.0);
+              _video.setPlaying(false);
+              if (mounted && !_isDraggingSlider) {
+                setState(() => _currentPosition = 0.0);
+              }
             }
           } catch (_) {}
         },

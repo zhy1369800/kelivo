@@ -140,7 +140,10 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         onMessageReceived: (JavaScriptMessage msg) {
           try {
             final data = jsonDecode(msg.message) as Map<String, dynamic>;
-            if (data['type'] == 'timeupdate') {
+            if (data['type'] == 'ended') {
+              _video.updatePlaybackPosition(0.0);
+              _video.setPlaying(false);
+            } else if (data['type'] == 'timeupdate') {
               final pos = (data['currentTime'] as num?)?.toDouble() ?? 0.0;
               _video.updatePlaybackPosition(pos);
             } else if (data['type'] == 'metadata') {
@@ -334,6 +337,9 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         try {
           if (v.paused) {
             v.muted = false;
+            if (v.ended || (v.duration > 0 && Math.abs(v.currentTime - v.duration) < 0.5)) {
+              v.currentTime = 0;
+            }
             const p = v.play();
             if (p && p.catch) { p.catch(function() {}); }
           } else {
@@ -360,10 +366,13 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         if (!v) return;
         try {
           v.muted = false;
-          if (Math.abs(v.currentTime - pos) > 0.5) {
+          if (pos > 0 && Math.abs(v.currentTime - pos) > 0.5) {
             v.currentTime = pos;
           }
           if (isPlaying && v.paused) {
+            if (v.ended || (v.duration > 0 && Math.abs(v.currentTime - v.duration) < 0.5)) {
+              v.currentTime = 0;
+            }
             const p = v.play();
             if (p && p.catch) { p.catch(function() {}); }
           } else if (!isPlaying && !v.paused) {
@@ -413,6 +422,16 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         if (window.KelivoVideoChannel) {
           window.KelivoVideoChannel.postMessage(JSON.stringify({
             type: 'pause'
+          }));
+        }
+      });
+      v.addEventListener('ended', () => {
+        try {
+          v.currentTime = 0;
+        } catch(e) {}
+        if (window.KelivoVideoChannel) {
+          window.KelivoVideoChannel.postMessage(JSON.stringify({
+            type: 'ended'
           }));
         }
       });
