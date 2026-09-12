@@ -53,6 +53,20 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     }
   }
 
+  static const List<double> supportedRates = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+  double _playbackRate = 1.0;
+
+  /// Current video playback rate, defaults to 1.0.
+  double get playbackRate => _playbackRate;
+
+  /// Updates current playback rate.
+  void setPlaybackRate(double rate) {
+    if (supportedRates.contains(rate) && (_playbackRate - rate).abs() > 0.001) {
+      _playbackRate = rate;
+      notifyListeners();
+    }
+  }
+
   String get displayName {
     if (_activeTitle != null && _activeTitle!.trim().isNotEmpty) {
       return _activeTitle!.trim();
@@ -95,6 +109,7 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     if (isNewSource) {
       _playbackPositionSeconds = 0.0;
       _aspectRatio = defaultAspectRatio;
+      _playbackRate = 1.0;
     }
 
     _canExpand = canExpand;
@@ -155,6 +170,7 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     _activeTitle = null;
     _playbackPositionSeconds = 0.0;
     _aspectRatio = defaultAspectRatio;
+    _playbackRate = 1.0;
     _canExpand = true;
     notifyListeners();
   }

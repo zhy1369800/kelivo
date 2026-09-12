@@ -53,6 +53,9 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   String? _lastLoadedSource;
   File? _activeTempHtml;
 
+  bool _lastWasFull = false;
+  bool _lastWasPip = false;
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +63,15 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     final src = _video.activeSource;
     if (src != null) {
       _syncWebView(src);
+      if (_video.isFullPreviewOpen) {
+        _lastWasFull = true;
+        _showFullControls = true;
+        _resetHideFullControlsTimer();
+      } else if (_video.isPipActive) {
+        _lastWasPip = true;
+        _showPipControls = true;
+        _resetHidePipControlsTimer();
+      }
     }
   }
 
@@ -67,7 +79,22 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     final activeSource = _video.activeSource;
     if (activeSource != null) {
       _syncWebView(activeSource);
+
+      final isFull = _video.isFullPreviewOpen;
+      final isPip = _video.isPipActive && !isFull;
+
+      if (isFull && !_lastWasFull) {
+        _showFullControls = true;
+        _resetHideFullControlsTimer();
+      } else if (isPip && !_lastWasPip) {
+        _showPipControls = true;
+        _resetHidePipControlsTimer();
+      }
+      _lastWasFull = isFull;
+      _lastWasPip = isPip;
     } else {
+      _lastWasFull = false;
+      _lastWasPip = false;
       _teardownWebPlayer();
     }
   }
@@ -248,6 +275,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
   Future<void> _loadVideo(String source) async {
     final startSeconds = _video.playbackPositionSeconds;
+    final currentRate = _video.playbackRate;
     final isNetwork =
         source.startsWith('http://') || source.startsWith('https://');
 
@@ -255,6 +283,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       final html = _buildVideoHtml(
         source,
         initialSeconds: startSeconds,
+        playbackRate: currentRate,
       );
       await _webCtrl?.loadHtmlString(html);
     } else {
@@ -273,6 +302,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
             file.path,
             isRelative: true,
             initialSeconds: startSeconds,
+            playbackRate: currentRate,
           );
           await previewHtml.writeAsString(html);
           _activeTempHtml = previewHtml;
@@ -289,6 +319,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         _buildVideoHtml(
           source,
           initialSeconds: startSeconds,
+          playbackRate: currentRate,
         ),
       );
     }
@@ -304,6 +335,11 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   }
 
   void _togglePlayPause() {
+    if (_video.isFullPreviewOpen) {
+      _resetHideFullControlsTimer();
+    } else {
+      _resetHidePipControlsTimer();
+    }
     try {
       _webCtrl?.runJavaScript(
         'if (window.__kelivoTogglePlay) { window.__kelivoTogglePlay(); }',
@@ -312,7 +348,11 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   }
 
   void _seekBy(int seconds) {
-    _resetHideFullControlsTimer();
+    if (_video.isFullPreviewOpen) {
+      _resetHideFullControlsTimer();
+    } else {
+      _resetHidePipControlsTimer();
+    }
     try {
       _webCtrl?.runJavaScript(
         'if (window.__kelivoSeek) { window.__kelivoSeek($seconds); }',
@@ -325,6 +365,16 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     try {
       _webCtrl?.runJavaScript(
         'if (window.__kelivoSeekTo) { window.__kelivoSeekTo($pos); }',
+      );
+    } catch (_) {}
+  }
+
+  void _setPlaybackRate(double rate) {
+    _resetHideFullControlsTimer();
+    _video.setPlaybackRate(rate);
+    try {
+      _webCtrl?.runJavaScript(
+        'if (window.__kelivoSetPlaybackRate) { window.__kelivoSetPlaybackRate($rate); }',
       );
     } catch (_) {}
   }
@@ -412,6 +462,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     String videoSrc, {
     bool isRelative = false,
     double initialSeconds = 0.0,
+    double playbackRate = 1.0,
   }) {
     final isNetwork =
         videoSrc.startsWith('http://') || videoSrc.startsWith('https://');
@@ -426,6 +477,8 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
     final startSec =
         initialSeconds > 0 ? initialSeconds.toStringAsFixed(2) : '0';
+    final rateStr =
+        playbackRate > 0 ? playbackRate.toStringAsFixed(2) : '1.0';
 
     return '''<!DOCTYPE html>
 <html>
@@ -450,6 +503,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     (function() {
       const v = document.getElementById('kelivo_player');
       const startPos = $startSec;
+      const initRate = $rateStr;
 
       window.__kelivoSeek = function(delta) {
         if (!v) return;
@@ -463,6 +517,13 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         if (!v) return;
         try {
           v.currentTime = pos;
+        } catch(e) {}
+      };
+
+      window.__kelivoSetPlaybackRate = function(rate) {
+        if (!v) return;
+        try {
+          v.playbackRate = rate;
         } catch(e) {}
       };
 
@@ -504,6 +565,9 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
             v.currentTime = startPos;
             const p = v.play();
             if (p && p.catch) { p.catch(function() {}); }
+          }
+          if (initRate > 0 && Math.abs(initRate - 1.0) > 0.01) {
+            v.playbackRate = initRate;
           }
         } catch(e) {}
         if (window.KelivoVideoChannel && v.videoWidth && v.videoHeight) {
@@ -738,6 +802,84 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                                     FontFeature.tabularFigures(),
                                   ],
                                 ),
+                              ),
+                              const SizedBox(width: 10),
+                              PopupMenuButton<double>(
+                                tooltip: '播放速度',
+                                initialValue: _video.playbackRate,
+                                onOpened: () {
+                                  _hideFullControlsTimer?.cancel();
+                                },
+                                onCanceled: () {
+                                  _resetHideFullControlsTimer();
+                                },
+                                onSelected: (rate) {
+                                  _setPlaybackRate(rate);
+                                },
+                                offset: const Offset(0, -230),
+                                color: const Color(0xFF222222),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  side: const BorderSide(
+                                    color: Colors.white24,
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 3.5,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black45,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: Colors.white24,
+                                      width: 0.8,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '${_video.playbackRate == 1.0 ? '1.0' : _video.playbackRate}x',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                ),
+                                itemBuilder: (context) => [
+                                  for (final r in GlobalVideoPlayerService.supportedRates)
+                                    PopupMenuItem<double>(
+                                      value: r,
+                                      height: 38,
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            '${r == 1.0 ? '1.0' : r}x',
+                                            style: TextStyle(
+                                              color: _video.playbackRate == r
+                                                  ? cs.primary
+                                                  : Colors.white,
+                                              fontWeight:
+                                                  _video.playbackRate == r
+                                                      ? FontWeight.w600
+                                                      : FontWeight.normal,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          if (_video.playbackRate == r)
+                                            Icon(
+                                              Lucide.Check,
+                                              size: 16,
+                                              color: cs.primary,
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                ],
                               ),
                             ],
                           ),
@@ -989,24 +1131,89 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
                       ),
                     ),
 
-                    // Center: Play / Pause
+                    // Center: Rewind 10s, Play/Pause, Forward 10s
                     Center(
-                      child: Listener(
-                        onPointerDown: (_) => _isControlHit = true,
-                        onPointerUp: (_) => _isControlHit = false,
-                        child: IconButton(
-                          iconSize: 28,
-                          padding: const EdgeInsets.all(10),
-                          style: IconButton.styleFrom(
-                            backgroundColor: Colors.black54,
-                            shape: const CircleBorder(),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Seek Backward 10s
+                          Listener(
+                            onPointerDown: (_) => _isControlHit = true,
+                            onPointerUp: (_) => _isControlHit = false,
+                            child: IconButton(
+                              tooltip: '快退 10 秒',
+                              iconSize: 18,
+                              padding: const EdgeInsets.all(7),
+                              constraints: const BoxConstraints(),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.black54,
+                                shape: const CircleBorder(),
+                                side: const BorderSide(
+                                  color: Colors.white24,
+                                  width: 0.8,
+                                ),
+                              ),
+                              icon: const Icon(
+                                Lucide.RotateCcw,
+                                color: Colors.white,
+                              ),
+                              onPressed: () => _seekBy(-10),
+                            ),
                           ),
-                          icon: Icon(
-                            _video.isPlaying ? Lucide.Pause : Lucide.Play,
-                            color: Colors.white,
+                          const SizedBox(width: 14),
+
+                          // Play / Pause Toggle
+                          Listener(
+                            onPointerDown: (_) => _isControlHit = true,
+                            onPointerUp: (_) => _isControlHit = false,
+                            child: IconButton(
+                              tooltip: _video.isPlaying ? '暂停' : '播放',
+                              iconSize: 22,
+                              padding: const EdgeInsets.all(9),
+                              constraints: const BoxConstraints(),
+                              style: IconButton.styleFrom(
+                                backgroundColor:
+                                    Colors.black.withValues(alpha: 0.65),
+                                shape: const CircleBorder(),
+                                side: const BorderSide(
+                                  color: Colors.white38,
+                                  width: 1.0,
+                                ),
+                              ),
+                              icon: Icon(
+                                _video.isPlaying ? Lucide.Pause : Lucide.Play,
+                                color: Colors.white,
+                              ),
+                              onPressed: _togglePlayPause,
+                            ),
                           ),
-                          onPressed: _togglePlayPause,
-                        ),
+                          const SizedBox(width: 14),
+
+                          // Seek Forward 10s
+                          Listener(
+                            onPointerDown: (_) => _isControlHit = true,
+                            onPointerUp: (_) => _isControlHit = false,
+                            child: IconButton(
+                              tooltip: '快进 10 秒',
+                              iconSize: 18,
+                              padding: const EdgeInsets.all(7),
+                              constraints: const BoxConstraints(),
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.black54,
+                                shape: const CircleBorder(),
+                                side: const BorderSide(
+                                  color: Colors.white24,
+                                  width: 0.8,
+                                ),
+                              ),
+                              icon: const Icon(
+                                Lucide.RotateCw,
+                                color: Colors.white,
+                              ),
+                              onPressed: () => _seekBy(10),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
