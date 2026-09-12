@@ -150,6 +150,13 @@ class _AudioPreviewModalState extends State<AudioPreviewModal> {
     }
   }
 
+  void _dismissModal() {
+    if (!mounted) return;
+    final nav = Navigator.maybeOf(context, rootNavigator: true) ??
+        Navigator.maybeOf(context);
+    nav?.pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -200,7 +207,11 @@ class _AudioPreviewModalState extends State<AudioPreviewModal> {
                   children: [
                     // Close button
                     IconButton.filledTonal(
-                      onPressed: () => Navigator.of(context).pop(),
+                      tooltip: '关闭',
+                      onPressed: () {
+                        _audio.stop();
+                        _dismissModal();
+                      },
                       icon: const Icon(Lucide.X, size: 20),
                       style: IconButton.styleFrom(
                         backgroundColor:
@@ -473,7 +484,7 @@ class _AudioPreviewModalState extends State<AudioPreviewModal> {
                       tooltip: '缩小至浮动胶囊',
                       onPressed: () {
                         _audio.minimizeToPip();
-                        Navigator.of(context).pop();
+                        _dismissModal();
                       },
                       icon: const Icon(Lucide.Minimize2, size: 19),
                       style: IconButton.styleFrom(
