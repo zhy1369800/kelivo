@@ -71,6 +71,12 @@ class GlobalAudioPlayerService extends ChangeNotifier {
   Duration get position => _position;
   double get playbackRate => _playbackRate;
 
+  /// Whether playback has finished or reached the very end.
+  bool get isAtEnd =>
+      _playerState == PlayerState.completed ||
+      (_duration > Duration.zero &&
+          _position >= _duration - const Duration(milliseconds: 500));
+
   static const List<double> supportedRates = [
     0.5,
     0.75,
@@ -117,8 +123,10 @@ class GlobalAudioPlayerService extends ChangeNotifier {
     });
 
     _posSub = _player.onPositionChanged.listen((pos) {
-      _position = pos;
-      notifyListeners();
+      if (_playerState != PlayerState.completed) {
+        _position = pos;
+        notifyListeners();
+      }
     });
   }
 
@@ -129,8 +137,7 @@ class GlobalAudioPlayerService extends ChangeNotifier {
 
     if (_activeSource == trimmed && _isLoaded) {
       if (!isPlaying) {
-        if (_duration > Duration.zero &&
-            _position >= _duration - const Duration(milliseconds: 300)) {
+        if (isAtEnd) {
           await seek(Duration.zero);
         }
         try {
@@ -194,10 +201,12 @@ class GlobalAudioPlayerService extends ChangeNotifier {
 
   Future<void> resume() async {
     if (!isPlaying && _isLoaded) {
-      if (_duration > Duration.zero &&
-          _position >= _duration - const Duration(milliseconds: 300)) {
+      if (isAtEnd) {
         await seek(Duration.zero);
       }
+      try {
+        await _player.setAudioContext(mediaAudioContext);
+      } catch (_) {}
       await _player.resume();
     }
   }
