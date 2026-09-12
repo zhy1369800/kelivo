@@ -1,6 +1,7 @@
-import 'dart:io';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 /// Platform-specific application data directory utilities.
@@ -118,6 +119,27 @@ class AppDirectories {
     } catch (e) {
       debugPrint('Failed to save image: $e');
       return null;
+    }
+  }
+
+  /// Cleans up any leftover temporary preview HTML files (.kelivo_*_preview.html, .kelivo_*_pip.html)
+  /// from previous abnormal terminations.
+  static Future<void> cleanDanglingPreviewHtmlFiles() async {
+    try {
+      final appDir = await getAppDataDirectory();
+      if (!await appDir.exists()) return;
+      await for (final entity in appDir.list(recursive: true, followLinks: false)) {
+        if (entity is File) {
+          final filename = p.basename(entity.path);
+          if (filename.startsWith('.kelivo_') && filename.endsWith('.html')) {
+            try {
+              entity.deleteSync();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error cleaning preview HTML files: $e');
     }
   }
 }

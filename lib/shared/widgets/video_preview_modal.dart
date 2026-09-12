@@ -11,7 +11,6 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
 import '../../icons/lucide_adapter.dart';
-import '../../utils/app_directories.dart';
 import 'snackbar.dart';
 
 /// In-app video preview card sheet with full playback controls,
@@ -173,8 +172,21 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     return '${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
   }
 
+  File? _activeTempHtml;
+
+  void _cleanupTempHtml() {
+    try {
+      if (_activeTempHtml != null && _activeTempHtml!.existsSync()) {
+        _activeTempHtml!.deleteSync();
+      }
+    } catch (_) {}
+    _activeTempHtml = null;
+  }
+
   void _cleanupWebPlayer() {
     try {
+      // Disconnect JS channel first to prevent ghost 'pause' events from polluting PiP / global state
+      _webCtrl.runJavaScript('window.KelivoVideoChannel = null;');
       _webCtrl.runJavaScript(
         'const v = document.getElementById("kelivo_player"); if (v) { v.pause(); v.src = ""; v.load(); }',
       );
@@ -187,11 +199,13 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     _hideControlsTimer?.cancel();
     _video.registerModalUpdater(null);
     _cleanupWebPlayer();
+    _cleanupTempHtml();
     super.dispose();
   }
 
   void _updateSourceInPlace(String newSource, String? newTitle) {
     if (!mounted) return;
+    _cleanupTempHtml();
     setState(() {
       _currentSource = newSource;
     });
@@ -200,6 +214,7 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
 
   String _buildVideoHtml(
     String videoSrc, {
+    bool isRelative = false,
     double initialSeconds = 0.0,
   }) {
     final isNetwork =
@@ -207,6 +222,8 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
     final String srcAttr;
     if (isNetwork) {
       srcAttr = htmlEscape.convert(videoSrc);
+    } else if (isRelative) {
+      srcAttr = Uri.encodeComponent(p.basename(videoSrc));
     } else {
       srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
     }
@@ -396,17 +413,20 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
       final file = File(resolved);
       if (file.existsSync()) {
         try {
-          final tempDir = await AppDirectories.getSystemCacheDirectory();
+          _cleanupTempHtml();
+          final parentDir = file.parent;
           final cleanName = p
               .basenameWithoutExtension(file.path)
               .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
           final previewHtml =
-              File(p.join(tempDir.path, '.kelivo_${cleanName}_preview.html'));
+              File(p.join(parentDir.path, '.kelivo_${cleanName}_preview.html'));
           final html = _buildVideoHtml(
             file.path,
+            isRelative: true,
             initialSeconds: startSeconds,
           );
           previewHtml.writeAsStringSync(html);
+          _activeTempHtml = previewHtml;
           await _webCtrl.loadFile(previewHtml.path);
           return;
         } catch (_) {
@@ -740,12 +760,13 @@ class _VideoPreviewModalState extends State<VideoPreviewModal> {
                           IconButton(
                             tooltip: '缩小至画中画',
                             onPressed: () async {
+                              final navigator = Navigator.of(context);
                               _video.updatePlaybackPosition(_currentPosition);
                               _video.minimizeToPip();
                               // Wait one frame to ensure state propagates before closing modal
                               await Future.delayed(const Duration(milliseconds: 16));
                               if (!mounted) return;
-                              Navigator.of(context).pop();
+                              navigator.pop();
                             },
                             icon: const Icon(
                               Lucide.Minimize2,

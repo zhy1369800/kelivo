@@ -10,7 +10,6 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
 import '../../icons/lucide_adapter.dart';
-import '../../utils/app_directories.dart';
 import 'video_preview_modal.dart';
 
 /// Floating in-chat video PiP player window.
@@ -94,7 +93,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     // Try to get precise playback position from the WebView before expanding
     try {
       final result = await _pipWebCtrl?.runJavaScriptReturningResult(
-        '(function() { const v = document.getElementById("kelivo_player"); return v ? v.currentTime : 0; })()',
+        '(function() { const v = document.getElementById("pip_player"); return v ? v.currentTime : 0; })()',
       );
       if (result != null) {
         final pos = double.tryParse(result.toString()) ?? _video.playbackPositionSeconds;
@@ -230,14 +229,26 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   void _mutePip() {
     try {
       _pipWebCtrl?.runJavaScript(
-        '(function() { const v = document.getElementById("kelivo_player"); if (v) v.muted = true; })()',
+        '(function() { const v = document.getElementById("pip_player"); if (v) v.muted = true; })()',
       );
     } catch (_) {}
+  }
+
+  File? _activeTempHtml;
+
+  void _cleanupTempHtml() {
+    try {
+      if (_activeTempHtml != null && _activeTempHtml!.existsSync()) {
+        _activeTempHtml!.deleteSync();
+      }
+    } catch (_) {}
+    _activeTempHtml = null;
   }
 
   void _stopPip() {
     _hideControlsTimer?.cancel();
     _showControls = false;
+    _cleanupTempHtml();
     try {
       _pipWebCtrl?.runJavaScript(
         'if (window.__kelivoStop) { window.__kelivoStop(); }',
@@ -265,18 +276,21 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       final file = File(resolved);
       if (file.existsSync()) {
         try {
-          final tempDir = await AppDirectories.getSystemCacheDirectory();
+          _cleanupTempHtml();
+          final parentDir = file.parent;
           final cleanName = p
               .basenameWithoutExtension(file.path)
               .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
           final previewHtml =
-              File(p.join(tempDir.path, '.kelivo_${cleanName}_pip.html'));
+              File(p.join(parentDir.path, '.kelivo_${cleanName}_pip.html'));
           final html = _buildPipHtml(
             file.path,
+            isRelative: true,
             initialSeconds: startSeconds,
             autoPlay: autoPlay,
           );
           await previewHtml.writeAsString(html);
+          _activeTempHtml = previewHtml;
           await _pipWebCtrl?.loadFile(previewHtml.path);
           return;
         } catch (_) {
@@ -298,6 +312,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
 
   String _buildPipHtml(
     String videoSrc, {
+    bool isRelative = false,
     double initialSeconds = 0.0,
     bool autoPlay = true,
   }) {
@@ -306,6 +321,8 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     final String srcAttr;
     if (isNetwork) {
       srcAttr = htmlEscape.convert(videoSrc);
+    } else if (isRelative) {
+      srcAttr = Uri.encodeComponent(p.basename(videoSrc));
     } else {
       srcAttr = 'file://${htmlEscape.convert(videoSrc)}';
     }
@@ -441,6 +458,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   @override
   void dispose() {
     _hideControlsTimer?.cancel();
+    _cleanupTempHtml();
     super.dispose();
   }
 
