@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 /// Global video player singleton service.
 ///
 /// Controls the active in-app video playback session, supporting:
-/// - Single-window enforcement (new video replaces old in-place without stacking modals)
+/// - Single persistent player core with seamless viewport tweening (PiP <-> Fullscreen)
 /// - Asynchronous, non-blocking opening with in-flight lock protection
 /// - Smooth transition between full preview modal and floating PiP player
 class GlobalVideoPlayerService extends ChangeNotifier {
@@ -20,9 +20,6 @@ class GlobalVideoPlayerService extends ChangeNotifier {
 
   // In-flight debounce lock to prevent duplicate opens on rapid double taps
   DateTime? _lastOpenTime;
-
-  // Active modal updater callback for in-place source switching
-  void Function(String source, String? title)? _modalSourceUpdater;
 
   // Getters
   String? get activeSource => _activeSource;
@@ -56,9 +53,6 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     }
   }
 
-  /// Whether a full modal is actively mounted and receptive to in-place source updates.
-  bool get hasActiveModal => _isFullPreviewOpen && _modalSourceUpdater != null;
-
   String get displayName {
     if (_activeTitle != null && _activeTitle!.trim().isNotEmpty) {
       return _activeTitle!.trim();
@@ -68,11 +62,6 @@ class GlobalVideoPlayerService extends ChangeNotifier {
     }
     final clean = _activeSource!.split('?').first.split('#').first;
     return p.basename(clean);
-  }
-
-  /// Register active full modal updater for in-place switching.
-  void registerModalUpdater(void Function(String source, String? title)? updater) {
-    _modalSourceUpdater = updater;
   }
 
   bool _canExpand = true;
@@ -120,21 +109,11 @@ class GlobalVideoPlayerService extends ChangeNotifier {
       return true;
     }
 
-    // If modal is currently open, switch in-place
-    if (_isFullPreviewOpen && _modalSourceUpdater != null) {
-      _activeSource = trimmed;
-      _activeTitle = title;
-      _isPlaying = true;
-      _isPipActive = false;
-      notifyListeners();
-      _modalSourceUpdater!(trimmed, title);
-      return true;
-    }
-
     _activeSource = trimmed;
     _activeTitle = title;
     _isPlaying = true;
     _isPipActive = false;
+    _isFullPreviewOpen = true;
     notifyListeners();
     return true;
   }
@@ -157,25 +136,13 @@ class GlobalVideoPlayerService extends ChangeNotifier {
   void minimizeToPip() {
     _isPipActive = true;
     _isFullPreviewOpen = false;
-    // Keep current playing state instead of forcing to play
     notifyListeners();
   }
 
-  /// Mark full preview modal as open.
-  void markFullPreviewOpened() {
+  /// Expand floating PiP player to full screen preview.
+  void expandToFullscreen() {
     _isFullPreviewOpen = true;
     _isPipActive = false;
-    notifyListeners();
-  }
-
-  /// Mark full preview modal as dismissed.
-  void markFullPreviewDismissed({bool keepPlayingAsPip = false}) {
-    _isFullPreviewOpen = false;
-    if (keepPlayingAsPip && _isPipActive && (_isPlaying || _activeSource != null)) {
-      _isPipActive = true;
-    } else if (!_isPipActive) {
-      stop();
-    }
     notifyListeners();
   }
 
