@@ -123,10 +123,8 @@ class GlobalAudioPlayerService extends ChangeNotifier {
     });
 
     _posSub = _player.onPositionChanged.listen((pos) {
-      if (_playerState != PlayerState.completed) {
-        _position = pos;
-        notifyListeners();
-      }
+      _position = pos;
+      notifyListeners();
     });
   }
 
@@ -138,7 +136,8 @@ class GlobalAudioPlayerService extends ChangeNotifier {
     if (_activeSource == trimmed && _isLoaded) {
       if (!isPlaying) {
         if (isAtEnd) {
-          await seek(Duration.zero);
+          await _loadAndPlay(trimmed, title: title ?? _activeTitle);
+          return;
         }
         try {
           await _player.setAudioContext(mediaAudioContext);
@@ -148,6 +147,14 @@ class GlobalAudioPlayerService extends ChangeNotifier {
       return;
     }
 
+    await _loadAndPlay(trimmed, title: title);
+  }
+
+  Future<void> _loadAndPlay(String source, {String? title}) async {
+    final trimmed = source.trim();
+    if (trimmed.isEmpty) return;
+
+    final isNewSource = _activeSource != trimmed;
     _isLoading = true;
     _hasError = false;
     _activeSource = trimmed;
@@ -155,7 +162,9 @@ class GlobalAudioPlayerService extends ChangeNotifier {
     _isLoaded = false;
     _position = Duration.zero;
     _duration = Duration.zero;
-    _playbackRate = 1.0;
+    if (isNewSource) {
+      _playbackRate = 1.0;
+    }
     notifyListeners();
 
     try {
@@ -202,7 +211,10 @@ class GlobalAudioPlayerService extends ChangeNotifier {
   Future<void> resume() async {
     if (!isPlaying && _isLoaded) {
       if (isAtEnd) {
-        await seek(Duration.zero);
+        if (_activeSource != null) {
+          await _loadAndPlay(_activeSource!, title: _activeTitle);
+        }
+        return;
       }
       try {
         await _player.setAudioContext(mediaAudioContext);
@@ -273,9 +285,6 @@ class GlobalAudioPlayerService extends ChangeNotifier {
 
   /// Fully stop playback, dismiss capsule, and reset state.
   Future<void> stop() async {
-    try {
-      await _player.stop();
-    } catch (_) {}
     _playerState = PlayerState.stopped;
     _isLoaded = false;
     _isLoading = false;
@@ -287,6 +296,10 @@ class GlobalAudioPlayerService extends ChangeNotifier {
     _position = Duration.zero;
     _duration = Duration.zero;
     notifyListeners();
+
+    try {
+      await _player.stop();
+    } catch (_) {}
   }
 
   @override
