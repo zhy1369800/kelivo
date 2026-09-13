@@ -715,7 +715,17 @@ class ResourcePreviewService extends ChangeNotifier {
         ? title.trim()
         : p.basename(effectivePath);
     try {
-      final res = await OpenFilex.open(filePath);
+      // Launch external application / QuickLook. If the platform holds the channel
+      // until user dismisses the viewer (e.g. iOS UIDocumentInteractionController),
+      // decouple after 200ms with success so MCP tools and background tasks are not blocked.
+      final openFuture = OpenFilex.open(filePath);
+      final res = await openFuture.timeout(
+        const Duration(milliseconds: 200),
+        onTimeout: () => OpenResult(
+          type: ResultType.done,
+          message: 'launched',
+        ),
+      );
       final success = res.type == ResultType.done;
       return ResourceOpenResult(
         success: success,
