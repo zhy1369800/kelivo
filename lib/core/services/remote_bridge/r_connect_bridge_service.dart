@@ -560,6 +560,14 @@ class RConnectBridgeService {
     return [];
   }
 
+  bool _matchesSessionKey(String eventSessionKey, String expectedSessionKey) {
+    if (eventSessionKey.isEmpty) return true;
+    if (eventSessionKey == expectedSessionKey) return true;
+    final cleanEvent = eventSessionKey.replaceAll('kelivo:', '');
+    final cleanExpected = expectedSessionKey.replaceAll('kelivo:', '');
+    return cleanEvent == cleanExpected;
+  }
+
   /// Sends a message and returns a Stream of standard StreamChunks for Kelivo UI rendering.
   Stream<StreamChunk> executeStream({
     required String sessionKey,
@@ -595,7 +603,7 @@ class RConnectBridgeService {
       }
 
       if (event is BridgePreviewStartEvent) {
-        if (event.sessionKey == sessionKey) {
+        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
           if (!textStarted) {
             textStarted = true;
             yield TextStart(textChunkId);
@@ -606,7 +614,7 @@ class RConnectBridgeService {
           }
         }
       } else if (event is BridgeUpdateMessageEvent) {
-        if (event.sessionKey == sessionKey) {
+        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
           if (!textStarted) {
             textStarted = true;
             yield TextStart(textChunkId);
@@ -616,10 +624,27 @@ class RConnectBridgeService {
             final delta = newContent.substring(accumulatedLength);
             yield TextDelta(id: textChunkId, text: delta);
             accumulatedLength = newContent.length;
+          } else if (newContent.length < accumulatedLength) {
+            // Reset tracking length if content was replaced or shrunk
+            accumulatedLength = newContent.length;
           }
         }
+      } else if (event is BridgeCardEvent) {
+        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
+          if (!textStarted) {
+            textStarted = true;
+            yield TextStart(textChunkId);
+          }
+          final cardTitle = event.cardData['title'] ?? event.cardData['name'] ?? '交互卡片';
+          final cardBody = event.cardData['description'] ?? event.cardData['text'] ?? jsonEncode(event.cardData);
+          final buffer = StringBuffer()
+            ..writeln('\n\n> 🎴 **[$cardTitle]**')
+            ..writeln('> $cardBody\n');
+          yield TextDelta(id: textChunkId, text: buffer.toString());
+          accumulatedLength += buffer.length;
+        }
       } else if (event is BridgeButtonsEvent) {
-        if (event.sessionKey == sessionKey) {
+        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
           if (!textStarted) {
             textStarted = true;
             yield TextStart(textChunkId);
@@ -639,14 +664,20 @@ class RConnectBridgeService {
           accumulatedLength += buffer.length;
         }
       } else if (event is BridgeReplyEvent) {
-        if (event.sessionKey == sessionKey) {
+        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
           if (!textStarted) {
             textStarted = true;
             yield TextStart(textChunkId);
           }
-          if (event.content.length > accumulatedLength) {
-            final delta = event.content.substring(accumulatedLength);
-            yield TextDelta(id: textChunkId, text: delta);
+          if (event.content.isNotEmpty) {
+            if (event.content.length > accumulatedLength) {
+              final delta = event.content.substring(accumulatedLength);
+              yield TextDelta(id: textChunkId, text: delta);
+            } else {
+              // Standalone final reply or reconstructed reply after tool output
+              final prefix = accumulatedLength > 0 ? '\n\n' : '';
+              yield TextDelta(id: textChunkId, text: '$prefix${event.content}');
+            }
           }
           yield TextEnd(textChunkId);
           yield const Finish();
