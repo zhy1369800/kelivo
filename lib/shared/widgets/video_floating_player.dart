@@ -311,7 +311,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         initialSeconds: startSeconds,
         playbackRate: currentRate,
       );
-      await _webCtrl?.loadHtmlString(html);
+      await _webCtrl?.loadHtmlString(html, baseUrl: source);
     } else {
       final resolved = await ResourcePreviewService.resolvePath(source);
       final file = File(resolved);
@@ -527,6 +527,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         initialSeconds > 0 ? initialSeconds.toStringAsFixed(2) : '0';
     final rateStr =
         playbackRate > 0 ? playbackRate.toStringAsFixed(2) : '1.0';
+    final preloadAttr = isNetwork ? 'auto' : 'metadata';
 
     return '''<!DOCTYPE html>
 <html>
@@ -546,12 +547,37 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
   </style>
 </head>
 <body>
-  <video id="kelivo_player" src="$srcAttr" autoplay playsinline webkit-playsinline disablePictureInPicture></video>
+  <video id="kelivo_player" src="$srcAttr" preload="$preloadAttr" autoplay playsinline webkit-playsinline x5-playsinline disablePictureInPicture></video>
   <script>
     (function() {
       const v = document.getElementById('kelivo_player');
       const startPos = $startSec;
       const initRate = $rateStr;
+      let firstFrameNotified = false;
+
+      const isNetworkSrc = ${isNetwork ? 'true' : 'false'};
+
+      function notifyFirstFrame() {
+        if (!firstFrameNotified && window.KelivoVideoChannel) {
+          firstFrameNotified = true;
+          window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'loadeddata' }));
+        }
+      }
+
+      function safePlay() {
+        if (!v) return;
+        const p = v.play();
+        if (p && p.catch) {
+          p.catch(function() {
+            // If autoplay with sound is blocked by browser policy, fallback to muted instant buffer
+            try {
+              v.muted = true;
+              const p2 = v.play();
+              if (p2 && p2.catch) { p2.catch(function() {}); }
+            } catch(e) {}
+          });
+        }
+      }
 
       window.__kelivoSeek = function(delta) {
         if (!v) return;
@@ -580,8 +606,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         try {
           if (v.paused) {
             v.muted = false;
-            const p = v.play();
-            if (p && p.catch) { p.catch(function() {}); }
+            safePlay();
           } else {
             v.pause();
           }
@@ -597,13 +622,17 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         } catch(e) {}
       };
 
-      v.addEventListener('loadeddata', () => {
-        if (v.paused) {
-          const p = v.play();
-          if (p && p.catch) { p.catch(function() {}); }
+      v.addEventListener('canplay', () => {
+        notifyFirstFrame();
+        if (isNetworkSrc && v.paused) {
+          safePlay();
         }
-        if (window.KelivoVideoChannel) {
-          window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'loadeddata' }));
+      });
+
+      v.addEventListener('loadeddata', () => {
+        notifyFirstFrame();
+        if (isNetworkSrc && v.paused) {
+          safePlay();
         }
       });
 
@@ -611,8 +640,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         try {
           if (startPos > 0 && Math.abs(v.currentTime - startPos) > 0.5) {
             v.currentTime = startPos;
-            const p = v.play();
-            if (p && p.catch) { p.catch(function() {}); }
+            safePlay();
           }
           if (initRate > 0 && Math.abs(initRate - 1.0) > 0.01) {
             v.playbackRate = initRate;
@@ -630,6 +658,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       });
 
       v.addEventListener('timeupdate', () => {
+        notifyFirstFrame();
         if (window.KelivoVideoChannel) {
           window.KelivoVideoChannel.postMessage(JSON.stringify({
             type: 'timeupdate',
@@ -656,6 +685,11 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
           window.KelivoVideoChannel.postMessage(JSON.stringify({ type: 'ended' }));
         }
       });
+
+      // Eager initial start — only for network src to trigger early buffering
+      if (isNetworkSrc) {
+        safePlay();
+      }
     })();
   </script>
 </body>
