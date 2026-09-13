@@ -3038,7 +3038,7 @@ class ToolHandlerService {
   }) async {
     final action = (args['action'] ?? '').toString().trim();
     final shortcut = args['shortcut']?.toString();
-    final params = args['params']?.toString();
+    final params = args['params'];
     final taskId = args['taskId']?.toString();
 
 

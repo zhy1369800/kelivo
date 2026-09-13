@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../utils/app_directories.dart';
-import '../../utils/sandbox_path_resolver.dart';
 import 'native_user_notification_service.dart';
 import 'notification_service.dart';
 
@@ -46,7 +45,7 @@ class NativeShortcutAutomationService {
   static Future<Map<String, dynamic>> executeTask({
     required String action,
     String? shortcut,
-    String? params,
+    dynamic params,
     String? taskId,
     String? notificationTitle,
     String? notificationBody,
@@ -71,13 +70,25 @@ class NativeShortcutAutomationService {
         ? taskId.trim()
         : const Uuid().v4();
     final effectiveShortcut = (shortcut ?? '').trim();
-    final rawParamsStr = (params ?? '').trim();
 
-    dynamic parsedParams = rawParamsStr;
-    if (rawParamsStr.startsWith('{') || rawParamsStr.startsWith('[')) {
-      try {
-        parsedParams = jsonDecode(rawParamsStr);
-      } catch (_) {}
+    dynamic parsedParams;
+    if (params == null) {
+      parsedParams = '';
+    } else if (params is Map || params is List) {
+      parsedParams = params;
+    } else if (params is String) {
+      final trimmed = params.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        try {
+          parsedParams = jsonDecode(trimmed);
+        } catch (_) {
+          parsedParams = trimmed;
+        }
+      } else {
+        parsedParams = trimmed;
+      }
+    } else {
+      parsedParams = params.toString();
     }
 
     try {
