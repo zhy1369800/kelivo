@@ -25,15 +25,118 @@ class ResourcePreviewModal extends StatelessWidget {
   final String? filePath;
   final bool isMarkdown;
 
+  /// Global handle to currently mounted resource preview sheet instance (if any).
+  // ignore: library_private_types_in_public_api
+  static _ResourcePreviewSheetState? activeState;
+
   static Future<void> show({
     required BuildContext context,
     required String title,
     required String content,
     String? filePath,
     bool isMarkdown = true,
+  }) async {
+    final active = activeState;
+    if (active != null && active.mounted) {
+      active.updateTarget(
+        title: title,
+        content: content,
+        filePath: filePath,
+        isMarkdown: isMarkdown,
+      );
+      return;
+    }
+
+    await showGeneralDialog<void>(
+      context: context,
+      barrierColor: Colors.transparent,
+      barrierDismissible: false,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      transitionDuration: Duration.zero,
+      pageBuilder: (dialogContext, _, __) {
+        return _ResourcePreviewSheet(
+          initialTitle: title,
+          initialContent: content,
+          initialFilePath: filePath,
+          initialIsMarkdown: isMarkdown,
+          onDismiss: () => Navigator.of(dialogContext).maybePop(),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox.shrink();
+  }
+}
+
+class _ResourcePreviewSheet extends StatefulWidget {
+  const _ResourcePreviewSheet({
+    required this.initialTitle,
+    required this.initialContent,
+    this.initialFilePath,
+    this.initialIsMarkdown = true,
+    required this.onDismiss,
+  });
+
+  final String initialTitle;
+  final String initialContent;
+  final String? initialFilePath;
+  final bool initialIsMarkdown;
+  final VoidCallback onDismiss;
+
+  @override
+  State<_ResourcePreviewSheet> createState() => _ResourcePreviewSheetState();
+}
+
+class _ResourcePreviewSheetState extends State<_ResourcePreviewSheet> {
+  late String _title;
+  late String _content;
+  String? _filePath;
+  late bool _isMarkdown;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    ResourcePreviewModal.activeState = this;
+    _title = widget.initialTitle;
+    _content = widget.initialContent;
+    _filePath = widget.initialFilePath;
+    _isMarkdown = widget.initialIsMarkdown;
+  }
+
+  @override
+  void dispose() {
+    if (ResourcePreviewModal.activeState == this) {
+      ResourcePreviewModal.activeState = null;
+    }
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void updateTarget({
+    required String title,
+    required String content,
+    String? filePath,
+    bool isMarkdown = true,
   }) {
+    setState(() {
+      _title = title;
+      _content = content;
+      _filePath = filePath;
+      _isMarkdown = isMarkdown;
+    });
+    if (_scrollController.hasClients) {
+      _scrollController.jumpTo(0.0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final fileExists = filePath != null && File(filePath).existsSync();
+    final fileExists = _filePath != null && File(_filePath!).existsSync();
 
     final actions = <Widget>[
       IosIconButton(
@@ -43,7 +146,7 @@ class ResourcePreviewModal extends StatelessWidget {
         color: cs.onSurface.withValues(alpha: 0.72),
         semanticLabel: '复制内容',
         onTap: () async {
-          await Clipboard.setData(ClipboardData(text: content));
+          await Clipboard.setData(ClipboardData(text: _content));
           if (context.mounted) {
             showAppSnackBar(
               context,
@@ -61,7 +164,7 @@ class ResourcePreviewModal extends StatelessWidget {
           color: cs.onSurface.withValues(alpha: 0.72),
           semanticLabel: '使用系统应用打开',
           onTap: () async {
-            await OpenFilex.open(filePath);
+            await OpenFilex.open(_filePath!);
           },
         ),
         IosIconButton(
@@ -81,7 +184,7 @@ class ResourcePreviewModal extends StatelessWidget {
                 : null;
             await SharePlus.instance.share(
               ShareParams(
-                files: [XFile(filePath)],
+                files: [XFile(_filePath!)],
                 sharePositionOrigin: anchor,
               ),
             );
@@ -90,9 +193,8 @@ class ResourcePreviewModal extends StatelessWidget {
       ],
     ];
 
-    return showCustomBottomSheet<void>(
-      context: context,
-      title: title,
+    return CustomBottomSheet(
+      title: _title,
       leading: Icon(
         Lucide.FileText,
         size: 17,
@@ -102,17 +204,18 @@ class ResourcePreviewModal extends StatelessWidget {
       showDivider: true,
       expandedHeightFactor: 0.90,
       partialHeightFactor: 0.65,
+      onDismiss: widget.onDismiss,
       builder: (ctx, scrollController) {
         return SingleChildScrollView(
-          controller: scrollController,
+          controller: _scrollController,
           padding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 12,
           ),
-          child: isMarkdown
-              ? MarkdownWithCodeHighlight(text: content)
+          child: _isMarkdown
+              ? MarkdownWithCodeHighlight(text: _content)
               : SelectableText(
-                  content,
+                  _content,
                   style: const TextStyle(
                     fontFamily: 'monospace',
                     fontSize: 13,
@@ -122,10 +225,5 @@ class ResourcePreviewModal extends StatelessWidget {
         );
       },
     );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox.shrink();
   }
 }
