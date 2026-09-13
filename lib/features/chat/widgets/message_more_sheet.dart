@@ -300,7 +300,10 @@ class _MessageMoreSheetState extends State<_MessageMoreSheet> {
                           if (!parentCtx.mounted) return;
                           navigator.push(
                             MaterialPageRoute(
-                              builder: (_) => WebViewPage(contentBase64: b64),
+                              builder: (_) => WebViewPage(
+                                contentBase64: b64,
+                                title: l10n.messageMoreSheetRenderWebView,
+                              ),
                             ),
                           );
                         } catch (e) {

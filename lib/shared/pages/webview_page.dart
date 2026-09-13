@@ -71,9 +71,11 @@ class _WebViewPageState extends State<WebViewPage>
   @override
   void initState() {
     super.initState();
-    _contentMode =
-        (widget.contentBase64 != null && widget.contentBase64!.isNotEmpty) &&
-        (widget.url == null || widget.url!.isEmpty);
+    _filePath = widget.filePath;
+    _contentBase64 = widget.contentBase64;
+    _title = widget.title;
+    final hasUrl = widget.url != null && widget.url!.trim().isNotEmpty;
+    _contentMode = !hasUrl;
     WebViewPage.activeState = this;
     _slideCtrl = AnimationController(
       vsync: this,
@@ -616,7 +618,13 @@ class _WebViewPageState extends State<WebViewPage>
                 middle: Text(
                   _title?.isNotEmpty == true
                       ? _title!
-                      : (_currentUrl ?? _filePath ?? ''),
+                      : ((_currentUrl != null &&
+                              _currentUrl!.isNotEmpty &&
+                              _currentUrl != 'about:blank')
+                          ? _currentUrl!
+                          : (_filePath != null && _filePath!.isNotEmpty
+                              ? p.basename(_filePath!)
+                              : '')),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                     fontSize: 16,
