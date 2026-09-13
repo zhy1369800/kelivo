@@ -237,4 +237,36 @@ class NativeShortcutAutomationService {
 
     return completer.future;
   }
+
+  /// Cleans up obsolete task JSON files in `Documents/tasks/` that are older than [maxAge] (defaults to 1 day).
+  static Future<void> pruneOldTasks({
+    Duration maxAge = const Duration(days: 1),
+  }) async {
+    try {
+      final root = await AppDirectories.getAppDataDirectory();
+      final tasksDir = Directory('${root.path}/$_tasksSubdir');
+      if (!await tasksDir.exists()) return;
+
+      final now = DateTime.now();
+      await for (final entity in tasksDir.list(followLinks: false)) {
+        if (entity is File) {
+          final segments = entity.uri.pathSegments;
+          final filename = segments.isNotEmpty
+              ? segments.last
+              : entity.path.split(Platform.pathSeparator).last;
+
+          if (filename.startsWith('task_') && filename.endsWith('.json')) {
+            try {
+              final stat = await entity.stat();
+              if (now.difference(stat.modified) > maxAge) {
+                await entity.delete();
+              }
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[NativeShortcutAutomationService] Prune old tasks error: $e');
+    }
+  }
 }

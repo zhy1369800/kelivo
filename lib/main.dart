@@ -57,6 +57,7 @@ import 'core/services/backup/restore_receipt.dart';
 import 'core/services/mcp/mcp_tool_service.dart';
 import 'core/services/preview/resource_preview_service.dart';
 import 'core/services/logging/flutter_logger.dart';
+import 'core/services/native_shortcut_automation_service.dart';
 import 'features/home/services/ask_user_interaction_service.dart';
 import 'features/home/services/tool_approval_service.dart';
 import 'utils/app_directories.dart';
@@ -136,6 +137,7 @@ Future<void> main() async {
       // Cache current Documents directory to fix sandboxed absolute paths on iOS
       await SandboxPathResolver.init();
       unawaited(AppDirectories.cleanDanglingPreviewHtmlFiles());
+      unawaited(NativeShortcutAutomationService.pruneOldTasks());
       ChatDatabaseLease? processDatabaseLease;
       BusinessPreferences? businessPreferences;
       var recoveryAttempted = false;

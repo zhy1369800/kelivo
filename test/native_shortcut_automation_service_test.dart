@@ -147,4 +147,31 @@ void main() {
     final result = await future;
     expect(result['success'], isTrue);
   });
+
+  test('pruneOldTasks removes tasks older than maxAge and keeps newer or non-task files', () async {
+    final tasksDir = Directory('${tempDir.path}/tasks');
+    await tasksDir.create(recursive: true);
+
+    final oldTaskFile = File('${tasksDir.path}/task_old_expired.json');
+    await oldTaskFile.writeAsString('{"taskId": "old"}');
+    final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+    await oldTaskFile.setLastModified(twoDaysAgo);
+
+    final recentTaskFile = File('${tasksDir.path}/task_recent_valid.json');
+    await recentTaskFile.writeAsString('{"taskId": "recent"}');
+
+    final placeholderFile = File('${tasksDir.path}/.placeholder');
+    await placeholderFile.writeAsString('placeholder');
+
+    final otherFile = File('${tasksDir.path}/some_log.txt');
+    await otherFile.writeAsString('log content');
+    await otherFile.setLastModified(twoDaysAgo);
+
+    await NativeShortcutAutomationService.pruneOldTasks(maxAge: const Duration(days: 1));
+
+    expect(await oldTaskFile.exists(), isFalse);
+    expect(await recentTaskFile.exists(), isTrue);
+    expect(await placeholderFile.exists(), isTrue);
+    expect(await otherFile.exists(), isTrue);
+  });
 }
