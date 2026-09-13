@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:Kelivo/core/providers/settings_provider.dart';
 import 'package:Kelivo/features/home/services/tool_handler_service.dart';
+import 'package:Kelivo/utils/sandbox_path_resolver.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -66,4 +67,25 @@ void main() {
       );
     });
   });
+
+  group('Speech tool path resolution tests', () {
+    setUp(() {
+      SandboxPathResolver.debugSetDirs(docsDir: '/mock/Documents');
+    });
+
+    tearDown(() {
+      SandboxPathResolver.debugSetDirs(docsDir: null);
+    });
+
+    test('SandboxPathResolver resolves kelivo:// URIs to sandbox documents', () {
+      final resolved = SandboxPathResolver.fix('kelivo://01ea9b06405dae274f037001a06d90e0d4_258.m4a');
+      expect(resolved, '/mock/Documents/01ea9b06405dae274f037001a06d90e0d4_258.m4a');
+    });
+
+    test('SandboxPathResolver resolves kelivo-file:/// URIs to sandbox documents', () {
+      final resolved = SandboxPathResolver.fix('kelivo-file:///upload/audio.m4a');
+      expect(resolved, '/mock/Documents/upload/audio.m4a');
+    });
+  });
 }
+

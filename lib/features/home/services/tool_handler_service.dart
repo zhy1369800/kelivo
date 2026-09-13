@@ -2891,14 +2891,16 @@ class ToolHandlerService {
       switch (action) {
         case 'transcribe_file':
         case 'recognize_file':
-          final audioPath = (args['audio_path'] ?? '').toString().trim();
-          if (audioPath.isEmpty) {
+          final rawAudioPath = (args['audio_path'] ?? '').toString().trim();
+          if (rawAudioPath.isEmpty) {
             return _toolError(
               error: 'invalid_parameters',
               message: 'Parameter "audio_path" is required for transcribe_file action.',
               tool: LocalToolNames.speechRecognizer,
             );
           }
+          final resolvedAudioPath = await _resolveFileSystemPath(rawAudioPath);
+          final audioPath = resolvedAudioPath ?? SandboxPathResolver.fix(rawAudioPath);
           final locale = (args['locale'] ?? 'zh-CN').toString().trim();
           final forceOffline = (args['force_offline'] as bool?) ?? true;
           final data = await NativeSpeechRecognizerService.transcribeFile(
@@ -2975,7 +2977,12 @@ class ToolHandlerService {
               tool: LocalToolNames.speechSynthesizer,
             );
           }
-          final outputPath = args['output_path']?.toString();
+          final rawOutputPath = args['output_path']?.toString();
+          String? outputPath;
+          if (rawOutputPath != null && rawOutputPath.trim().isNotEmpty) {
+            outputPath = (await _resolveFileSystemPath(rawOutputPath.trim())) ??
+                SandboxPathResolver.fix(rawOutputPath.trim());
+          }
           final language = (args['language'] ?? 'zh-CN').toString().trim();
           final voice = args['voice']?.toString();
           final rate = (args['rate'] as num?)?.toDouble() ?? 0.5;
