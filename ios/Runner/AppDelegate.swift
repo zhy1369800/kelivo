@@ -867,13 +867,20 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
       finishPick(errorPayload("not_found", "No file was selected."))
       return
     }
+    let accessed = url.startAccessingSecurityScopedResource()
+    defer {
+      if accessed {
+        url.stopAccessingSecurityScopedResource()
+      }
+    }
     do {
+      let canonicalUrl = url.resolvingSymlinksInPath()
       let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-      saveBookmark(path: url.path, bookmarkBase64: bookmark.base64EncodedString())
+      saveBookmark(path: canonicalUrl.path, bookmarkBase64: bookmark.base64EncodedString())
       finishPick(payload([
-        "path": url.path,
-        "url": url.absoluteString,
-        "name": url.lastPathComponent,
+        "path": canonicalUrl.path,
+        "url": canonicalUrl.absoluteString,
+        "name": canonicalUrl.lastPathComponent,
         "scope": pendingPickDirectory ? "directory" : "file",
       ]))
     } catch {
@@ -1114,28 +1121,32 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
   }
 
   private func accessPath(_ raw: Any?, write: Bool = false, body: (URL) -> [String: Any]) -> [String: Any] {
-    guard let url = normalizeUrl(raw), url.isFileURL else { return errorPayload("invalid_path", "A valid local file path is required.") }
-    guard url.pathComponents.contains("..") == false else { return errorPayload("invalid_path", "Path traversal is not allowed.") }
+    guard let rawUrl = normalizeUrl(raw), rawUrl.isFileURL else { return errorPayload("invalid_path", "A valid local file path is required.") }
+    guard rawUrl.pathComponents.contains("..") == false else { return errorPayload("invalid_path", "Path traversal is not allowed.") }
+    let url = rawUrl.resolvingSymlinksInPath()
     var bookmarks = loadBookmarks()
     var stale = false
     var scopeUrl: URL?
     var matchedRootPath: String?
-    for (rootPath, encoded) in bookmarks where url.path == rootPath || url.path.hasPrefix(rootPath + "/") {
-      if let data = Data(base64Encoded: encoded),
-         let resolved = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) {
-        if stale {
-          if let newBookmark = try? resolved.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
-            bookmarks[rootPath] = newBookmark.base64EncodedString()
-            UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
+    for (rootPath, encoded) in bookmarks {
+      let cleanRoot = URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().path
+      if url.path == cleanRoot || url.path.hasPrefix(cleanRoot + "/") {
+        if let data = Data(base64Encoded: encoded),
+           let resolved = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) {
+          if stale {
+            if let newBookmark = try? resolved.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil) {
+              bookmarks[rootPath] = newBookmark.base64EncodedString()
+              UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
+            }
           }
+          scopeUrl = resolved
+          matchedRootPath = cleanRoot
+          break
+        } else if !FileManager.default.fileExists(atPath: cleanRoot) {
+          // Auto-heal stale/deleted bookmark
+          bookmarks.removeValue(forKey: rootPath)
+          UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
         }
-        scopeUrl = resolved
-        matchedRootPath = rootPath
-        break
-      } else if !FileManager.default.fileExists(atPath: rootPath) {
-        // Auto-heal stale/deleted bookmark
-        bookmarks.removeValue(forKey: rootPath)
-        UserDefaults.standard.set(bookmarks, forKey: bookmarkKey)
       }
     }
     guard scopeUrl != nil || isAppSandboxPath(url) else {
@@ -1143,7 +1154,7 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
     }
     let targetUrl: URL
     if let scope = scopeUrl {
-      if url.path == scope.path {
+      if url.path == scope.resolvingSymlinksInPath().path {
         targetUrl = scope
       } else if let root = matchedRootPath, url.path.hasPrefix(root + "/") {
         let relative = String(url.path.dropFirst((root + "/").count))
@@ -1165,17 +1176,17 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
   }
 
   private func isAppSandboxPath(_ url: URL) -> Bool {
-    let path = url.standardizedFileURL.path
-    let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
-    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL.path
+    let path = url.resolvingSymlinksInPath().path
+    let home = URL(fileURLWithPath: NSHomeDirectory()).resolvingSymlinksInPath().path
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath().path
     return path == home || path.hasPrefix(home + "/") || path == tmp || path.hasPrefix(tmp + "/")
   }
 
   private func isWritableSandboxPath(_ url: URL) -> Bool {
-    let path = url.standardizedFileURL.path
-    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.standardizedFileURL.path ?? (URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents").standardizedFileURL.path)
-    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).standardizedFileURL.path
-    let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.standardizedFileURL.path ?? ""
+    let path = url.resolvingSymlinksInPath().path
+    let docs = (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Documents")).resolvingSymlinksInPath().path
+    let tmp = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath().path
+    let caches = (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: "")).resolvingSymlinksInPath().path
 
     if path == docs || path.hasPrefix(docs + "/") { return true }
     if path == tmp || path.hasPrefix(tmp + "/") { return true }
