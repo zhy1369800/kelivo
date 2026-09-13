@@ -355,16 +355,10 @@ class _LocalToolsTab extends StatelessWidget {
               enabled: fileSystemEnabled,
               onChanged: (value) =>
                   updateTool(LocalToolNames.fileSystem, value),
+              onTapDetail: NativeFileSystemService.isSupported
+                  ? () => _showAuthorizedPathsModal(context)
+                  : null,
             ),
-            if (fileSystemEnabled && NativeFileSystemService.isSupported) ...[
-              _iosDivider(context),
-              _LocalToolSubActionRow(
-                icon: Lucide.FolderOpen,
-                title: l10n.fileSystemManageAuthorizedPathsTitle,
-                subtitle: l10n.fileSystemManageAuthorizedPathsSubtitle,
-                onTap: () => _showAuthorizedPathsModal(context),
-              ),
-            ],
           ],
         ),
       ],
@@ -380,88 +374,6 @@ class _LocalToolsTab extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) => const _AuthorizedPathsSheet(),
-    );
-  }
-}
-
-class _LocalToolSubActionRow extends StatelessWidget {
-  const _LocalToolSubActionRow({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return _TactileRow(
-      onTap: onTap,
-      builder: (pressed) {
-        final baseColor = cs.onSurface.withValues(alpha: 0.9);
-        return _AnimatedPressColor(
-          pressed: pressed,
-          base: baseColor,
-          builder: (color) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 36,
-                    child: Icon(
-                      icon,
-                      size: 18,
-                      color: cs.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: color,
-                            fontWeight: AppFontWeights.medium,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.25,
-                            color: cs.onSurface.withValues(alpha: 0.62),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Lucide.ChevronRight,
-                    size: 16,
-                    color: cs.onSurface.withValues(alpha: 0.4),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 }
@@ -647,6 +559,7 @@ class _LocalToolRow extends StatelessWidget {
     required this.subtitle,
     required this.enabled,
     required this.onChanged,
+    this.onTapDetail,
   });
 
   final IconData icon;
@@ -654,12 +567,13 @@ class _LocalToolRow extends StatelessWidget {
   final String subtitle;
   final bool enabled;
   final ValueChanged<bool> onChanged;
+  final VoidCallback? onTapDetail;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return _TactileRow(
-      onTap: () => onChanged(!enabled),
+      onTap: onTapDetail ?? () => onChanged(!enabled),
       builder: (pressed) {
         final baseColor = cs.onSurface.withValues(alpha: 0.9);
         return _AnimatedPressColor(
@@ -709,6 +623,14 @@ class _LocalToolRow extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
+                  if (onTapDetail != null) ...[
+                    Icon(
+                      Lucide.ChevronRight,
+                      size: 16,
+                      color: cs.onSurface.withValues(alpha: 0.4),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   IosSwitch(value: enabled, onChanged: onChanged),
                 ],
               ),
