@@ -15,6 +15,9 @@ Future<T?> showCustomBottomSheet<T>({
   required String title,
   required CustomBottomSheetBuilder builder,
   int? count,
+  Widget? leading,
+  List<Widget>? actions,
+  bool showDivider = false,
   String? closeSemanticLabel,
   double partialHeightFactor = 0.60,
   double expandedHeightFactor = 0.90,
@@ -29,6 +32,9 @@ Future<T?> showCustomBottomSheet<T>({
       return CustomBottomSheet(
         title: title,
         count: count,
+        leading: leading,
+        actions: actions,
+        showDivider: showDivider,
         closeSemanticLabel: closeSemanticLabel,
         partialHeightFactor: partialHeightFactor,
         expandedHeightFactor: expandedHeightFactor,
@@ -45,6 +51,9 @@ class CustomBottomSheet extends StatefulWidget {
     required this.title,
     required this.onDismiss,
     this.count,
+    this.leading,
+    this.actions,
+    this.showDivider = false,
     this.closeSemanticLabel,
     this.child,
     this.builder,
@@ -61,6 +70,9 @@ class CustomBottomSheet extends StatefulWidget {
 
   final String title;
   final int? count;
+  final Widget? leading;
+  final List<Widget>? actions;
+  final bool showDivider;
   final String? closeSemanticLabel;
   final VoidCallback onDismiss;
   final Widget? child;
@@ -245,6 +257,9 @@ class _CustomBottomSheetState extends State<CustomBottomSheet>
               _SheetHeader(
                 title: widget.title,
                 count: widget.count,
+                leading: widget.leading,
+                actions: widget.actions,
+                showDivider: widget.showDivider,
                 closeSemanticLabel: widget.closeSemanticLabel,
                 onClose: _dismiss,
               ),
@@ -549,11 +564,17 @@ class _SheetHeader extends StatelessWidget {
     required this.title,
     required this.onClose,
     this.count,
+    this.leading,
+    this.actions,
+    this.showDivider = false,
     this.closeSemanticLabel,
   });
 
   final String title;
   final int? count;
+  final Widget? leading;
+  final List<Widget>? actions;
+  final bool showDivider;
   final String? closeSemanticLabel;
   final VoidCallback onClose;
 
@@ -567,50 +588,78 @@ class _SheetHeader extends StatelessWidget {
       height: 1.2,
     );
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 16, 0),
-      child: Row(
-        children: [
-          Expanded(
-            child: Row(
-              children: [
-                Flexible(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: titleStyle,
-                  ),
-                ),
-                if (count != null && count! > 1) ...[
-                  const SizedBox(width: 4),
-                  Text(
-                    count!.toString(),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: titleStyle.copyWith(
-                      color: cs.onSurface.withValues(alpha: 0.62),
-                    ),
-                  ),
-                ],
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            leading != null ? 14 : 20,
+            4,
+            actions != null && actions!.isNotEmpty ? 10 : 16,
+            showDivider ? 6 : 0,
+          ),
+          child: Row(
+            children: [
+              if (leading != null) ...[
+                leading!,
+                const SizedBox(width: 8),
               ],
-            ),
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: titleStyle,
+                      ),
+                    ),
+                    if (count != null && count! > 1) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        count!.toString(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: titleStyle.copyWith(
+                          color: cs.onSurface.withValues(alpha: 0.62),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (actions != null && actions!.isNotEmpty) ...[
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: actions!,
+                ),
+                const SizedBox(width: 4),
+              ],
+              SizedBox(
+                key: CustomBottomSheet.closeButtonKey,
+                width: 28,
+                height: 28,
+                child: IosIconButton(
+                  icon: Lucide.X,
+                  size: 19,
+                  padding: EdgeInsets.zero,
+                  color: cs.onSurface.withValues(alpha: 0.62),
+                  semanticLabel: closeSemanticLabel,
+                  onTap: onClose,
+                ),
+              ),
+            ],
           ),
-          SizedBox(
-            key: CustomBottomSheet.closeButtonKey,
-            width: 24,
-            height: 24,
-            child: IosIconButton(
-              icon: Lucide.X,
-              size: 20,
-              padding: EdgeInsets.zero,
-              color: cs.onSurface.withValues(alpha: 0.62),
-              semanticLabel: closeSemanticLabel,
-              onTap: onClose,
-            ),
+        ),
+        if (showDivider)
+          Divider(
+            height: 1,
+            thickness: 0.5,
+            color: cs.outlineVariant.withValues(alpha: 0.35),
           ),
-        ],
-      ),
+      ],
     );
   }
 }
