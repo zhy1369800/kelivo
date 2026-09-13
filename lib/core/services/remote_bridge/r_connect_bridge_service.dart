@@ -247,6 +247,7 @@ class RConnectBridgeService {
       'type': 'preview_ack',
       'ref_id': refId,
       'preview_handle': previewHandle,
+      'project': _endpoint?.project ?? 'default',
     };
     return _sendJson(payload);
   }
