@@ -579,7 +579,7 @@ class RConnectBridgeService {
   }) async* {
     final textChunkId = 'text_${DateTime.now().millisecondsSinceEpoch}';
     var textStarted = false;
-    var accumulatedLength = 0;
+    String lastFullContent = '';
 
     // Send user message
     final success = await sendMessage(
@@ -610,7 +610,7 @@ class RConnectBridgeService {
           }
           if (event.initialContent.isNotEmpty) {
             yield TextDelta(id: textChunkId, text: event.initialContent);
-            accumulatedLength = event.initialContent.length;
+            lastFullContent = event.initialContent;
           }
         }
       } else if (event is BridgeUpdateMessageEvent) {
@@ -620,13 +620,25 @@ class RConnectBridgeService {
             yield TextStart(textChunkId);
           }
           final newContent = event.content;
-          if (newContent.length > accumulatedLength) {
-            final delta = newContent.substring(accumulatedLength);
+          if (newContent == lastFullContent) {
+            continue;
+          }
+          if (newContent.startsWith(lastFullContent)) {
+            final delta = newContent.substring(lastFullContent.length);
             yield TextDelta(id: textChunkId, text: delta);
-            accumulatedLength = newContent.length;
-          } else if (newContent.length < accumulatedLength) {
-            // Reset tracking length if content was replaced or shrunk
-            accumulatedLength = newContent.length;
+            lastFullContent = newContent;
+          } else {
+            // If the content is new or replaced
+            if (newContent.length > lastFullContent.length) {
+              final delta = newContent.substring(lastFullContent.length);
+              yield TextDelta(id: textChunkId, text: delta);
+              lastFullContent = newContent;
+            } else {
+              // Shorter content or standalone block
+              final prefix = lastFullContent.isNotEmpty ? '\n\n' : '';
+              yield TextDelta(id: textChunkId, text: '$prefix$newContent');
+              lastFullContent = newContent;
+            }
           }
         }
       } else if (event is BridgeCardEvent) {
@@ -641,7 +653,7 @@ class RConnectBridgeService {
             ..writeln('\n\n> 🎴 **[$cardTitle]**')
             ..writeln('> $cardBody\n');
           yield TextDelta(id: textChunkId, text: buffer.toString());
-          accumulatedLength += buffer.length;
+          lastFullContent += buffer.toString();
         }
       } else if (event is BridgeButtonsEvent) {
         if (_matchesSessionKey(event.sessionKey, sessionKey)) {
@@ -661,7 +673,7 @@ class RConnectBridgeService {
             }
           }
           yield TextDelta(id: textChunkId, text: buffer.toString());
-          accumulatedLength += buffer.length;
+          lastFullContent += buffer.toString();
         }
       } else if (event is BridgeReplyEvent) {
         if (_matchesSessionKey(event.sessionKey, sessionKey)) {
@@ -669,14 +681,19 @@ class RConnectBridgeService {
             textStarted = true;
             yield TextStart(textChunkId);
           }
-          if (event.content.isNotEmpty) {
-            if (event.content.length > accumulatedLength) {
-              final delta = event.content.substring(accumulatedLength);
+          final replyContent = event.content;
+          if (replyContent.isNotEmpty) {
+            if (replyContent == lastFullContent) {
+              // Content has already been fully streamed, avoid duplicate output
+            } else if (replyContent.startsWith(lastFullContent)) {
+              final delta = replyContent.substring(lastFullContent.length);
               yield TextDelta(id: textChunkId, text: delta);
+              lastFullContent = replyContent;
             } else {
               // Standalone final reply or reconstructed reply after tool output
-              final prefix = accumulatedLength > 0 ? '\n\n' : '';
-              yield TextDelta(id: textChunkId, text: '$prefix${event.content}');
+              final prefix = lastFullContent.isNotEmpty ? '\n\n' : '';
+              yield TextDelta(id: textChunkId, text: '$prefix$replyContent');
+              lastFullContent = replyContent;
             }
           }
           yield TextEnd(textChunkId);

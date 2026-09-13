@@ -514,7 +514,7 @@ class _RemoteBridgeEditSheetState extends State<_RemoteBridgeEditSheet> {
     final token = _tokenController.text.trim();
     final project = _projectController.text.trim();
 
-    if (name.isEmpty || url.isEmpty || token.isEmpty) {
+    if (name.isEmpty || url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.remoteAgentFillRequired)),
       );
