@@ -15,6 +15,7 @@ import '../../../desktop/select_copy_dialog.dart';
 import '../../../utils/markdown_preview_html.dart';
 import '../../../utils/markdown_media_sanitizer.dart';
 import '../../../shared/pages/webview_page.dart';
+import '../../../core/services/preview/resource_preview_service.dart';
 import '../../../desktop/html_preview_dialog.dart';
 import 'dart:convert';
 import 'package:Kelivo/theme/app_font_weights.dart';
@@ -299,8 +300,8 @@ class _MessageMoreSheetState extends State<_MessageMoreSheet> {
                           final b64 = base64Encode(utf8.encode(html));
                           if (!parentCtx.mounted) return;
                           navigator.push(
-                            MaterialPageRoute(
-                              builder: (_) => WebViewPage(
+                            ResourcePreviewService.buildVerticalSlideRoute<void>(
+                              page: WebViewPage(
                                 contentBase64: b64,
                                 title: l10n.messageMoreSheetRenderWebView,
                               ),
