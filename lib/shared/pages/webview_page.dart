@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -14,9 +16,18 @@ import '../widgets/custom_bottom_sheet.dart';
 import '../widgets/snackbar.dart';
 
 class WebViewPage extends StatefulWidget {
-  const WebViewPage({super.key, this.url, this.contentBase64});
+  const WebViewPage({
+    super.key,
+    this.url,
+    this.contentBase64,
+    this.filePath,
+    this.title,
+  });
+
   final String? url;
   final String? contentBase64; // HTML string in Base64
+  final String? filePath; // local HTML file path
+  final String? title;
 
   /// Global handle to currently mounted WebViewPage instance (if any).
   // ignore: library_private_types_in_public_api
@@ -31,6 +42,8 @@ class _WebViewPageState extends State<WebViewPage>
   late final WebViewController _controller;
   String? _title;
   String? _currentUrl;
+  String? _filePath;
+  String? _contentBase64;
   bool _isLoading = true;
   int _progress = 0;
   bool _canGoBack = false;
@@ -39,12 +52,18 @@ class _WebViewPageState extends State<WebViewPage>
   late bool _contentMode; // true when rendering inline HTML (not a URL)
   final List<_ConsoleMessage> _console = <_ConsoleMessage>[];
 
-  // Downward drag-to-dismiss states
-  double _dragDy = 0.0;
+  // Drawer / Sheet states
+  double? _currentTop;
   double _animFrom = 0.0;
   double _animTo = 0.0;
   bool _isDismissing = false;
   late final AnimationController _slideCtrl;
+
+  // Web scroll boundary detection for edge-drag linkage
+  bool _isWebAtTop = true;
+  int? _webDragPointer;
+  double? _lastWebPointerY;
+  bool _isPullingDownFromWeb = false;
 
   static const String _desktopUserAgent =
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, Gecko) Chrome/125.0.0.0 Safari/537.36';
@@ -58,13 +77,13 @@ class _WebViewPageState extends State<WebViewPage>
     WebViewPage.activeState = this;
     _slideCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 220),
+      duration: const Duration(milliseconds: 240),
     )
       ..addListener(() {
         final curve = _isDismissing ? Curves.easeInCubic : Curves.easeOutCubic;
         final t = curve.transform(_slideCtrl.value);
         setState(() {
-          _dragDy = _animFrom + (_animTo - _animFrom) * t;
+          _currentTop = _animFrom + (_animTo - _animFrom) * t;
         });
       })
       ..addStatusListener((status) {
@@ -78,6 +97,12 @@ class _WebViewPageState extends State<WebViewPage>
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel('Console', onMessageReceived: _onConsoleMessage)
+      ..addJavaScriptChannel(
+        'ScrollNotifier',
+        onMessageReceived: (JavaScriptMessage msg) {
+          _isWebAtTop = msg.message == '1';
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (p) {
@@ -100,6 +125,7 @@ class _WebViewPageState extends State<WebViewPage>
             });
             await _refreshCanGoStates();
             await _updateTitle();
+            await _injectScrollListener();
           },
           onWebResourceError: (err) {
             _pushConsole(
@@ -110,6 +136,19 @@ class _WebViewPageState extends State<WebViewPage>
           },
         ),
       );
+
+    // Set initial drawer position after first frame (MediaQuery is available then)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _currentTop != null) return;
+      final media = MediaQuery.of(context);
+      final screenH = media.size.height;
+      final statusBarH = media.padding.top;
+      final defaultTop = math.max(screenH * 0.15, statusBarH + 36.0);
+      setState(() {
+        _currentTop = defaultTop;
+      });
+    });
+
     // Initial load
     scheduleMicrotask(_initialLoad);
   }
@@ -123,10 +162,43 @@ class _WebViewPageState extends State<WebViewPage>
     super.dispose();
   }
 
+  Future<void> _injectScrollListener() async {
+    try {
+      await _controller.runJavaScript('''
+        (function() {
+          if (window._hasScrollNotifier) return;
+          window._hasScrollNotifier = true;
+
+          // Prevent native overscroll bounce so sheet drag stays smooth
+          try {
+            var style = document.createElement('style');
+            style.textContent = 'html, body { overscroll-behavior-y: none !important; }';
+            (document.head || document.documentElement).appendChild(style);
+          } catch (_) {}
+
+          var lastIsTop = null;
+          var notify = function() {
+            var y = window.scrollY || document.documentElement.scrollTop || 0;
+            var isTop = y <= 2.0;
+            if (isTop !== lastIsTop) {
+              lastIsTop = isTop;
+              if (window.ScrollNotifier) {
+                window.ScrollNotifier.postMessage(isTop ? '1' : '0');
+              }
+            }
+          };
+          window.addEventListener('scroll', notify, {passive: true});
+          notify();
+        })();
+      ''');
+    } catch (_) {}
+  }
+
   /// Update content in-place without rebuilding or reopening the page.
   Future<void> updateTarget({
     String? url,
     String? contentBase64,
+    String? filePath,
     String? title,
   }) async {
     if (!mounted) return;
@@ -136,34 +208,67 @@ class _WebViewPageState extends State<WebViewPage>
       if (title != null && title.trim().isNotEmpty) {
         _title = title.trim();
       }
-      _contentMode = targetUrl.isEmpty; // URL 模式 vs HTML 模式
+      if (filePath != null) {
+        _filePath = filePath;
+      }
+      if (contentBase64 != null) {
+        _contentBase64 = contentBase64;
+      }
+      _contentMode = targetUrl.isEmpty;
       _isLoading = true;
       _progress = 0;
-      _dragDy = 0.0;
       _isDismissing = false;
     });
 
     if (targetUrl.isNotEmpty) {
       await _controller.loadRequest(Uri.parse(targetUrl));
     } else {
-      final data = contentBase64 ?? '';
-      final html = data.isEmpty
-          ? '<!doctype html><html><body></body></html>'
-          : utf8.decode(base64Decode(data));
-      await _controller.loadHtmlString(html);
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _progress = 100;
-        });
-        await _refreshCanGoStates();
-      }
+      await _loadLocalHtml();
+    }
+  }
+
+  Future<void> _loadLocalHtml() async {
+    String html = '';
+    // Priority: Read newest content from filePath if available
+    if (_filePath != null && _filePath!.isNotEmpty) {
+      try {
+        final f = File(_filePath!);
+        if (await f.exists()) {
+          html = await f.readAsString();
+        }
+      } catch (_) {}
+    }
+
+    if (html.isEmpty && _contentBase64 != null && _contentBase64!.isNotEmpty) {
+      try {
+        html = utf8.decode(base64Decode(_contentBase64!));
+      } catch (_) {}
+    }
+
+    if (html.isEmpty) {
+      html = '<!doctype html><html><body></body></html>';
+    }
+
+    final baseUrl = (_filePath != null && _filePath!.isNotEmpty)
+        ? (p.isAbsolute(_filePath!)
+            ? Uri.file(p.dirname(_filePath!)).toString()
+            : Uri.file(p.dirname(p.absolute(_filePath!))).toString())
+        : null;
+
+    await _controller.loadHtmlString(html, baseUrl: baseUrl);
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+        _progress = 100;
+      });
+      await _refreshCanGoStates();
+      await _updateTitle();
+      await _injectScrollListener();
     }
   }
 
   Future<void> _initialLoad() async {
     if (defaultTargetPlatform == TargetPlatform.linux) {
-      // Keep parity with existing Linux limitation: no WebView support
       final l10n = AppLocalizations.of(context)!;
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -176,18 +281,20 @@ class _WebViewPageState extends State<WebViewPage>
     if (url.isNotEmpty) {
       await _controller.loadRequest(Uri.parse(url));
     } else {
-      final data = widget.contentBase64 ?? '';
-      final html = data.isEmpty
-          ? '<!doctype html><html><body></body></html>'
-          : utf8.decode(base64Decode(data));
-      await _controller.loadHtmlString(html);
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _progress = 100;
-        });
-        await _refreshCanGoStates();
-      }
+      await _loadLocalHtml();
+    }
+  }
+
+  /// Safe reload that respects both remote URLs and local HTML files.
+  Future<void> _reloadContent() async {
+    if (_contentMode) {
+      setState(() {
+        _isLoading = true;
+        _progress = 0;
+      });
+      await _loadLocalHtml();
+    } else {
+      await _controller.reload();
     }
   }
 
@@ -231,9 +338,12 @@ class _WebViewPageState extends State<WebViewPage>
       final t = await _controller.runJavaScriptReturningResult(
         'document.title',
       );
-      setState(() {
-        _title = _stripJsString(t);
-      });
+      final stripped = _stripJsString(t);
+      if (stripped != null && stripped.isNotEmpty) {
+        setState(() {
+          _title = stripped;
+        });
+      }
     } catch (_) {}
   }
 
@@ -261,17 +371,73 @@ class _WebViewPageState extends State<WebViewPage>
     if (_isDismissing) return;
     _slideCtrl.stop();
     final screenH = MediaQuery.sizeOf(context).height;
-    _animFrom = _dragDy;
+    _animFrom = _currentTop ?? 0.0;
     _animTo = screenH > 0 ? screenH : 800.0;
     _isDismissing = true;
     _slideCtrl.forward(from: 0.0);
+  }
+
+  void _animateTo(double targetTop) {
+    if (_isDismissing) return;
+    _slideCtrl.stop();
+    _animFrom = _currentTop ?? targetTop;
+    _animTo = targetTop;
+    _slideCtrl.forward(from: 0.0);
+  }
+
+  void _handleDragUpdate(double dy, double expandedTop) {
+    _slideCtrl.stop();
+    final cur = _currentTop ?? expandedTop;
+    final next = math.max(expandedTop, cur + dy);
+    setState(() {
+      _currentTop = next;
+    });
+  }
+
+  void _handleDragEnd({
+    required double velocityY,
+    required double expandedTop,
+    required double defaultTop,
+  }) {
+    final cur = _currentTop ?? defaultTop;
+    final dismissThreshold = defaultTop + 90.0;
+
+    // Fling down -> dismiss
+    if (velocityY > 700 || cur > dismissThreshold) {
+      _dismissDownwards();
+      return;
+    }
+
+    // Fling up -> expand to near full screen
+    if (velocityY < -500) {
+      _animateTo(expandedTop);
+      return;
+    }
+
+    // Settle to nearest snap point (expandedTop vs defaultTop)
+    final mid = expandedTop + (defaultTop - expandedTop) * 0.5;
+    if (cur < mid) {
+      _animateTo(expandedTop);
+    } else {
+      _animateTo(defaultTop);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cs = Theme.of(context).colorScheme;
-    final topPadding = math.max(MediaQuery.paddingOf(context).top + 8, 38.0);
+    final media = MediaQuery.of(context);
+    final screenH = media.size.height;
+    final statusBarH = media.padding.top;
+
+    // Two drawer card stop points:
+    // 1. expandedTop: near full-screen (top edge just below status bar / dynamic island)
+    final expandedTop = math.max(statusBarH + 8.0, 24.0);
+    // 2. defaultTop: standard drawer card height (~85% screen height, revealing scrim above)
+    final defaultTop = math.max(screenH * 0.15, statusBarH + 36.0);
+
+    final topOffset = _currentTop ?? defaultTop;
 
     return PopScope(
       canPop: !_canGoBack,
@@ -281,287 +447,361 @@ class _WebViewPageState extends State<WebViewPage>
           _controller.goBack();
         }
       },
-      child: Padding(
-        padding: EdgeInsets.only(top: topPadding),
-        child: Transform.translate(
-          offset: Offset(0, _dragDy),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(20)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 28,
-                  offset: const Offset(0, -6),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(20)),
-              child: Scaffold(
-            appBar: PreferredSize(
-              preferredSize: const Size.fromHeight(56),
-              child: GestureDetector(
-                behavior: HitTestBehavior.translucent,
-                onVerticalDragStart: (_) {
-                  _slideCtrl.stop();
-                },
-                onVerticalDragUpdate: (details) {
-                  final dy = details.delta.dy;
-                  if (dy <= 0 && _dragDy <= 0) return;
-                  setState(() {
-                    _dragDy = math.max(0.0, _dragDy + dy);
-                  });
-                },
-                onVerticalDragEnd: (details) {
-                  final velocity = details.primaryVelocity ?? 0;
-                  const double dismissDistance = 120.0;
-                  const double dismissVelocity = 700.0;
-                  if (_dragDy > dismissDistance || velocity > dismissVelocity) {
-                    _dismissDownwards();
-                  } else {
-                    _animFrom = _dragDy;
-                    _animTo = 0.0;
-                    _isDismissing = false;
-                    _slideCtrl.forward(from: 0.0);
-                  }
-                },
-                child: AppBar(
-                  toolbarHeight: 56,
-                  titleSpacing: 0,
-                  leading: IconButton(
-                    icon: Icon(_canGoBack ? Lucide.ArrowLeft : Lucide.X),
-                    onPressed: () {
-                      if (_canGoBack) {
-                        _controller.goBack();
-                      } else {
-                        _dismissDownwards();
-                      }
-                    },
-                  ),
-                  title: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 36,
-                        height: 4,
-                        margin: const EdgeInsets.only(bottom: 6),
-                        decoration: BoxDecoration(
-                          color: cs.onSurfaceVariant.withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      Text(
-                        _title?.isNotEmpty == true
-                            ? _title!
-                            : (_currentUrl ?? ''),
-                        style: Theme.of(context).textTheme.titleMedium,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                  centerTitle: true,
-                  actions: [
-                PopupMenuButton<String>(
-                  icon: const Icon(Lucide.MoreVertical),
-                  onSelected: (value) async {
-                    final currentTarget = _currentUrl ?? widget.url ?? '';
-                    final uri = Uri.tryParse(currentTarget);
-
-                    switch (value) {
-                      case 'reload':
-                        _controller.reload();
-                        break;
-                      case 'forward':
-                        if (_canGoForward) {
-                          _controller.goForward();
-                        }
-                        break;
-                      case 'desktop_mode':
-                        setState(() {
-                          _isDesktopMode = !_isDesktopMode;
-                        });
-                        await _controller.setUserAgent(
-                          _isDesktopMode ? _desktopUserAgent : null,
-                        );
-                        await _controller.reload();
-                        if (context.mounted) {
-                          showAppSnackBar(
-                            context,
-                            message: _isDesktopMode ? '已切换至电脑桌面版' : '已切换至手机版',
-                            type: NotificationType.info,
-                          );
-                        }
-                        break;
-                      case 'open':
-                        if (uri != null &&
-                            (uri.isScheme('http') || uri.isScheme('https'))) {
-                          await launchUrl(
-                            uri,
-                            mode: LaunchMode.externalApplication,
-                          );
-                        }
-                        break;
-                      case 'share':
-                        if (uri != null) {
-                          final size = MediaQuery.maybeOf(context)?.size;
-                          final anchor = (size != null &&
-                                  size.width > 0 &&
-                                  size.height > 0)
-                              ? Rect.fromCenter(
-                                  center: Offset(
-                                    size.width / 2,
-                                    size.height / 2,
-                                  ),
-                                  width: 10,
-                                  height: 10,
-                                )
-                              : null;
-                          await SharePlus.instance.share(
-                            ShareParams(
-                              uri: uri,
-                              sharePositionOrigin: anchor,
-                            ),
-                          );
-                        }
-                        break;
-                      case 'copy_link':
-                        if (currentTarget.isNotEmpty) {
-                          await Clipboard.setData(
-                            ClipboardData(text: currentTarget),
-                          );
-                          if (context.mounted) {
-                            showAppSnackBar(
-                              context,
-                              message: l10n.chatMessageWidgetCopiedToClipboard,
-                              type: NotificationType.success,
-                            );
-                          }
-                        }
-                        break;
-                      case 'console':
-                        final isConsoleEmpty = _console.isEmpty;
-                        showCustomBottomSheet(
-                          context: context,
-                          title: l10n.messageWebViewConsoleLogs,
-                          count: _console.length,
-                          partialHeightFactor: isConsoleEmpty ? 0.25 : 0.65,
-                          expandedHeightFactor: isConsoleEmpty ? 0.25 : 0.90,
-                          builder: (sheetContext, scrollController) {
-                            return _ConsoleSheet(
-                              messages: _console,
-                              scrollController: scrollController,
-                              onClear: () {
-                                setState(() {
-                                  _console.clear();
-                                });
-                              },
-                            );
-                          },
-                        );
-                        break;
-                    }
-                  },
-                  itemBuilder: (ctx) => [
-                    const PopupMenuItem<String>(
-                      value: 'reload',
-                      child: Row(
-                        children: [
-                          Icon(Lucide.RotateCw, size: 18),
-                          SizedBox(width: 12),
-                          Text('重新加载'),
-                        ],
-                      ),
-                    ),
-                    if (_canGoForward)
-                      const PopupMenuItem<String>(
-                        value: 'forward',
-                        child: Row(
-                          children: [
-                            Icon(Lucide.ArrowRight, size: 18),
-                            SizedBox(width: 12),
-                            Text('前进'),
-                          ],
-                        ),
-                      ),
-                    if (!_contentMode) ...[
-                      PopupMenuItem<String>(
-                        value: 'desktop_mode',
-                        child: Row(
-                          children: [
-                            Icon(Lucide.Monitor, size: 18),
-                            SizedBox(width: 12),
-                            Text(_isDesktopMode ? '请求移动网站' : '请求桌面网站'),
-                          ],
-                        ),
-                      ),
-                      PopupMenuItem<String>(
-                        value: 'open',
-                        child: Row(
-                          children: [
-                            const Icon(Lucide.Compass, size: 18),
-                            const SizedBox(width: 12),
-                            Text(l10n.messageWebViewOpenInBrowser),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'share',
-                        child: Row(
-                          children: [
-                            Icon(Lucide.Share2, size: 18),
-                            SizedBox(width: 12),
-                            Text('分享'),
-                          ],
-                        ),
-                      ),
-                      PopupMenuItem<String>(
-                        value: 'copy_link',
-                        child: Row(
-                          children: [
-                            const Icon(Lucide.Copy, size: 18),
-                            const SizedBox(width: 12),
-                            Text(l10n.sideDrawerMenuCopy),
-                          ],
-                        ),
-                      ),
-                    ],
-                    PopupMenuItem<String>(
-                      value: 'console',
-                      child: Row(
-                        children: [
-                          const Icon(Lucide.Terminal, size: 18),
-                          const SizedBox(width: 12),
-                          Text(
-                            '${l10n.messageWebViewConsoleLogs} (${_console.length})',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+      child: Stack(
+        children: [
+          // Top scrim area tap to dismiss
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _dismissDownwards,
+              child: const ColoredBox(color: Colors.transparent),
             ),
           ),
-        ),
-        body: Column(
-          children: [
-            if (_isLoading)
-              LinearProgressIndicator(
-                value: _progress > 0 ? _progress / 100 : null,
+
+          // Drawer Card Container
+          Positioned(
+            left: 0,
+            right: 0,
+            top: topOffset,
+            bottom: 0,
+            child: Container(
+              decoration: BoxDecoration(
+                color: cs.surface,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    blurRadius: 28,
+                    offset: const Offset(0, -6),
+                  ),
+                ],
               ),
-            Expanded(child: WebViewWidget(controller: _controller)),
+              child: ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+                child: Scaffold(
+                  backgroundColor: cs.surface,
+                  // We implement our own compact header without Scaffold's extra top SafeArea
+                  body: Column(
+                    children: [
+                      _buildHeader(
+                        context: context,
+                        cs: cs,
+                        l10n: l10n,
+                        expandedTop: expandedTop,
+                        defaultTop: defaultTop,
+                      ),
+                      if (_isLoading)
+                        LinearProgressIndicator(
+                          value: _progress > 0 ? _progress / 100 : null,
+                          minHeight: 2,
+                        ),
+                      Expanded(
+                        child: Listener(
+                          onPointerDown: (e) {
+                            _webDragPointer = e.pointer;
+                            _lastWebPointerY = e.position.dy;
+                            _isPullingDownFromWeb = false;
+                          },
+                          onPointerMove: (e) {
+                            if (_webDragPointer != e.pointer) return;
+                            final currentY = e.position.dy;
+                            final dy =
+                                currentY - (_lastWebPointerY ?? currentY);
+                            _lastWebPointerY = currentY;
+
+                            // When web content is scrolled to the very top and user drags down
+                            if (_isWebAtTop && dy > 0) {
+                              _isPullingDownFromWeb = true;
+                              _handleDragUpdate(dy, expandedTop);
+                            } else if (_isPullingDownFromWeb && dy < 0) {
+                              _handleDragUpdate(dy, expandedTop);
+                            }
+                          },
+                          onPointerUp: (e) {
+                            if (_webDragPointer != e.pointer) return;
+                            _webDragPointer = null;
+                            _lastWebPointerY = null;
+                            if (_isPullingDownFromWeb) {
+                              _isPullingDownFromWeb = false;
+                              _handleDragEnd(
+                                velocityY: 0,
+                                expandedTop: expandedTop,
+                                defaultTop: defaultTop,
+                              );
+                            }
+                          },
+                          onPointerCancel: (e) {
+                            if (_webDragPointer != e.pointer) return;
+                            _webDragPointer = null;
+                            _lastWebPointerY = null;
+                            if (_isPullingDownFromWeb) {
+                              _isPullingDownFromWeb = false;
+                              _handleDragEnd(
+                                velocityY: 0,
+                                expandedTop: expandedTop,
+                                defaultTop: defaultTop,
+                              );
+                            }
+                          },
+                          child: WebViewWidget(controller: _controller),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader({
+    required BuildContext context,
+    required ColorScheme cs,
+    required AppLocalizations l10n,
+    required double expandedTop,
+    required double defaultTop,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: (_) {
+        _slideCtrl.stop();
+      },
+      onVerticalDragUpdate: (details) {
+        _handleDragUpdate(details.delta.dy, expandedTop);
+      },
+      onVerticalDragEnd: (details) {
+        _handleDragEnd(
+          velocityY: details.primaryVelocity ?? 0,
+          expandedTop: expandedTop,
+          defaultTop: defaultTop,
+        );
+      },
+      child: Container(
+        color: cs.surface,
+        padding: const EdgeInsets.only(top: 8, bottom: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Drawer Drag Handle (matching add_provider_sheet style)
+            Container(
+              width: 38,
+              height: 4,
+              decoration: BoxDecoration(
+                color: cs.onSurface.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 6),
+            // Compact Header Bar (height 44px)
+            SizedBox(
+              height: 44,
+              child: NavigationToolbar(
+                leading: IconButton(
+                  icon: Icon(_canGoBack ? Lucide.ArrowLeft : Lucide.X),
+                  iconSize: 20,
+                  tooltip: _canGoBack ? 'Back' : 'Close',
+                  onPressed: () {
+                    if (_canGoBack) {
+                      _controller.goBack();
+                    } else {
+                      _dismissDownwards();
+                    }
+                  },
+                ),
+                middle: Text(
+                  _title?.isNotEmpty == true
+                      ? _title!
+                      : (_currentUrl ?? _filePath ?? ''),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: _buildPopupMenu(context, cs, l10n),
+              ),
+            ),
+            const Divider(height: 1, thickness: 0.6),
           ],
         ),
       ),
-    ),
-  ),
-),
-),
-);
+    );
+  }
+
+  Widget _buildPopupMenu(
+    BuildContext context,
+    ColorScheme cs,
+    AppLocalizations l10n,
+  ) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Lucide.MoreVertical, size: 20),
+      onSelected: (value) async {
+        final currentTarget = _currentUrl ?? widget.url ?? _filePath ?? '';
+        final uri = Uri.tryParse(currentTarget);
+
+        switch (value) {
+          case 'reload':
+            await _reloadContent();
+            break;
+          case 'forward':
+            if (_canGoForward) {
+              _controller.goForward();
+            }
+            break;
+          case 'desktop_mode':
+            setState(() {
+              _isDesktopMode = !_isDesktopMode;
+            });
+            await _controller.setUserAgent(
+              _isDesktopMode ? _desktopUserAgent : null,
+            );
+            await _reloadContent();
+            if (context.mounted) {
+              showAppSnackBar(
+                context,
+                message: _isDesktopMode ? '已切换至电脑桌面版' : '已切换至手机版',
+                type: NotificationType.info,
+              );
+            }
+            break;
+          case 'open':
+            if (uri != null &&
+                (uri.isScheme('http') || uri.isScheme('https'))) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+            break;
+          case 'share':
+            if (uri != null) {
+              final size = MediaQuery.maybeOf(context)?.size;
+              final anchor = (size != null && size.width > 0 && size.height > 0)
+                  ? Rect.fromCenter(
+                      center: Offset(size.width / 2, size.height / 2),
+                      width: 10,
+                      height: 10,
+                    )
+                  : null;
+              await SharePlus.instance.share(
+                ShareParams(uri: uri, sharePositionOrigin: anchor),
+              );
+            }
+            break;
+          case 'copy_link':
+            if (currentTarget.isNotEmpty) {
+              await Clipboard.setData(ClipboardData(text: currentTarget));
+              if (context.mounted) {
+                showAppSnackBar(
+                  context,
+                  message: l10n.chatMessageWidgetCopiedToClipboard,
+                  type: NotificationType.success,
+                );
+              }
+            }
+            break;
+          case 'console':
+            final isConsoleEmpty = _console.isEmpty;
+            showCustomBottomSheet(
+              context: context,
+              title: l10n.messageWebViewConsoleLogs,
+              count: _console.length,
+              partialHeightFactor: isConsoleEmpty ? 0.25 : 0.65,
+              expandedHeightFactor: isConsoleEmpty ? 0.25 : 0.90,
+              builder: (sheetContext, scrollController) {
+                return _ConsoleSheet(
+                  messages: _console,
+                  scrollController: scrollController,
+                  onClear: () {
+                    setState(() {
+                      _console.clear();
+                    });
+                  },
+                );
+              },
+            );
+            break;
+        }
+      },
+      itemBuilder: (ctx) => [
+        const PopupMenuItem<String>(
+          value: 'reload',
+          child: Row(
+            children: [
+              Icon(Lucide.RotateCw, size: 18),
+              SizedBox(width: 12),
+              Text('重新加载'),
+            ],
+          ),
+        ),
+        if (_canGoForward)
+          const PopupMenuItem<String>(
+            value: 'forward',
+            child: Row(
+              children: [
+                Icon(Lucide.ArrowRight, size: 18),
+                SizedBox(width: 12),
+                Text('前进'),
+              ],
+            ),
+          ),
+        if (!_contentMode) ...[
+          PopupMenuItem<String>(
+            value: 'desktop_mode',
+            child: Row(
+              children: [
+                Icon(Lucide.Monitor, size: 18),
+                SizedBox(width: 12),
+                Text(_isDesktopMode ? '请求移动网站' : '请求桌面网站'),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'open',
+            child: Row(
+              children: [
+                const Icon(Lucide.Compass, size: 18),
+                const SizedBox(width: 12),
+                Text(l10n.messageWebViewOpenInBrowser),
+              ],
+            ),
+          ),
+          const PopupMenuItem<String>(
+            value: 'share',
+            child: Row(
+              children: [
+                Icon(Lucide.Share2, size: 18),
+                SizedBox(width: 12),
+                Text('分享'),
+              ],
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'copy_link',
+            child: Row(
+              children: [
+                const Icon(Lucide.Copy, size: 18),
+                const SizedBox(width: 12),
+                Text(l10n.sideDrawerMenuCopy),
+              ],
+            ),
+          ),
+        ],
+        PopupMenuItem<String>(
+          value: 'console',
+          child: Row(
+            children: [
+              const Icon(Lucide.Terminal, size: 18),
+              const SizedBox(width: 12),
+              Text('${l10n.messageWebViewConsoleLogs} (${_console.length})'),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
 

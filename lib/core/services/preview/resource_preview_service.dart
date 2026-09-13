@@ -643,6 +643,7 @@ class ResourcePreviewService extends ChangeNotifier {
         if (activeWebState != null && activeWebState.mounted) {
           await activeWebState.updateTarget(
             contentBase64: base64Content,
+            filePath: file.path,
             title: effectiveTitle,
           );
           return ResourceOpenResult(
@@ -656,7 +657,11 @@ class ResourcePreviewService extends ChangeNotifier {
         if (effectiveContext != null && effectiveContext.mounted) {
           _dismissActivePreviewRoute();
           final route = buildVerticalSlideRoute<void>(
-            page: WebViewPage(contentBase64: base64Content),
+            page: WebViewPage(
+              contentBase64: base64Content,
+              filePath: file.path,
+              title: effectiveTitle,
+            ),
           );
           _trackActivePreviewRoute(route);
           unawaited(Navigator.of(effectiveContext).push(route));
