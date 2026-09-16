@@ -24,6 +24,7 @@ import 'chat_actions.dart';
 import 'chat_controller.dart';
 import 'generation_controller.dart';
 import 'stream_controller.dart' as stream_ctrl;
+import '../../../core/services/remote_bridge/r_connect_bridge_service.dart';
 
 export '../../../core/models/compress_context_options.dart';
 
@@ -126,6 +127,11 @@ class HomeViewModel extends ChangeNotifier {
     _chatActions.onAssistantMessageFinished = _onAssistantMessageFinished;
     _chatActions.onFileProcessingStarted = _onFileProcessingStarted;
     _chatActions.onFileProcessingFinished = _onFileProcessingFinished;
+
+    // Register unhandled reply handler for remote agent bridge (Solution B fallback)
+    RConnectBridgeManager.instance.setUnhandledReplyHandler(
+      _handleUnhandledRemoteBridgeReply,
+    );
   }
 
   // ============================================================================
@@ -305,6 +311,122 @@ class HomeViewModel extends ChangeNotifier {
   void _onAssistantMessageFinished(ChatMessage message) {
     onAssistantMessageFinished?.call(message);
     _onMaybeOrganizeMemory(message.conversationId);
+  }
+
+  /// Handles incoming remote agent replies that were not consumed by an active Stream.
+  Future<void> _handleUnhandledRemoteBridgeReply(
+    String sessionKey,
+    String content,
+    String? endpointName,
+  ) async {
+    try {
+      final conversationId = sessionKey.replaceFirst('kelivo:', '').trim();
+      if (conversationId.isEmpty) return;
+
+      final conv = _chatService.getConversation(conversationId);
+      if (conv == null) return;
+
+      final message = await _chatService.addMessage(
+        conversationId: conversationId,
+        role: 'assistant',
+        content: content,
+        providerId: 'r_connect',
+        modelId: endpointName ?? 'Remote Agent',
+      );
+
+      // If this conversation is currently open, append it immediately to the screen.
+      if (_chatController.currentConversation?.id == conversationId) {
+        await _chatController.appendPersistedTailMessage(message);
+        _onMessagesChanged();
+        onScrollToBottom?.call();
+      }
+    } catch (e) {
+      debugPrint(
+        '[HomeViewModel] Error handling unhandled remote bridge reply: $e',
+      );
+    }
+  }
+
+  /// Silently checks and syncs missing assistant responses from cc-connect remote agent
+  /// (e.g. after the app was killed or network disconnected while agent was processing).
+  Future<void> syncRemoteSessionHistoryIfNeeded(String conversationId) async {
+    try {
+      final convo = _chatService.getConversation(conversationId);
+      if (convo == null) return;
+
+      final assistantProvider = _contextProvider.read<AssistantProvider>();
+      final assistant = convo.assistantId != null
+          ? assistantProvider.getById(convo.assistantId!)
+          : assistantProvider.currentAssistant;
+
+      if (assistant == null || assistant.remoteBridgeEndpointId == null) {
+        return;
+      }
+
+      final settings = _contextProvider.read<SettingsProvider>();
+      final endpoint = settings.getRemoteBridgeEndpoint(
+        assistant.remoteBridgeEndpointId!,
+      );
+      if (endpoint == null || !endpoint.enabled) return;
+
+      final sessionKey = 'kelivo:$conversationId';
+      final remoteHistory = await RConnectBridgeService.fetchRemoteHistory(
+        endpoint: endpoint,
+        sessionKey: sessionKey,
+      );
+      if (remoteHistory.isEmpty) return;
+
+      // Check the latest remote message
+      final lastRemote = remoteHistory.last;
+      if (lastRemote['role'] != 'assistant') return;
+
+      final remoteReply = (lastRemote['content'] ?? '').trim();
+      if (remoteReply.isEmpty ||
+          RConnectBridgeService.isQueuedNotification(remoteReply)) {
+        return;
+      }
+
+      // Check local message history
+      final localMessages = _chatService.getMessages(conversationId);
+      if (localMessages.isNotEmpty) {
+        final lastLocal = localMessages.last;
+        // If local already ends with this exact content, nothing to sync
+        if (lastLocal.content.trim() == remoteReply) {
+          return;
+        }
+
+        // If local ends with assistant message, but it was just a queue/busy notice
+        final isLocalQueueNotice = lastLocal.role == 'assistant' &&
+            RConnectBridgeService.isQueuedNotification(lastLocal.content);
+
+        if (isLocalQueueNotice) {
+          // Update the queue notice message with the final remote content
+          await _chatService.updateMessage(lastLocal.id, content: remoteReply);
+          if (_chatController.currentConversation?.id == conversationId) {
+            _onMessagesChanged();
+          }
+          return;
+        }
+
+        // If local ends with user message, append the missing assistant message
+        if (lastLocal.role == 'user') {
+          final message = await _chatService.addMessage(
+            conversationId: conversationId,
+            role: 'assistant',
+            content: remoteReply,
+            providerId: 'r_connect',
+            modelId: endpoint.name,
+          );
+          if (_chatController.currentConversation?.id == conversationId) {
+            await _chatController.appendPersistedTailMessage(message);
+            _onMessagesChanged();
+            onScrollToBottom?.call();
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[HomeViewModel] syncRemoteSessionHistory error: $e');
+    }
   }
 
   /// Schedule background memory organize after a successful finalize (§12.1).
@@ -895,6 +1017,7 @@ class HomeViewModel extends ChangeNotifier {
       onConversationSwitched?.call();
       notifyListeners();
       unawaited(_drainQueuedInputIfReady(id));
+      unawaited(syncRemoteSessionHistoryIfNeeded(id));
     }
   }
 
@@ -945,6 +1068,7 @@ class HomeViewModel extends ChangeNotifier {
     onConversationSwitched?.call();
     notifyListeners();
     unawaited(_drainQueuedInputIfReady(id));
+    unawaited(syncRemoteSessionHistoryIfNeeded(id));
   }
 
   /// Starts persisting the assistant preference for a switch, or null when

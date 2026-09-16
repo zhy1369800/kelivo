@@ -728,6 +728,7 @@ class HomePageController extends ChangeNotifier {
           _scrollCtrl.positionAtBottomOnNextLayout();
           notifyListeners();
           _scheduleStartupWarmup();
+          unawaited(_viewModel.syncRemoteSessionHistoryIfNeeded(recent.id));
         } else {
           // No conversations exist — create a new empty one so the UI
           // correctly shows the temporary-chat toggle button instead of

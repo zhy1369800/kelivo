@@ -142,6 +142,25 @@ class RConnectBridgeService {
   int? _latencyMs;
   int? get latencyMs => _latencyMs;
 
+  /// Active streaming sessions currently being awaited by an executeStream call.
+  final Set<String> _activeStreamingSessions = {};
+
+  /// Callback when a reply event is received for a session that has no active executeStream.
+  void Function(String sessionKey, String content, String? endpointName)?
+      onUnhandledReply;
+
+  /// Checks if a reply content is a transient queue or busy notification from cc-connect.
+  static bool isQueuedNotification(String content) {
+    final text = content.trim();
+    if (text.isEmpty) return false;
+    return text.contains('消息已收到') ||
+        text.contains('Message received') ||
+        text.contains('上一个请求仍在处理中') ||
+        text.contains('still being processed') ||
+        text.contains('消息队列已满') ||
+        text.contains('queue is full');
+  }
+
   /// Connect to the given remote bridge endpoint.
   Future<void> connect(RemoteBridgeEndpoint endpoint) async {
     if (_disposed) return;
@@ -370,6 +389,18 @@ class RConnectBridgeService {
             content: content,
             format: format,
           ));
+
+          final hasActiveStream = _activeStreamingSessions.any(
+            (activeKey) => _matchesSessionKey(sessionKey, activeKey),
+          );
+          if (!hasActiveStream &&
+              !isQueuedNotification(content) &&
+              content.trim().isNotEmpty) {
+            debugPrint(
+              '[RConnectBridgeService] Unhandled reply for session $sessionKey: $content',
+            );
+            onUnhandledReply?.call(sessionKey, content, _endpoint?.name);
+          }
           break;
 
         case 'buttons':
@@ -560,6 +591,76 @@ class RConnectBridgeService {
     return [];
   }
 
+  /// Fetch remote message history for a specific sessionKey from cc-connect REST API.
+  static Future<List<Map<String, String>>> fetchRemoteHistory({
+    required RemoteBridgeEndpoint endpoint,
+    required String sessionKey,
+    int limit = 50,
+  }) async {
+    try {
+      final base = endpoint.httpBaseUrl;
+      // 1. Query sessions for this session_key to locate the active session id
+      final listUri =
+          Uri.parse('$base/bridge/sessions').replace(queryParameters: {
+        'session_key': sessionKey,
+        'project': endpoint.project,
+      });
+      final headers = {
+        if (endpoint.token.isNotEmpty)
+          'Authorization': 'Bearer ${endpoint.token}',
+      };
+
+      final listResp = await http
+          .get(listUri, headers: headers)
+          .timeout(const Duration(seconds: 5));
+      if (listResp.statusCode != 200) return [];
+
+      final listData = jsonDecode(listResp.body);
+      String? activeId;
+      if (listData is Map) {
+        activeId = listData['active_session_id'] as String?;
+        if (activeId == null &&
+            listData['sessions'] is List &&
+            (listData['sessions'] as List).isNotEmpty) {
+          activeId = (listData['sessions'] as List).first['id'] as String?;
+        }
+      }
+      if (activeId == null || activeId.isEmpty) return [];
+
+      // 2. Query session history
+      final detailUri = Uri.parse('$base/bridge/sessions/$activeId')
+          .replace(queryParameters: {
+        'session_key': sessionKey,
+        'project': endpoint.project,
+        'history_limit': limit.toString(),
+      });
+
+      final detailResp = await http
+          .get(detailUri, headers: headers)
+          .timeout(const Duration(seconds: 5));
+      if (detailResp.statusCode != 200) return [];
+
+      final detailData = jsonDecode(detailResp.body);
+      final rawHist = (detailData is Map && detailData['history'] is List)
+          ? detailData['history'] as List<dynamic>
+          : [];
+
+      final result = <Map<String, String>>[];
+      for (final item in rawHist) {
+        if (item is Map) {
+          result.add({
+            'role': (item['role'] ?? 'assistant').toString(),
+            'content': (item['content'] ?? '').toString(),
+          });
+        }
+      }
+      return result;
+    } catch (e) {
+      debugPrint('[RConnectBridgeService] fetchRemoteHistory error: $e');
+      return [];
+    }
+  }
+
   bool _matchesSessionKey(String eventSessionKey, String expectedSessionKey) {
     if (eventSessionKey.isEmpty) return true;
     if (eventSessionKey == expectedSessionKey) return true;
@@ -595,112 +696,132 @@ class RConnectBridgeService {
       throw Exception('Failed to send message to R-Connect bridge daemon.');
     }
 
-    await for (final event in events) {
-      if (event is BridgeStatusEvent &&
-          (event.state == BridgeConnectionState.error ||
-              event.state == BridgeConnectionState.disconnected)) {
-        throw Exception(event.message ?? 'R-Connect bridge connection lost.');
-      }
-
-      if (event is BridgePreviewStartEvent) {
-        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
-          if (!textStarted) {
-            textStarted = true;
-            yield TextStart(textChunkId);
-          }
-          if (event.initialContent.isNotEmpty) {
-            yield TextDelta(id: textChunkId, text: event.initialContent);
-            lastFullContent = event.initialContent;
-          }
+    _activeStreamingSessions.add(sessionKey);
+    try {
+      await for (final event in events) {
+        if (event is BridgeStatusEvent &&
+            (event.state == BridgeConnectionState.error ||
+                event.state == BridgeConnectionState.disconnected)) {
+          throw Exception(event.message ?? 'R-Connect bridge connection lost.');
         }
-      } else if (event is BridgeUpdateMessageEvent) {
-        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
-          if (!textStarted) {
-            textStarted = true;
-            yield TextStart(textChunkId);
+
+        if (event is BridgePreviewStartEvent) {
+          if (_matchesSessionKey(event.sessionKey, sessionKey)) {
+            if (!textStarted) {
+              textStarted = true;
+              yield TextStart(textChunkId);
+            }
+            if (event.initialContent.isNotEmpty) {
+              yield TextDelta(id: textChunkId, text: event.initialContent);
+              lastFullContent = event.initialContent;
+            }
           }
-          final newContent = event.content;
-          if (newContent == lastFullContent) {
-            continue;
-          }
-          if (newContent.startsWith(lastFullContent)) {
-            final delta = newContent.substring(lastFullContent.length);
-            yield TextDelta(id: textChunkId, text: delta);
-            lastFullContent = newContent;
-          } else {
-            // If the content is new or replaced
-            if (newContent.length > lastFullContent.length) {
+        } else if (event is BridgeUpdateMessageEvent) {
+          if (_matchesSessionKey(event.sessionKey, sessionKey)) {
+            if (!textStarted) {
+              textStarted = true;
+              yield TextStart(textChunkId);
+            }
+            final newContent = event.content;
+            if (newContent == lastFullContent) {
+              continue;
+            }
+            if (newContent.startsWith(lastFullContent)) {
               final delta = newContent.substring(lastFullContent.length);
               yield TextDelta(id: textChunkId, text: delta);
               lastFullContent = newContent;
             } else {
-              // Shorter content or standalone block
-              final prefix = lastFullContent.isNotEmpty ? '\n\n' : '';
-              yield TextDelta(id: textChunkId, text: '$prefix$newContent');
-              lastFullContent = newContent;
+              // If the content is new or replaced
+              if (newContent.length > lastFullContent.length) {
+                final delta = newContent.substring(lastFullContent.length);
+                yield TextDelta(id: textChunkId, text: delta);
+                lastFullContent = newContent;
+              } else {
+                // Shorter content or standalone block
+                final prefix = lastFullContent.isNotEmpty ? '\n\n' : '';
+                yield TextDelta(id: textChunkId, text: '$prefix$newContent');
+                lastFullContent = newContent;
+              }
             }
           }
-        }
-      } else if (event is BridgeCardEvent) {
-        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
-          if (!textStarted) {
-            textStarted = true;
-            yield TextStart(textChunkId);
+        } else if (event is BridgeCardEvent) {
+          if (_matchesSessionKey(event.sessionKey, sessionKey)) {
+            if (!textStarted) {
+              textStarted = true;
+              yield TextStart(textChunkId);
+            }
+            final cardTitle = event.cardData['title'] ?? event.cardData['name'] ?? '交互卡片';
+            final cardBody = event.cardData['description'] ?? event.cardData['text'] ?? jsonEncode(event.cardData);
+            final buffer = StringBuffer()
+              ..writeln('\n\n> 🎴 **[$cardTitle]**')
+              ..writeln('> $cardBody\n');
+            yield TextDelta(id: textChunkId, text: buffer.toString());
+            lastFullContent += buffer.toString();
           }
-          final cardTitle = event.cardData['title'] ?? event.cardData['name'] ?? '交互卡片';
-          final cardBody = event.cardData['description'] ?? event.cardData['text'] ?? jsonEncode(event.cardData);
-          final buffer = StringBuffer()
-            ..writeln('\n\n> 🎴 **[$cardTitle]**')
-            ..writeln('> $cardBody\n');
-          yield TextDelta(id: textChunkId, text: buffer.toString());
-          lastFullContent += buffer.toString();
-        }
-      } else if (event is BridgeButtonsEvent) {
-        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
-          if (!textStarted) {
-            textStarted = true;
-            yield TextStart(textChunkId);
-          }
+        } else if (event is BridgeButtonsEvent) {
+          if (_matchesSessionKey(event.sessionKey, sessionKey)) {
+            if (!textStarted) {
+              textStarted = true;
+              yield TextStart(textChunkId);
+            }
 
-          final buffer = StringBuffer();
-          if (event.content.isNotEmpty) {
-            buffer.writeln('\n\n${event.content}\n');
-          }
-          buffer.writeln('\n> **[Agent 操作交互 / 审批请求]**');
-          for (final row in event.buttons) {
-            for (final btn in row) {
-              buffer.writeln('- **[ ${btn.label} ]** (操作指令: `${btn.action}`)');
+            final buffer = StringBuffer();
+            if (event.content.isNotEmpty) {
+              buffer.writeln('\n\n${event.content}\n');
             }
-          }
-          yield TextDelta(id: textChunkId, text: buffer.toString());
-          lastFullContent += buffer.toString();
-        }
-      } else if (event is BridgeReplyEvent) {
-        if (_matchesSessionKey(event.sessionKey, sessionKey)) {
-          if (!textStarted) {
-            textStarted = true;
-            yield TextStart(textChunkId);
-          }
-          final replyContent = event.content;
-          if (replyContent.isNotEmpty) {
-            if (replyContent == lastFullContent) {
-              // Content has already been fully streamed, avoid duplicate output
-            } else if (replyContent.startsWith(lastFullContent)) {
-              final delta = replyContent.substring(lastFullContent.length);
-              yield TextDelta(id: textChunkId, text: delta);
-              lastFullContent = replyContent;
-            } else {
-              // Standalone final reply or reconstructed reply after tool output
-              final prefix = lastFullContent.isNotEmpty ? '\n\n' : '';
-              yield TextDelta(id: textChunkId, text: '$prefix$replyContent');
-              lastFullContent = replyContent;
+            buffer.writeln('\n> **[Agent 操作交互 / 审批请求]**');
+            for (final row in event.buttons) {
+              for (final btn in row) {
+                buffer.writeln('- **[ ${btn.label} ]** (操作指令: `${btn.action}`)');
+              }
             }
+            yield TextDelta(id: textChunkId, text: buffer.toString());
+            lastFullContent += buffer.toString();
           }
-          yield TextEnd(textChunkId);
-          yield const Finish();
-          break;
+        } else if (event is BridgeReplyEvent) {
+          if (_matchesSessionKey(event.sessionKey, sessionKey)) {
+            final replyContent = event.content;
+
+            // 方案 A：如果是排队/繁忙状态回执，告知前端当前状态，但不结束流，继续等待最终执行结果
+            if (isQueuedNotification(replyContent)) {
+              if (!textStarted) {
+                textStarted = true;
+                yield TextStart(textChunkId);
+              }
+              if (replyContent != lastFullContent) {
+                final prefix = lastFullContent.isNotEmpty ? '\n\n' : '';
+                yield TextDelta(id: textChunkId, text: '$prefix$replyContent\n\n');
+                lastFullContent = '$lastFullContent$prefix$replyContent\n\n';
+              }
+              continue;
+            }
+
+            if (!textStarted) {
+              textStarted = true;
+              yield TextStart(textChunkId);
+            }
+            if (replyContent.isNotEmpty) {
+              if (replyContent == lastFullContent) {
+                // Content has already been fully streamed, avoid duplicate output
+              } else if (replyContent.startsWith(lastFullContent)) {
+                final delta = replyContent.substring(lastFullContent.length);
+                yield TextDelta(id: textChunkId, text: delta);
+                lastFullContent = replyContent;
+              } else {
+                // Standalone final reply or reconstructed reply after tool output
+                final prefix = lastFullContent.isNotEmpty ? '\n\n' : '';
+                yield TextDelta(id: textChunkId, text: '$prefix$replyContent');
+                lastFullContent = replyContent;
+              }
+            }
+            yield TextEnd(textChunkId);
+            yield const Finish();
+            break;
+          }
         }
       }
+    } finally {
+      _activeStreamingSessions.remove(sessionKey);
     }
   }
 }
@@ -711,17 +832,34 @@ class RConnectBridgeManager {
   static final RConnectBridgeManager instance = RConnectBridgeManager._();
 
   final Map<String, RConnectBridgeService> _services = {};
+  void Function(String sessionKey, String content, String? endpointName)?
+      _unhandledReplyHandler;
+
+  /// Registers a global handler for reply events that were not consumed by an active Stream.
+  void setUnhandledReplyHandler(
+    void Function(String sessionKey, String content, String? endpointName)?
+        handler,
+  ) {
+    _unhandledReplyHandler = handler;
+    for (final service in _services.values) {
+      service.onUnhandledReply = handler;
+    }
+  }
 
   /// Get or create a connected bridge service for the specified endpoint.
   Future<RConnectBridgeService> getService(RemoteBridgeEndpoint endpoint) async {
     var service = _services[endpoint.id];
     if (service == null) {
       service = RConnectBridgeService();
+      service.onUnhandledReply = _unhandledReplyHandler;
       _services[endpoint.id] = service;
       await service.connect(endpoint);
-    } else if (service.state == BridgeConnectionState.disconnected ||
-        service.state == BridgeConnectionState.error) {
-      await service.connect(endpoint);
+    } else {
+      service.onUnhandledReply ??= _unhandledReplyHandler;
+      if (service.state == BridgeConnectionState.disconnected ||
+          service.state == BridgeConnectionState.error) {
+        await service.connect(endpoint);
+      }
     }
     return service;
   }

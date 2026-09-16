@@ -95,4 +95,33 @@ I need to check current weather first.
       expect(match.group(2)!.contains('"city": "Beijing"'), isTrue);
     });
   });
+
+  group('Queued Notification Detection', () {
+    test('correctly identifies queued and busy notice strings', () {
+      expect(
+        RConnectBridgeService.isQueuedNotification('📬 消息已收到，将在当前任务完成后处理。'),
+        isTrue,
+      );
+      expect(
+        RConnectBridgeService.isQueuedNotification('Message received — will process after the current task finishes.'),
+        isTrue,
+      );
+      expect(
+        RConnectBridgeService.isQueuedNotification('⏳ 上一个请求仍在处理中。使用 `/ps <消息>` 可向正在执行的任务追加补充信息。'),
+        isTrue,
+      );
+      expect(
+        RConnectBridgeService.isQueuedNotification('📬 消息队列已满（5 条待处理）。请等待当前任务完成。'),
+        isTrue,
+      );
+      expect(
+        RConnectBridgeService.isQueuedNotification('这是正常的分析结果回答内容。'),
+        isFalse,
+      );
+      expect(
+        RConnectBridgeService.isQueuedNotification('Here is the completed analysis of the project.'),
+        isFalse,
+      );
+    });
+  });
 }
