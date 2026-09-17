@@ -336,7 +336,7 @@ class InlineVideoCard extends StatelessWidget {
             }
           },
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
@@ -346,10 +346,10 @@ class InlineVideoCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                // Video thumbnail placeholder / icon badge
+                // Video thumbnail icon badge
                 Container(
-                  width: 42,
-                  height: 42,
+                  width: 34,
+                  height: 34,
                   decoration: BoxDecoration(
                     color: cs.primaryContainer.withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(8),
@@ -357,12 +357,12 @@ class InlineVideoCard extends StatelessWidget {
                   child: Center(
                     child: Icon(
                       Lucide.Video,
-                      size: 22,
+                      size: 18,
                       color: cs.onPrimaryContainer,
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 // File info
                 Expanded(
                   child: Column(
@@ -374,37 +374,22 @@ class InlineVideoCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
                           color: cs.onSurface,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '点击直接播放视频',
+                        '视频 · 点击播放',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 11.5,
+                          fontSize: 11,
                           color: cs.onSurfaceVariant,
                         ),
                       ),
                     ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Play circular icon
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: cs.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Lucide.Play,
-                      size: 15,
-                      color: cs.onPrimary,
-                    ),
                   ),
                 ),
               ],
