@@ -7,6 +7,7 @@ import '../../core/services/audio/global_audio_player_service.dart';
 import '../../icons/lucide_adapter.dart';
 import 'package:path/path.dart' as p;
 import '../../core/services/preview/resource_preview_service.dart';
+import 'snackbar.dart';
 
 /// Helper to detect media types from URLs or file paths.
 class InlineMediaDetector {
@@ -318,16 +319,21 @@ class InlineVideoCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: () {
+          onTap: () async {
             HapticFeedback.lightImpact();
-            unawaited(
-              ResourcePreviewService.instance.openResource(
-                target: source,
-                action: 'pip',
-                title: displayName,
-                context: context,
-              ),
+            final res = await ResourcePreviewService.instance.openResource(
+              target: source,
+              action: 'pip',
+              title: displayName,
+              context: context,
             );
+            if (!res.success && context.mounted) {
+              showAppSnackBar(
+                context,
+                message: res.message.isNotEmpty ? res.message : '无法打开视频: $displayName',
+                type: NotificationType.error,
+              );
+            }
           },
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

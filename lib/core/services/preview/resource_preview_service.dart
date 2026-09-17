@@ -227,8 +227,20 @@ class ResourcePreviewService extends ChangeNotifier {
 
   /// Resolves custom schemes and relative paths to a canonical absolute local file path.
   Future<String> _resolveLocalPath(String input) async {
-    final trimmed = input.trim();
-    if (trimmed.isEmpty) return trimmed;
+    final raw = input.trim();
+    if (raw.isEmpty) return raw;
+
+    // URL decode if path contains percent-encoded characters (e.g. %20 for spaces)
+    String trimmed = raw;
+    if (trimmed.contains('%')) {
+      try {
+        trimmed = Uri.decodeFull(trimmed);
+      } catch (_) {
+        try {
+          trimmed = Uri.decodeComponent(trimmed);
+        } catch (_) {}
+      }
+    }
 
     // 1. file:// URI scheme
     if (trimmed.startsWith('file://')) {
