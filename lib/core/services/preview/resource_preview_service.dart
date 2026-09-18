@@ -512,7 +512,7 @@ class ResourcePreviewService extends ChangeNotifier {
     if (!file.existsSync()) {
       return ResourceOpenResult(
         success: false,
-        message: 'Local file not found: $effectiveTitle',
+        message: 'Local file not found: $effectivePath',
         target: effectivePath,
         openedAs: 'file_not_found',
       );

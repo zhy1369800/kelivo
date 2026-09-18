@@ -192,6 +192,7 @@ class _InlineAudioPlayerState extends State<InlineAudioPlayer> {
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
+      constraints: const BoxConstraints(minHeight: 64),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
@@ -203,6 +204,7 @@ class _InlineAudioPlayerState extends State<InlineAudioPlayer> {
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Row(
             children: [
@@ -250,15 +252,23 @@ class _InlineAudioPlayerState extends State<InlineAudioPlayer> {
                 ),
               ),
               const SizedBox(width: 8),
-              // Duration text
-              Text(
-                _hasError
-                    ? '加载失败'
-                    : '${_formatDuration(_position)} / ${_formatDuration(_duration)}',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                  color: _hasError ? cs.error : cs.onSurfaceVariant,
+              // Duration text with scale-down fit to prevent truncation in narrow table cells
+              Flexible(
+                fit: FlexFit.loose,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    _hasError
+                        ? '加载失败'
+                        : '${_formatDuration(_position)} / ${_formatDuration(_duration)}',
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      color: _hasError ? cs.error : cs.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -314,6 +324,7 @@ class InlineVideoCard extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
+      constraints: const BoxConstraints(minHeight: 64),
       child: Material(
         color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(12),
@@ -336,7 +347,7 @@ class InlineVideoCard extends StatelessWidget {
             }
           },
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
