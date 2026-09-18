@@ -3041,12 +3041,29 @@ class ToolHandlerService {
     final params = args['params'];
     final taskId = args['taskId']?.toString();
 
+    Duration timeout = const Duration(seconds: 15);
+    const int _maxTimeoutSeconds = 300;
+    final rawTimeout = args['timeout'] ?? args['timeoutSeconds'] ?? args['timeout_seconds'];
+    if (rawTimeout != null) {
+      int? seconds;
+      if (rawTimeout is int) {
+        seconds = rawTimeout;
+      } else if (rawTimeout is double) {
+        seconds = rawTimeout.round();
+      } else if (rawTimeout is String) {
+        seconds = int.tryParse(rawTimeout.trim());
+      }
+      if (seconds != null && seconds > 0) {
+        timeout = Duration(seconds: seconds.clamp(1, _maxTimeoutSeconds));
+      }
+    }
 
     final result = await NativeShortcutAutomationService.executeTask(
       action: action,
       shortcut: shortcut,
       params: params,
       taskId: taskId,
+      timeout: timeout,
     );
 
     return jsonEncode(result);

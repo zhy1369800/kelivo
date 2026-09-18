@@ -1176,6 +1176,13 @@ class LocalToolsService {
                 'description':
                     'Optional input parameters or text to pass to the shortcut when executing. Can be a plain string (e.g. "Hello") or a JSON string for multiple key-value parameters (e.g. "{\\"name\\": \\"Alice\\", \\"message\\": \\"Hi\\"}").',
               },
+              'timeout': {
+                'type': 'integer',
+                'description':
+                    'Optional maximum timeout in seconds to wait for shortcut execution to complete. Must be between 1 and 300. Defaults to 15 seconds.',
+                'minimum': 1,
+                'maximum': 300,
+              },
             },
             'required': ['action'],
           },
