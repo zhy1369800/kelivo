@@ -3042,7 +3042,7 @@ class ToolHandlerService {
     final taskId = args['taskId']?.toString();
 
     Duration timeout = const Duration(seconds: 15);
-    const int _maxTimeoutSeconds = 300;
+    const int _maxTimeoutSeconds = 25;
     final rawTimeout = args['timeout'] ?? args['timeoutSeconds'] ?? args['timeout_seconds'];
     if (rawTimeout != null) {
       int? seconds;

@@ -1179,9 +1179,9 @@ class LocalToolsService {
               'timeout': {
                 'type': 'integer',
                 'description':
-                    'Optional maximum timeout in seconds to wait for shortcut execution to complete. Must be between 1 and 300. Defaults to 15 seconds.',
+                    'Optional maximum timeout in seconds to wait for shortcut execution to complete. Must be between 1 and 25. Defaults to 15 seconds.',
                 'minimum': 1,
-                'maximum': 300,
+                'maximum': 25,
               },
             },
             'required': ['action'],
