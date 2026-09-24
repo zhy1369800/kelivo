@@ -3042,7 +3042,7 @@ class ToolHandlerService {
     final taskId = args['taskId']?.toString();
 
     Duration timeout = const Duration(seconds: 15);
-    const int _maxTimeoutSeconds = 25;
+    const int maxTimeoutSeconds = 25;
     final rawTimeout = args['timeout'] ?? args['timeoutSeconds'] ?? args['timeout_seconds'];
     if (rawTimeout != null) {
       int? seconds;
@@ -3054,7 +3054,7 @@ class ToolHandlerService {
         seconds = int.tryParse(rawTimeout.trim());
       }
       if (seconds != null && seconds > 0) {
-        timeout = Duration(seconds: seconds.clamp(1, _maxTimeoutSeconds));
+        timeout = Duration(seconds: seconds.clamp(1, maxTimeoutSeconds));
       }
     }
 
@@ -3082,7 +3082,6 @@ class ToolHandlerService {
     }
     if (action == 'get_sandbox_path') {
       try {
-        final appDataDir = await AppDirectories.getAppDataDirectory();
         return jsonEncode({
           'success': true,
           'action': 'get_sandbox_path',
@@ -3125,44 +3124,43 @@ class ToolHandlerService {
           action == 'pick_directory' ||
           mutableData['is_directory'] == true;
 
-      // Replace path with user-friendly display path when it's a sandbox/iCloud path
-      if (mutableData['path'] is String) {
-        final rawTarget = mutableData['path'] as String;
-        final formatted = _formatDisplayPath(rawTarget, appDataDir.path);
-        mutableData['path'] = formatted;
-        // Only attach preview_link for actual files (NOT directories)
-        if (!isDirectoryOperation) {
-          final fileName = p.basename(rawTarget);
-          if (fileName.isNotEmpty) {
-            final normTarget = rawTarget.replaceAll('\\', '/');
-            final normApp = appDataDir.path.replaceAll('\\', '/');
-            final cleanTarget = normTarget.startsWith('/private/')
-                ? normTarget.substring('/private'.length)
-                : normTarget;
-            final cleanApp = normApp.startsWith('/private/')
-                ? normApp.substring('/private'.length)
-                : normApp;
-            final sub = cleanTarget.startsWith('$cleanApp/')
-                ? cleanTarget.substring(cleanApp.length + 1)
-                : cleanTarget;
-            const mediaExts = {
-              '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic',
-              '.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.opus',
-              '.mp4', '.mov', '.mkv', '.webm', '.m4v',
-            };
-            final ext = p.extension(fileName).toLowerCase();
-            final mdPrefix = mediaExts.contains(ext) ? '!' : '';
-            mutableData['preview_link'] = '$mdPrefix[$fileName](kelivo://$sub)';
+      // Replace path and destination with user-friendly display path when it's a sandbox/iCloud path
+      final resultPath =
+          mutableData['path'] is String ? mutableData['path'] as String : null;
+      final resultDestination = mutableData['destination'] is String
+          ? mutableData['destination'] as String
+          : null;
+
+      if (resultPath != null) {
+        mutableData['path'] = _formatDisplayPath(resultPath, appDataDir.path);
+      }
+      if (resultDestination != null) {
+        mutableData['destination'] =
+            _formatDisplayPath(resultDestination, appDataDir.path);
+      }
+      if (mutableData['url'] is String) {
+        final rawUrl = mutableData['url'] as String;
+        if (rawUrl.startsWith('file:///var/')) {
+          mutableData['url'] =
+              rawUrl.replaceFirst('file:///var/', 'file:///private/var/');
+        }
+      }
+
+      if (!isDirectoryOperation) {
+        // For copy / move operations, the resulting file is at destination.
+        // For other operations (pick_file, write, read, stat, etc.), it is at path.
+        final targetFilePath = (action == 'copy' || action == 'move')
+            ? (resultDestination ?? resultPath)
+            : resultPath;
+
+        if (targetFilePath != null && targetFilePath.isNotEmpty) {
+          final link = _generatePreviewLink(targetFilePath, appDataDir.path);
+          if (link != null) {
+            mutableData['preview_link'] = link;
           }
         }
       }
-      // Replace destination with user-friendly display path when it's a sandbox/iCloud path
-      if (mutableData['destination'] is String) {
-        mutableData['destination'] = _formatDisplayPath(
-          mutableData['destination'] as String,
-          appDataDir.path,
-        );
-      }
+
       // Replace path with user-friendly display path for each child item (in list action)
       if (mutableData['items'] is List) {
         mutableData['items'] = (mutableData['items'] as List).map((item) {
@@ -3172,26 +3170,9 @@ class ToolHandlerService {
               final childPath = itemMap['path'] as String;
               itemMap['path'] = _formatDisplayPath(childPath, appDataDir.path);
               if (itemMap['is_directory'] != true) {
-                final fileName =
-                    itemMap['name']?.toString() ?? p.basename(childPath);
-                final normChild = childPath.replaceAll('\\', '/');
-                final normApp = appDataDir.path.replaceAll('\\', '/');
-                final cleanChild = normChild.startsWith('/private/')
-                    ? normChild.substring('/private'.length)
-                    : normChild;
-                final cleanApp = normApp.startsWith('/private/')
-                    ? normApp.substring('/private'.length)
-                    : normApp;
-                if (cleanChild.startsWith('$cleanApp/')) {
-                  final sub = cleanChild.substring(cleanApp.length + 1);
-                  const mediaExts = {
-                    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic',
-                    '.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.opus',
-                    '.mp4', '.mov', '.mkv', '.webm', '.m4v',
-                  };
-                  final ext = p.extension(fileName).toLowerCase();
-                  final mdPrefix = mediaExts.contains(ext) ? '!' : '';
-                  itemMap['preview_link'] = '$mdPrefix[$fileName](kelivo://$sub)';
+                final link = _generatePreviewLink(childPath, appDataDir.path);
+                if (link != null) {
+                  itemMap['preview_link'] = link;
                 }
               }
             }
@@ -3350,7 +3331,58 @@ class ToolHandlerService {
       return 'iCloud 云盘/$sub';
     }
 
+    // 3. For any other iOS path starting with /var/, ensure canonical /private/var/ is returned
+    if (path.startsWith('/var/')) {
+      return '/private$path';
+    }
+
     return path;
+  }
+
+  /// Generates a standardized Markdown preview link for a file.
+  /// If inside the app sandbox, generates a `kelivo://` virtual URI link (e.g. `![photo.png](kelivo://photo.png)`).
+  /// If outside the sandbox, generates a standard link using the raw file path/URI.
+  static String? _generatePreviewLink(String rawPath, String appDataPath) {
+    if (rawPath.isEmpty) return null;
+    final fileName = p.basename(rawPath);
+    if (fileName.isEmpty) return null;
+
+    const mediaExts = {
+      '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic',
+      '.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.opus',
+      '.mp4', '.mov', '.mkv', '.webm', '.m4v',
+    };
+    final ext = p.extension(fileName).toLowerCase();
+    final mdPrefix = mediaExts.contains(ext) ? '!' : '';
+
+    final normPath = rawPath.replaceAll('\\', '/');
+    final normApp = appDataPath.replaceAll('\\', '/');
+
+    final cleanPath = normPath.startsWith('/private/')
+        ? normPath.substring('/private'.length)
+        : normPath;
+    final cleanApp = normApp.startsWith('/private/')
+        ? normApp.substring('/private'.length)
+        : normApp;
+
+    if (cleanPath.startsWith('$cleanApp/')) {
+      final sub = cleanPath.substring(cleanApp.length + 1);
+      return '$mdPrefix[$fileName](kelivo://$sub)';
+    }
+
+    // Outside sandbox: do NOT add kelivo:// prefix.
+    // Ensure path has /private if starting with /var/
+    var finalPath = rawPath;
+    if (finalPath.startsWith('/var/')) {
+      finalPath = '/private$finalPath';
+    }
+    // Use file:// URI with proper percent-encoding so Markdown link parser won't break on spaces.
+    final uriString = finalPath.startsWith('file://')
+        ? (finalPath.startsWith('file:///var/')
+            ? finalPath.replaceFirst('file:///var/', 'file:///private/var/')
+            : finalPath)
+        : Uri.file(finalPath).toString();
+    return '$mdPrefix[$fileName]($uriString)';
   }
 }
 

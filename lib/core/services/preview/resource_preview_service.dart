@@ -503,8 +503,15 @@ class ResourcePreviewService extends ChangeNotifier {
     String? title,
     BuildContext? context,
   }) async {
-    final effectivePath = SandboxPathResolver.fix(targetPath);
-    final file = File(effectivePath);
+    var effectivePath = SandboxPathResolver.fix(targetPath);
+    var file = File(effectivePath);
+    if (!file.existsSync() && effectivePath.startsWith('/var/')) {
+      final privatePath = '/private$effectivePath';
+      if (File(privatePath).existsSync()) {
+        effectivePath = privatePath;
+        file = File(effectivePath);
+      }
+    }
     final effectiveTitle = (title != null && title.trim().isNotEmpty)
         ? title.trim()
         : p.basename(effectivePath);

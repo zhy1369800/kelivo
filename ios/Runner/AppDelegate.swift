@@ -875,11 +875,19 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
     }
     do {
       let canonicalUrl = url.resolvingSymlinksInPath()
+      var canonicalPath = canonicalUrl.path
+      if canonicalPath.hasPrefix("/var/") {
+        canonicalPath = "/private" + canonicalPath
+      }
+      var canonicalUrlString = canonicalUrl.absoluteString
+      if canonicalUrlString.hasPrefix("file:///var/") {
+        canonicalUrlString = "file:///private/var/" + String(canonicalUrlString.dropFirst("file:///var/".count))
+      }
       let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
-      saveBookmark(path: canonicalUrl.path, bookmarkBase64: bookmark.base64EncodedString())
+      saveBookmark(path: canonicalPath, bookmarkBase64: bookmark.base64EncodedString())
       finishPick(payload([
-        "path": canonicalUrl.path,
-        "url": canonicalUrl.absoluteString,
+        "path": canonicalPath,
+        "url": canonicalUrlString,
         "name": canonicalUrl.lastPathComponent,
         "scope": pendingPickDirectory ? "directory" : "file",
       ]))
