@@ -41,7 +41,7 @@ class NativeShortcutAutomationService {
   /// - [action]: `"list"` or `"exec"`
   /// - [shortcut]: Shortcut name to execute (required when [action] is `"exec"`)
   /// - [taskId]: Task ID (UUID). If omitted or empty, generated automatically.
-  /// - [timeout]: Maximum wait duration (defaults to 10 seconds).
+  /// - [timeout]: Maximum wait duration.
   static Future<Map<String, dynamic>> executeTask({
     required String action,
     String? shortcut,

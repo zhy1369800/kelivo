@@ -1151,7 +1151,7 @@ class LocalToolsService {
         'function': {
           'name': LocalToolNames.shortcutAutomation,
           'description':
-              'iOS Shortcut Automation tool for querying available shortcuts or executing a specific shortcut via local notification triggers and JSON file exchange.',
+              'iOS Shortcut Automation tool for querying available shortcuts or executing a specific shortcut via local notification triggers and JSON file exchange (max wait: 25s).',
           'parameters': {
             'type': 'object',
             'properties': {
