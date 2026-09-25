@@ -122,16 +122,24 @@ class MarkdownMediaSanitizer {
           last = m.end;
           continue;
         }
+
+        // Only inline genuine image formats (skip audio/video/documents).
+        final mime = _guessImageMimeFromPath(resolved);
+        if (mime == null) {
+          sb.write(markdown.substring(m.start, m.end));
+          last = m.end;
+          continue;
+        }
+
         final f = File(resolved);
-        if (!f.existsSync()) {
-          // Fallback to original if missing
+        if (!f.existsSync() || await f.length() > 20 * 1024 * 1024) {
+          // Fallback to original if missing or exceeding safe size threshold (20MB)
           sb.write(markdown.substring(m.start, m.end));
           last = m.end;
           continue;
         }
         final bytes = await f.readAsBytes();
         final b64 = base64Encode(bytes);
-        final mime = _guessMimeFromPath(resolved);
         final dataUrl = 'data:$mime;base64,$b64';
         final replaced = markdown
             .substring(m.start, m.end)
@@ -147,13 +155,16 @@ class MarkdownMediaSanitizer {
     return sb.toString();
   }
 
-  static String _guessMimeFromPath(String path) {
+  static String? _guessImageMimeFromPath(String path) {
     final lower = path.toLowerCase();
     if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
     if (lower.endsWith('.png')) return 'image/png';
     if (lower.endsWith('.webp')) return 'image/webp';
     if (lower.endsWith('.gif')) return 'image/gif';
-    return 'image/png';
+    if (lower.endsWith('.bmp')) return 'image/bmp';
+    if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+    if (lower.endsWith('.ico')) return 'image/x-icon';
+    return null;
   }
 
   static List<int> _decodeBase64(String b64) =>
