@@ -757,6 +757,50 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
   private let bookmarkKey = "file_system_bookmarks_v1"
   private let maxReadBytes = 100 * 1024
   private let maxBookmarkCount = 50
+  private var activeScopedUrls: [URL] = []
+
+  override init() {
+    super.init()
+    warmUpPersistedBookmarks()
+  }
+
+  deinit {
+    for u in activeScopedUrls {
+      u.stopAccessingSecurityScopedResource()
+    }
+  }
+
+  private func warmUpPersistedBookmarks() {
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      guard let self = self else { return }
+      let bookmarks = self.loadBookmarks()
+      var activated: [URL] = []
+      for (_, encoded) in bookmarks {
+        var isStale = false
+        if let data = Data(base64Encoded: encoded),
+           let resolved = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale) {
+          if resolved.startAccessingSecurityScopedResource() {
+            activated.append(resolved)
+          }
+        }
+      }
+      if !activated.isEmpty {
+        DispatchQueue.main.async {
+          self.activeScopedUrls.append(contentsOf: activated)
+        }
+      }
+    }
+  }
+
+  private func retainAndActivateScopeUrl(_ url: URL) {
+    if url.startAccessingSecurityScopedResource() {
+      activeScopedUrls.append(url)
+      if activeScopedUrls.count > maxBookmarkCount {
+        let oldest = activeScopedUrls.removeFirst()
+        oldest.stopAccessingSecurityScopedResource()
+      }
+    }
+  }
 
   func handle(call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = (call.arguments as? [String: Any]) ?? [:]
@@ -885,6 +929,10 @@ private final class FileSystemHandler: NSObject, UIDocumentPickerDelegate {
       }
       let bookmark = try url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
       saveBookmark(path: canonicalPath, bookmarkBase64: bookmark.base64EncodedString())
+      var isStale = false
+      if let resolved = try? URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale) {
+        retainAndActivateScopeUrl(resolved)
+      }
       finishPick(payload([
         "path": canonicalPath,
         "url": canonicalUrlString,
