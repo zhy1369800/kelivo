@@ -10,7 +10,9 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../../core/services/preview/resource_preview_service.dart';
 import '../../core/services/video/global_video_player_service.dart';
+import '../../core/services/video/local_video_server.dart';
 import '../../icons/lucide_adapter.dart';
+import '../../utils/app_directories.dart';
 import 'snackbar.dart';
 
 /// Unified persistent in-app video player overlay.
@@ -306,6 +308,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
         source.startsWith('http://') || source.startsWith('https://');
 
     if (isNetwork) {
+      LocalVideoServer.instance.stop();
       final html = _buildVideoHtml(
         source,
         initialSeconds: startSeconds,
@@ -316,23 +319,44 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
       final resolved = await ResourcePreviewService.resolvePath(source);
       final file = File(resolved);
       if (file.existsSync()) {
+        final appDataDir = await AppDirectories.getAppDataDirectory();
+        final isSandboxFile = p.isWithin(appDataDir.path, file.path);
+
+        if (isSandboxFile) {
+          try {
+            _cleanupTempHtml();
+            LocalVideoServer.instance.stop();
+            final parentDir = file.parent;
+            final cleanName = p
+                .basenameWithoutExtension(file.path)
+                .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+            final previewHtml =
+                File(p.join(parentDir.path, '.kelivo_${cleanName}_player.html'));
+            final html = _buildVideoHtml(
+              file.path,
+              isRelative: true,
+              initialSeconds: startSeconds,
+              playbackRate: currentRate,
+            );
+            await previewHtml.writeAsString(html);
+            _activeTempHtml = previewHtml;
+            await _webCtrl?.loadFile(previewHtml.path);
+            return;
+          } catch (_) {
+            // Fall through to LocalVideoServer if sandbox relative html failed
+          }
+        }
+
+        // For external security-scoped paths (or fallback), stream via LocalVideoServer
         try {
           _cleanupTempHtml();
-          final parentDir = file.parent;
-          final cleanName = p
-              .basenameWithoutExtension(file.path)
-              .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-          final previewHtml =
-              File(p.join(parentDir.path, '.kelivo_${cleanName}_player.html'));
+          final streamUrl = await LocalVideoServer.instance.serveFile(file);
           final html = _buildVideoHtml(
-            file.path,
-            isRelative: true,
+            streamUrl,
             initialSeconds: startSeconds,
             playbackRate: currentRate,
           );
-          await previewHtml.writeAsString(html);
-          _activeTempHtml = previewHtml;
-          await _webCtrl?.loadFile(previewHtml.path);
+          await _webCtrl?.loadHtmlString(html, baseUrl: streamUrl);
           return;
         } catch (_) {
           try {
@@ -414,6 +438,7 @@ class _VideoFloatingPlayerState extends State<VideoFloatingPlayer> {
     _hideFullControlsTimer?.cancel();
     _bufferingTimer?.cancel();
     _cleanupTempHtml();
+    LocalVideoServer.instance.stop();
     try {
       _webCtrl?.runJavaScript('window.KelivoVideoChannel = null;');
       _webCtrl?.runJavaScript(
